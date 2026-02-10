@@ -78,8 +78,8 @@ export function MediaUploadForm({ botId }: { botId: string }) {
           type: result.type,
           url: result.url,
         }]);
-      } catch (err: any) {
-        setError(err.message);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Upload failed');
       }
     }
 

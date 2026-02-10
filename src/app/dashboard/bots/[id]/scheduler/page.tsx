@@ -3,34 +3,17 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { PLATFORM_NAMES, POST_STATUS_COLORS } from '@/lib/constants';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
-  Calendar, Clock, Plus, Send, Pause, Trash2,
-  ChevronLeft, ChevronRight, Image as ImageIcon, Film,
+  Calendar, Clock, Plus, Send, Trash2,
+  ChevronLeft, ChevronRight, Film,
 } from 'lucide-react';
-import { SchedulerClient } from '@/components/dashboard/scheduler-client';
+import { BotNav } from '@/components/dashboard/bot-nav';
 
 export const metadata: Metadata = { title: 'Post Scheduler', robots: { index: false } };
-
-const PLATFORM_LABELS: Record<string, string> = {
-  MASTODON: 'Mastodon', FACEBOOK: 'Facebook', TELEGRAM: 'Telegram',
-  TWITTER: 'X', BLUESKY: 'Bluesky', REDDIT: 'Reddit',
-  DEVTO: 'Dev.to', LINKEDIN: 'LinkedIn', INSTAGRAM: 'Instagram',
-  TIKTOK: 'TikTok', PINTEREST: 'Pinterest', THREADS: 'Threads',
-  MEDIUM: 'Medium', YOUTUBE: 'YouTube', DISCORD: 'Discord', NOSTR: 'Nostr',
-  MOLTBOOK: 'Moltbook',
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  DRAFT: 'bg-gray-100 text-gray-800',
-  SCHEDULED: 'bg-blue-100 text-blue-800',
-  PUBLISHING: 'bg-yellow-100 text-yellow-800',
-  PUBLISHED: 'bg-green-100 text-green-800',
-  FAILED: 'bg-red-100 text-red-800',
-  CANCELLED: 'bg-gray-100 text-gray-500',
-};
 
 export default async function SchedulerPage({
   params,
@@ -193,16 +176,7 @@ export default async function SchedulerPage({
       <div>
         <h1 className="text-2xl font-bold">{bot.name} - Post Scheduler</h1>
         <p className="text-sm text-muted-foreground mt-1">Plan, schedule, and manage your posts across all platforms.</p>
-        <div className="flex flex-wrap gap-4 mt-4 border-b pb-2">
-          <Link href={`/dashboard/bots/${id}`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Overview</Link>
-          <Link href={`/dashboard/bots/${id}/activity`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Activity</Link>
-          <Link href={`/dashboard/bots/${id}/platforms`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Platforms</Link>
-          <Link href={`/dashboard/bots/${id}/media`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Media</Link>
-          <Link href={`/dashboard/bots/${id}/scheduler`} className="text-sm font-medium border-b-2 border-primary pb-2">Scheduler</Link>
-          <Link href={`/dashboard/bots/${id}/image-style`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Image Style</Link>
-          <Link href={`/dashboard/bots/${id}/analytics`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Analytics</Link>
-          <Link href={`/dashboard/bots/${id}/settings`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Settings</Link>
-        </div>
+        <BotNav botId={id} activeTab="scheduler" />
       </div>
 
       {sp.success && <div className="rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-800">{sp.success}</div>}
@@ -268,7 +242,7 @@ export default async function SchedulerPage({
                   connectedPlatforms.map((p) => (
                     <label key={p} className="flex items-center gap-1.5 text-xs border rounded-full px-3 py-1.5 cursor-pointer hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/10">
                       <input type="checkbox" name="platforms" value={p} defaultChecked className="h-3 w-3" />
-                      {PLATFORM_LABELS[p] || p}
+                      {PLATFORM_NAMES[p] || p}
                     </label>
                   ))
                 ) : (
@@ -380,10 +354,10 @@ export default async function SchedulerPage({
                         return (
                           <div
                             key={post.id}
-                            className={`text-[9px] leading-tight px-1 py-0.5 rounded truncate ${STATUS_COLORS[post.status] || 'bg-gray-100'}`}
+                            className={`text-[9px] leading-tight px-1 py-0.5 rounded truncate ${POST_STATUS_COLORS[post.status] || 'bg-gray-100'}`}
                             title={post.content.slice(0, 100)}
                           >
-                            {post.scheduledAt ? new Date(post.scheduledAt).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' }) : ''} {platforms.map(p => (PLATFORM_LABELS[p] || p).slice(0, 2)).join('·')}
+                            {post.scheduledAt ? new Date(post.scheduledAt).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' }) : ''} {platforms.map(p => (PLATFORM_NAMES[p] || p).slice(0, 2)).join('·')}
                           </div>
                         );
                       })}
@@ -437,12 +411,12 @@ export default async function SchedulerPage({
                       <div className="flex-1 min-w-0 space-y-2">
                         {/* Status & platforms */}
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[post.status]}`}>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${POST_STATUS_COLORS[post.status]}`}>
                             {post.status}
                           </span>
                           {platforms.map((p) => (
                             <Badge key={p} variant="outline" className="text-[10px] h-5">
-                              {PLATFORM_LABELS[p] || p}
+                              {PLATFORM_NAMES[p] || p}
                             </Badge>
                           ))}
                           {post.autoSchedule && (

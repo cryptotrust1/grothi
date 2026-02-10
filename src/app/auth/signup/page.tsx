@@ -38,8 +38,9 @@ export default async function SignUpPage({
 
     try {
       await signUp(email, password, name);
-    } catch (e: any) {
-      redirect('/auth/signup?error=' + encodeURIComponent(e.message));
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Sign up failed';
+      redirect('/auth/signup?error=' + encodeURIComponent(message));
     }
 
     redirect('/dashboard');

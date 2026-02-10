@@ -1,5 +1,4 @@
 import { Metadata } from 'next';
-import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
@@ -7,8 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import { Palette, Sparkles, Type, Image, Layout, Smile } from 'lucide-react';
+import { BotNav } from '@/components/dashboard/bot-nav';
 
 export const metadata: Metadata = { title: 'Image Style Preferences', robots: { index: false } };
 
@@ -127,16 +126,7 @@ export default async function ImageStylePage({
       <div>
         <h1 className="text-2xl font-bold">{bot.name} - Image Style</h1>
         <p className="text-sm text-muted-foreground mt-1">Define your visual brand identity. AI uses these preferences when generating images and captions.</p>
-        <div className="flex flex-wrap gap-4 mt-4 border-b pb-2">
-          <Link href={`/dashboard/bots/${id}`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Overview</Link>
-          <Link href={`/dashboard/bots/${id}/activity`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Activity</Link>
-          <Link href={`/dashboard/bots/${id}/platforms`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Platforms</Link>
-          <Link href={`/dashboard/bots/${id}/media`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Media</Link>
-          <Link href={`/dashboard/bots/${id}/scheduler`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Scheduler</Link>
-          <Link href={`/dashboard/bots/${id}/image-style`} className="text-sm font-medium border-b-2 border-primary pb-2">Image Style</Link>
-          <Link href={`/dashboard/bots/${id}/analytics`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Analytics</Link>
-          <Link href={`/dashboard/bots/${id}/settings`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Settings</Link>
-        </div>
+        <BotNav botId={id} activeTab="image-style" />
       </div>
 
       {sp.success && <div className="rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-800">{sp.success}</div>}

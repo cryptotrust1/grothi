@@ -28,33 +28,60 @@ export default async function AdminPricingPage({
     'use server';
     await requireAdmin();
 
-    await db.pricingPlan.create({
-      data: {
-        name: formData.get('name') as string,
-        credits: parseInt(formData.get('credits') as string, 10),
-        priceUsd: parseInt(formData.get('priceUsd') as string, 10),
-        isPopular: formData.get('isPopular') === 'on',
-        sortOrder: plans.length,
-      },
-    });
+    const name = (formData.get('name') as string)?.trim();
+    const creditsRaw = parseInt(formData.get('credits') as string, 10);
+    const priceRaw = parseInt(formData.get('priceUsd') as string, 10);
 
-    redirect('/admin/pricing?success=Plan created');
+    if (!name || isNaN(creditsRaw) || isNaN(priceRaw) || creditsRaw <= 0 || priceRaw <= 0) {
+      redirect('/admin/pricing?success=' + encodeURIComponent('Error: Name, credits, and price are required'));
+    }
+
+    try {
+      await db.pricingPlan.create({
+        data: {
+          name,
+          credits: creditsRaw,
+          priceUsd: priceRaw,
+          isPopular: formData.get('isPopular') === 'on',
+          sortOrder: plans.length,
+        },
+      });
+    } catch (error) {
+      console.error('Create plan error:', error);
+      redirect('/admin/pricing?success=' + encodeURIComponent('Error: Failed to create plan'));
+    }
+
+    redirect('/admin/pricing?success=Plan+created');
   }
 
   async function handleCreatePromo(formData: FormData) {
     'use server';
     await requireAdmin();
 
-    await db.promoCode.create({
-      data: {
-        code: (formData.get('code') as string).toUpperCase(),
-        discountPct: parseInt(formData.get('discountPct') as string, 10) || 0,
-        bonusCredits: parseInt(formData.get('bonusCredits') as string, 10) || 0,
-        maxUses: parseInt(formData.get('maxUses') as string, 10) || null,
-      },
-    });
+    const code = (formData.get('code') as string)?.trim();
+    if (!code) {
+      redirect('/admin/pricing?success=' + encodeURIComponent('Error: Promo code is required'));
+    }
 
-    redirect('/admin/pricing?success=Promo code created');
+    const discountPct = parseInt(formData.get('discountPct') as string, 10);
+    const bonusCredits = parseInt(formData.get('bonusCredits') as string, 10);
+    const maxUsesRaw = parseInt(formData.get('maxUses') as string, 10);
+
+    try {
+      await db.promoCode.create({
+        data: {
+          code: code.toUpperCase(),
+          discountPct: isNaN(discountPct) ? 0 : discountPct,
+          bonusCredits: isNaN(bonusCredits) ? 0 : bonusCredits,
+          maxUses: isNaN(maxUsesRaw) ? null : maxUsesRaw,
+        },
+      });
+    } catch (error) {
+      console.error('Create promo error:', error);
+      redirect('/admin/pricing?success=' + encodeURIComponent('Error: Failed to create promo code'));
+    }
+
+    redirect('/admin/pricing?success=Promo+code+created');
   }
 
   return (

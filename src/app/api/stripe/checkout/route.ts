@@ -18,46 +18,57 @@ export async function POST(req: NextRequest) {
     return NextResponse.redirect(new URL('/dashboard/credits/buy?error=Invalid plan', req.url));
   }
 
-  // Ensure user has a Stripe customer ID
-  let customerId = user.stripeCustomerId;
-  if (!customerId) {
-    const customer = await getStripe().customers.create({
-      email: user.email,
-      name: user.name || undefined,
-      metadata: { userId: user.id },
-    });
-    customerId = customer.id;
-    await db.user.update({
-      where: { id: user.id },
-      data: { stripeCustomerId: customerId },
-    });
-  }
+  try {
+    // Ensure user has a Stripe customer ID
+    let customerId = user.stripeCustomerId;
+    if (!customerId) {
+      const customer = await getStripe().customers.create({
+        email: user.email,
+        name: user.name || undefined,
+        metadata: { userId: user.id },
+      });
+      customerId = customer.id;
+      await db.user.update({
+        where: { id: user.id },
+        data: { stripeCustomerId: customerId },
+      });
+    }
 
-  const session = await getStripe().checkout.sessions.create({
-    customer: customerId,
-    payment_method_types: ['card'],
-    line_items: [
-      {
-        price_data: {
-          currency: 'usd',
-          product_data: {
-            name: `${plan.name} - ${plan.credits + plan.bonus} Credits`,
-            description: `${plan.credits} credits${plan.bonus > 0 ? ` + ${plan.bonus} bonus` : ''}`,
+    const session = await getStripe().checkout.sessions.create({
+      customer: customerId,
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: `${plan.name} - ${plan.credits + plan.bonus} Credits`,
+              description: `${plan.credits} credits${plan.bonus > 0 ? ` + ${plan.bonus} bonus` : ''}`,
+            },
+            unit_amount: plan.priceUsd,
           },
-          unit_amount: plan.priceUsd,
+          quantity: 1,
         },
-        quantity: 1,
+      ],
+      mode: 'payment',
+      success_url: `${process.env.NEXTAUTH_URL}/dashboard/credits?success=Payment successful! Credits added.`,
+      cancel_url: `${process.env.NEXTAUTH_URL}/dashboard/credits/buy`,
+      metadata: {
+        userId: user.id,
+        credits: (plan.credits + plan.bonus).toString(),
+        planId: plan.id,
       },
-    ],
-    mode: 'payment',
-    success_url: `${process.env.NEXTAUTH_URL}/dashboard/credits?success=Payment successful! Credits added.`,
-    cancel_url: `${process.env.NEXTAUTH_URL}/dashboard/credits/buy`,
-    metadata: {
-      userId: user.id,
-      credits: (plan.credits + plan.bonus).toString(),
-      planId: plan.id,
-    },
-  });
+    });
 
-  return NextResponse.redirect(session.url!, 303);
+    if (!session.url) {
+      return NextResponse.redirect(new URL('/dashboard/credits/buy?error=Failed to create checkout session', req.url));
+    }
+
+    return NextResponse.redirect(session.url, 303);
+  } catch (error) {
+    console.error('Stripe checkout error:', error);
+    return NextResponse.redirect(
+      new URL('/dashboard/credits/buy?error=' + encodeURIComponent('Payment service error. Please try again.'), req.url)
+    );
+  }
 }
