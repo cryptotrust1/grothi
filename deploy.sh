@@ -7,23 +7,24 @@ echo "========================================="
 echo "  Grothi.com Deployment Script"
 echo "========================================="
 
-# Find grothi directory
-GROTHI_DIR=""
-for dir in /home/user/grothi /root/grothi /home/grothi /home/acechange-bot/grothi; do
-  if [ -d "$dir" ] && [ -f "$dir/package.json" ]; then
-    GROTHI_DIR="$dir"
-    break
-  fi
-done
+# Use current directory or find grothi
+GROTHI_DIR="$(pwd)"
+if [ ! -f "$GROTHI_DIR/package.json" ]; then
+    for dir in /home/acechange-bot/grothi /root/grothi; do
+        if [ -d "$dir" ] && [ -f "$dir/package.json" ]; then
+            GROTHI_DIR="$dir"
+            break
+        fi
+    done
+fi
 
-if [ -z "$GROTHI_DIR" ]; then
-  echo "ERROR: Cannot find grothi directory. Where did you clone it?"
-  echo "Usage: cd /path/to/grothi && bash deploy.sh"
+if [ ! -f "$GROTHI_DIR/package.json" ]; then
+  echo "ERROR: Cannot find grothi. Run from: cd /home/acechange-bot/grothi && bash deploy.sh"
   exit 1
 fi
 
 cd "$GROTHI_DIR"
-echo "[1/7] Working in: $GROTHI_DIR"
+echo "Working in: $GROTHI_DIR"
 
 # Step 1: Pull latest code
 echo ""
