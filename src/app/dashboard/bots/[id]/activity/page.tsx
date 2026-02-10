@@ -83,10 +83,13 @@ export default async function BotActivityPage({
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">{bot.name} - Activity</h1>
-        <div className="flex gap-4 mt-4 border-b pb-2">
+        <div className="flex flex-wrap gap-4 mt-4 border-b pb-2">
           <Link href={`/dashboard/bots/${bot.id}`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Overview</Link>
           <Link href={`/dashboard/bots/${bot.id}/activity`} className="text-sm font-medium border-b-2 border-primary pb-2">Activity</Link>
           <Link href={`/dashboard/bots/${bot.id}/platforms`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Platforms</Link>
+          <Link href={`/dashboard/bots/${bot.id}/media`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Media</Link>
+          <Link href={`/dashboard/bots/${bot.id}/scheduler`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Scheduler</Link>
+          <Link href={`/dashboard/bots/${bot.id}/image-style`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Image Style</Link>
           <Link href={`/dashboard/bots/${bot.id}/analytics`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Analytics</Link>
           <Link href={`/dashboard/bots/${bot.id}/settings`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Settings</Link>
         </div>

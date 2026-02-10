@@ -76,10 +76,11 @@ model Bot {
   timezone        String  @default("UTC")
 
   // AI Engine State
-  rssFeeds        Json?
-  reactorState    Json?
-  dedupHistory    Json?
-  algorithmConfig Json?
+  rssFeeds         Json?
+  reactorState     Json?
+  dedupHistory     Json?
+  algorithmConfig  Json?
+  imagePreferences Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -88,6 +89,8 @@ model Bot {
   platformConns PlatformConnection[]
   activities    BotActivity[]
   dailyStats    BotDailyStat[]
+  media         Media[]
+  scheduledPosts ScheduledPost[]
 
   @@index([userId])
   @@index([status])
@@ -314,6 +317,89 @@ model PromoCode {
   isActive     Boolean   @default(true)
 
   createdAt DateTime @default(now())
+}
+
+// ============ MEDIA LIBRARY ============
+
+model Media {
+  id       String    @id @default(cuid())
+  botId    String
+  type     MediaType
+  filename String
+  mimeType String
+  fileSize Int
+  filePath String
+  width    Int?
+  height   Int?
+  duration Float?
+
+  // AI-generated descriptions per platform
+  altText         String?  @db.Text
+  aiDescription   String?  @db.Text
+  platformCaptions Json?
+
+  // Variants for different platforms (auto-generated)
+  variants Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bot            Bot             @relation(fields: [botId], references: [id], onDelete: Cascade)
+  scheduledPosts ScheduledPost[]
+
+  @@index([botId, createdAt])
+  @@index([type])
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+  GIF
+}
+
+// ============ SCHEDULED POSTS ============
+
+model ScheduledPost {
+  id       String       @id @default(cuid())
+  botId    String
+  status   PostStatus   @default(DRAFT)
+
+  // Content
+  content     String   @db.Text
+  contentType String?
+  mediaId     String?
+
+  // Platform targeting
+  platforms   Json
+  platformContent Json?
+
+  // Scheduling
+  scheduledAt DateTime?
+  publishedAt DateTime?
+  autoSchedule Boolean @default(false)
+
+  // Results
+  publishResults Json?
+  error          String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bot   Bot    @relation(fields: [botId], references: [id], onDelete: Cascade)
+  media Media? @relation(fields: [mediaId], references: [id], onDelete: SetNull)
+
+  @@index([botId, status])
+  @@index([scheduledAt])
+  @@index([status, scheduledAt])
+}
+
+enum PostStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHING
+  PUBLISHED
+  FAILED
+  CANCELLED
 }
 
 // ============ CONTACT ============
