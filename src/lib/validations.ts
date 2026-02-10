@@ -22,6 +22,9 @@ export const createBotSchema = z.object({
   instructions: z.string().min(10, 'Instructions must be at least 10 characters').max(5000),
   brandKnowledge: z.string().max(10000).optional(),
   safetyLevel: z.enum(['CONSERVATIVE', 'MODERATE', 'AGGRESSIVE']).default('MODERATE'),
+  goal: z.enum(['TRAFFIC', 'SALES', 'ENGAGEMENT', 'BRAND_AWARENESS', 'LEADS', 'COMMUNITY']).default('ENGAGEMENT'),
+  targetUrl: z.string().url().optional().or(z.literal('')),
+  keywords: z.string().max(2000).optional(),
   postingSchedule: z.string().optional(),
   timezone: z.string().default('UTC'),
   rssFeeds: z.array(z.string().url()).max(20).optional(),
@@ -33,6 +36,8 @@ export const platformConnectionSchema = z.object({
   platform: z.enum([
     'MASTODON', 'FACEBOOK', 'TELEGRAM', 'MOLTBOOK',
     'DISCORD', 'TWITTER', 'BLUESKY', 'REDDIT', 'DEVTO',
+    'LINKEDIN', 'INSTAGRAM', 'TIKTOK', 'PINTEREST',
+    'THREADS', 'MEDIUM', 'YOUTUBE', 'NOSTR',
   ]),
   credentials: z.record(z.string()),
   config: z.record(z.any()).optional(),

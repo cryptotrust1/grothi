@@ -60,12 +60,26 @@ model Bot {
   brandKnowledge String?     @db.Text
   safetyLevel    SafetyLevel @default(MODERATE)
 
+  // Goal & Strategy
+  goal        BotGoal  @default(ENGAGEMENT)
+  targetUrl   String?
+  keywords    Json?
+  utmSource   String?  @default("grothi")
+  utmMedium   String?  @default("social")
+
+  // Google Analytics Integration
+  gaPropertyId   String?
+  gaCredentials  Json?
+
+  // Scheduling
   postingSchedule String?
   timezone        String  @default("UTC")
 
-  rssFeeds     Json?
-  reactorState Json?
-  dedupHistory Json?
+  // AI Engine State
+  rssFeeds        Json?
+  reactorState    Json?
+  dedupHistory    Json?
+  algorithmConfig Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -91,6 +105,15 @@ enum SafetyLevel {
   CONSERVATIVE
   MODERATE
   AGGRESSIVE
+}
+
+enum BotGoal {
+  TRAFFIC
+  SALES
+  ENGAGEMENT
+  BRAND_AWARENESS
+  LEADS
+  COMMUNITY
 }
 
 // ============ PLATFORM CONNECTIONS ============
@@ -128,6 +151,14 @@ enum PlatformType {
   BLUESKY
   REDDIT
   DEVTO
+  LINKEDIN
+  INSTAGRAM
+  TIKTOK
+  PINTEREST
+  THREADS
+  MEDIUM
+  YOUTUBE
+  NOSTR
 }
 
 enum ConnStatus {
@@ -196,6 +227,12 @@ model BotDailyStat {
   totalLikes    Int @default(0)
   totalComments Int @default(0)
   totalShares   Int @default(0)
+
+  // GA metrics (fetched from user's Google Analytics)
+  gaPageviews   Int?
+  gaSessions    Int?
+  gaConversions Int?
+  gaBounceRate  Float?
 
   bot Bot @relation(fields: [botId], references: [id], onDelete: Cascade)
 

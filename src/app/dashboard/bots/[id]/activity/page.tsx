@@ -12,11 +12,16 @@ export const metadata: Metadata = { title: 'Bot Activity', robots: { index: fals
 
 const platformNames: Record<string, string> = {
   MASTODON: 'Mastodon', FACEBOOK: 'Facebook', TELEGRAM: 'Telegram',
-  MOLTBOOK: 'Moltbook', DISCORD: 'Discord', TWITTER: 'Twitter',
+  MOLTBOOK: 'Moltbook', DISCORD: 'Discord', TWITTER: 'X (Twitter)',
   BLUESKY: 'Bluesky', REDDIT: 'Reddit', DEVTO: 'Dev.to',
+  LINKEDIN: 'LinkedIn', INSTAGRAM: 'Instagram', TIKTOK: 'TikTok',
+  PINTEREST: 'Pinterest', THREADS: 'Threads', MEDIUM: 'Medium',
+  YOUTUBE: 'YouTube', NOSTR: 'Nostr',
 };
 
-const PLATFORMS = ['ALL', 'MASTODON', 'FACEBOOK', 'TELEGRAM', 'MOLTBOOK', 'DISCORD', 'TWITTER', 'BLUESKY', 'REDDIT', 'DEVTO'];
+const PLATFORMS = ['ALL', 'FACEBOOK', 'INSTAGRAM', 'TWITTER', 'LINKEDIN', 'TIKTOK',
+  'MASTODON', 'BLUESKY', 'TELEGRAM', 'DISCORD', 'THREADS', 'PINTEREST',
+  'REDDIT', 'MEDIUM', 'DEVTO', 'YOUTUBE', 'NOSTR', 'MOLTBOOK'];
 const ACTIONS = ['ALL', 'POST', 'REPLY', 'FAVOURITE', 'BOOST', 'SCAN_FEEDS', 'COLLECT_METRICS', 'GENERATE_CONTENT', 'SAFETY_BLOCK'];
 const STATUSES = ['ALL', 'SUCCESS', 'FAILED'];
 const PAGE_SIZE = 25;

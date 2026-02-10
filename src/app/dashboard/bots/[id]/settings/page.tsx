@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Rss, Clock, Shield, Brain, Trash2 } from 'lucide-react';
+import { Rss, Clock, Brain, Trash2, Target, Key, BarChart3, Link2 } from 'lucide-react';
 
 export const metadata: Metadata = { title: 'Bot Settings', robots: { index: false } };
 
@@ -40,6 +40,17 @@ const CONTENT_TYPES = [
   { value: 'engagement', label: 'Engagement', desc: 'Questions, polls, discussions' },
   { value: 'news', label: 'News & Updates', desc: 'Industry news, trending topics' },
   { value: 'curated', label: 'Curated Content', desc: 'Shared articles, RSS feeds' },
+  { value: 'storytelling', label: 'Brand Stories', desc: 'Behind-the-scenes, case studies' },
+  { value: 'ugc', label: 'UGC Prompts', desc: 'Encourage user-generated content' },
+];
+
+const GOALS = [
+  { value: 'TRAFFIC', label: 'Drive Traffic' },
+  { value: 'SALES', label: 'Increase Sales' },
+  { value: 'ENGAGEMENT', label: 'Boost Engagement' },
+  { value: 'BRAND_AWARENESS', label: 'Brand Awareness' },
+  { value: 'LEADS', label: 'Generate Leads' },
+  { value: 'COMMUNITY', label: 'Build Community' },
 ];
 
 export default async function BotSettingsPage({
@@ -62,6 +73,7 @@ export default async function BotSettingsPage({
   const selfLearning = (reactorState.selfLearning as boolean) ?? true;
   const maxPostsPerDay = (reactorState.maxPostsPerDay as number) || 10;
   const maxRepliesPerDay = (reactorState.maxRepliesPerDay as number) || 20;
+  const keywords = Array.isArray(bot.keywords) ? (bot.keywords as string[]) : [];
 
   async function handleUpdate(formData: FormData) {
     'use server';
@@ -70,20 +82,24 @@ export default async function BotSettingsPage({
     const currentBot = await db.bot.findFirst({ where: { id, userId: currentUser.id } });
     if (!currentBot) redirect('/dashboard/bots');
 
-    // Parse RSS feeds (newline-separated)
     const feedsRaw = (formData.get('rssFeeds') as string) || '';
     const feeds = feedsRaw
       .split('\n')
       .map((f) => f.trim())
       .filter((f) => f.length > 0 && (f.startsWith('http://') || f.startsWith('https://')));
 
-    // Parse content types
     const selectedTypes = CONTENT_TYPES
       .map((ct) => ct.value)
       .filter((v) => formData.get(`ct_${v}`) === 'on');
 
-    // Parse reactor config
     const currentReactor = (currentBot.reactorState as Record<string, unknown>) || {};
+
+    const keywordsRaw = (formData.get('keywords') as string) || '';
+    const keywordsArr = keywordsRaw
+      .split(',')
+      .map((k) => k.trim().toLowerCase())
+      .filter((k) => k.length > 0)
+      .slice(0, 50);
 
     await db.bot.update({
       where: { id },
@@ -94,6 +110,12 @@ export default async function BotSettingsPage({
         instructions: (formData.get('instructions') as string) || currentBot.instructions,
         brandKnowledge: formData.get('brandKnowledge') as string,
         safetyLevel: (formData.get('safetyLevel') as 'CONSERVATIVE' | 'MODERATE' | 'AGGRESSIVE') || currentBot.safetyLevel,
+        goal: (formData.get('goal') as any) || currentBot.goal,
+        targetUrl: (formData.get('targetUrl') as string) || null,
+        keywords: keywordsArr.length > 0 ? keywordsArr : [],
+        utmSource: (formData.get('utmSource') as string) || 'grothi',
+        utmMedium: (formData.get('utmMedium') as string) || 'social',
+        gaPropertyId: (formData.get('gaPropertyId') as string) || null,
         postingSchedule: formData.get('postingSchedule') as string,
         timezone: (formData.get('timezone') as string) || 'UTC',
         rssFeeds: feeds,
@@ -112,11 +134,9 @@ export default async function BotSettingsPage({
 
   async function handleToggleStatus() {
     'use server';
-
     const currentUser = await requireAuth();
     const currentBot = await db.bot.findFirst({ where: { id, userId: currentUser.id } });
     if (!currentBot) redirect('/dashboard/bots');
-
     const newStatus = currentBot.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE';
     await db.bot.update({ where: { id }, data: { status: newStatus } });
     redirect(`/dashboard/bots/${id}/settings?success=Bot ${newStatus.toLowerCase()}`);
@@ -124,7 +144,6 @@ export default async function BotSettingsPage({
 
   async function handleDelete() {
     'use server';
-
     const currentUser = await requireAuth();
     await db.bot.delete({ where: { id } });
     redirect('/dashboard/bots');
@@ -134,7 +153,7 @@ export default async function BotSettingsPage({
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">{bot.name} - Settings</h1>
-        <div className="flex gap-4 mt-4 border-b pb-2">
+        <div className="flex flex-wrap gap-4 mt-4 border-b pb-2">
           <Link href={`/dashboard/bots/${id}`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Overview</Link>
           <Link href={`/dashboard/bots/${id}/activity`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Activity</Link>
           <Link href={`/dashboard/bots/${id}/platforms`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Platforms</Link>
@@ -143,18 +162,12 @@ export default async function BotSettingsPage({
         </div>
       </div>
 
-      {sp.success && (
-        <div className="rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-800">{sp.success}</div>
-      )}
-      {sp.error && (
-        <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">{sp.error}</div>
-      )}
+      {sp.success && <div className="rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-800">{sp.success}</div>}
+      {sp.error && <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">{sp.error}</div>}
 
-      {/* Bot Status Control */}
+      {/* Bot Status */}
       <Card>
-        <CardHeader>
-          <CardTitle>Bot Status</CardTitle>
-        </CardHeader>
+        <CardHeader><CardTitle>Bot Status</CardTitle></CardHeader>
         <CardContent className="flex items-center justify-between">
           <div>
             <span className="font-medium">Current status: </span>
@@ -169,11 +182,11 @@ export default async function BotSettingsPage({
       </Card>
 
       <form action={handleUpdate}>
-        {/* Core Bot Configuration */}
+        {/* Core Configuration */}
         <Card>
           <CardHeader>
             <CardTitle>Bot Configuration</CardTitle>
-            <CardDescription>Basic identity and behavior of your bot</CardDescription>
+            <CardDescription>Basic identity and behavior</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
@@ -186,30 +199,90 @@ export default async function BotSettingsPage({
                 <Input name="brandName" defaultValue={bot.brandName} />
               </div>
             </div>
-
             <div className="space-y-2">
               <Label>Description</Label>
-              <Input name="description" defaultValue={bot.description || ''} placeholder="Short description of your bot" />
+              <Input name="description" defaultValue={bot.description || ''} placeholder="Short description" />
             </div>
-
             <div className="space-y-2">
               <Label>Instructions</Label>
-              <p className="text-xs text-muted-foreground">Tell the bot how to write content. Include tone, style, topics to focus on, and any rules.</p>
-              <textarea
-                name="instructions"
-                defaultValue={bot.instructions}
-                className="flex min-h-[150px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              />
+              <p className="text-xs text-muted-foreground">Tell the bot how to write. Include tone, style, topics, and rules.</p>
+              <textarea name="instructions" defaultValue={bot.instructions} className="flex min-h-[150px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
             </div>
-
             <div className="space-y-2">
               <Label>Brand Knowledge</Label>
-              <p className="text-xs text-muted-foreground">Information about your brand, products, services, FAQs. The bot uses this to stay on-brand.</p>
-              <textarea
-                name="brandKnowledge"
-                defaultValue={bot.brandKnowledge || ''}
-                className="flex min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              />
+              <p className="text-xs text-muted-foreground">Facts about your brand. The bot uses this to stay on-brand.</p>
+              <textarea name="brandKnowledge" defaultValue={bot.brandKnowledge || ''} className="flex min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Goal & Keywords */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><Target className="h-5 w-5" /> Goal & Keywords</CardTitle>
+            <CardDescription>Define what the bot optimizes for and target keywords</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>Primary Goal</Label>
+              <select name="goal" defaultValue={bot.goal} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                {GOALS.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
+              </select>
+              <p className="text-xs text-muted-foreground">The bot adapts its content strategy based on this goal.</p>
+            </div>
+            <div className="space-y-2">
+              <Label>Target Website URL</Label>
+              <Input name="targetUrl" type="url" defaultValue={bot.targetUrl || ''} placeholder="https://your-website.com" />
+              <p className="text-xs text-muted-foreground">The bot auto-generates UTM tracking links pointing to this URL.</p>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Key className="h-4 w-4" />
+                <Label>Keywords</Label>
+              </div>
+              <Input name="keywords" defaultValue={keywords.join(', ')} placeholder="crypto, exchange, bitcoin, trading" />
+              <p className="text-xs text-muted-foreground">Comma-separated. Used for content optimization, hashtag generation, and SEO (max 50).</p>
+            </div>
+
+            <Separator />
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>UTM Source</Label>
+                <Input name="utmSource" defaultValue={bot.utmSource || 'grothi'} placeholder="grothi" />
+                <p className="text-xs text-muted-foreground">Appears as utm_source in tracking links</p>
+              </div>
+              <div className="space-y-2">
+                <Label>UTM Medium</Label>
+                <Input name="utmMedium" defaultValue={bot.utmMedium || 'social'} placeholder="social" />
+                <p className="text-xs text-muted-foreground">Appears as utm_medium in tracking links</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Google Analytics */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><BarChart3 className="h-5 w-5" /> Google Analytics Integration</CardTitle>
+            <CardDescription>Connect your GA4 property to track bot-driven traffic and optimize strategy</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>GA4 Measurement ID</Label>
+              <Input name="gaPropertyId" defaultValue={bot.gaPropertyId || ''} placeholder="G-XXXXXXXXXX" />
+              <p className="text-xs text-muted-foreground">
+                Your Google Analytics 4 Measurement ID. The bot uses this data to learn which content drives the most traffic and conversions to your site.
+              </p>
+            </div>
+            <div className="rounded-lg bg-muted/50 p-4 text-sm space-y-2">
+              <p className="font-medium">How it works:</p>
+              <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
+                <li>Every link the bot shares includes UTM parameters for tracking</li>
+                <li>Example: <code className="bg-background px-1 rounded">?utm_source={bot.utmSource || 'grothi'}&utm_medium=social&utm_campaign={bot.name.toLowerCase().replace(/\s+/g, '-')}</code></li>
+                <li>The Content Reactor uses analytics data to optimize content strategy</li>
+                <li>Track which posts drive the most traffic, conversions, and revenue</li>
+              </ul>
             </div>
           </CardContent>
         </Card>
@@ -218,73 +291,40 @@ export default async function BotSettingsPage({
         <Card className="mt-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><Clock className="h-5 w-5" /> Scheduling & Limits</CardTitle>
-            <CardDescription>Control when and how often your bot posts</CardDescription>
+            <CardDescription>Control posting frequency and safety</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-2">
                 <Label>Posting Schedule</Label>
-                <select
-                  name="postingSchedule"
-                  defaultValue={bot.postingSchedule || ''}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  {SCHEDULE_PRESETS.map((p) => (
-                    <option key={p.value} value={p.value}>{p.label}</option>
-                  ))}
+                <select name="postingSchedule" defaultValue={bot.postingSchedule || ''} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                  {SCHEDULE_PRESETS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
                 </select>
-                <p className="text-xs text-muted-foreground">How often the bot creates new posts</p>
               </div>
               <div className="space-y-2">
                 <Label>Timezone</Label>
-                <select
-                  name="timezone"
-                  defaultValue={bot.timezone}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  {TIMEZONES.map((tz) => (
-                    <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>
-                  ))}
+                <select name="timezone" defaultValue={bot.timezone} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                  {TIMEZONES.map((tz) => <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>)}
                 </select>
               </div>
               <div className="space-y-2">
                 <Label>Safety Level</Label>
-                <select
-                  name="safetyLevel"
-                  defaultValue={bot.safetyLevel}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="CONSERVATIVE">Conservative - Safe, minimal risk</option>
-                  <option value="MODERATE">Moderate - Balanced approach</option>
-                  <option value="AGGRESSIVE">Aggressive - Maximum reach</option>
+                <select name="safetyLevel" defaultValue={bot.safetyLevel} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                  <option value="CONSERVATIVE">Conservative - Safe</option>
+                  <option value="MODERATE">Moderate - Balanced</option>
+                  <option value="AGGRESSIVE">Aggressive - Max reach</option>
                 </select>
               </div>
             </div>
-
             <Separator />
-
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Max Posts / Day</Label>
-                <Input
-                  name="maxPostsPerDay"
-                  type="number"
-                  min={1}
-                  max={50}
-                  defaultValue={maxPostsPerDay}
-                />
-                <p className="text-xs text-muted-foreground">Maximum new posts per day (1-50)</p>
+                <Input name="maxPostsPerDay" type="number" min={1} max={50} defaultValue={maxPostsPerDay} />
               </div>
               <div className="space-y-2">
                 <Label>Max Replies / Day</Label>
-                <Input
-                  name="maxRepliesPerDay"
-                  type="number"
-                  min={0}
-                  max={100}
-                  defaultValue={maxRepliesPerDay}
-                />
-                <p className="text-xs text-muted-foreground">Maximum replies/interactions per day (0-100)</p>
+                <Input name="maxRepliesPerDay" type="number" min={0} max={100} defaultValue={maxRepliesPerDay} />
               </div>
             </div>
           </CardContent>
@@ -294,7 +334,7 @@ export default async function BotSettingsPage({
         <Card className="mt-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><Brain className="h-5 w-5" /> Content Strategy</CardTitle>
-            <CardDescription>Choose content types and enable self-learning</CardDescription>
+            <CardDescription>Choose content types and enable AI self-learning</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
@@ -302,12 +342,7 @@ export default async function BotSettingsPage({
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {CONTENT_TYPES.map((ct) => (
                   <label key={ct.value} className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50">
-                    <input
-                      type="checkbox"
-                      name={`ct_${ct.value}`}
-                      defaultChecked={contentTypes.includes(ct.value)}
-                      className="mt-0.5 h-4 w-4 rounded border-input"
-                    />
+                    <input type="checkbox" name={`ct_${ct.value}`} defaultChecked={contentTypes.includes(ct.value)} className="mt-0.5 h-4 w-4 rounded border-input" />
                     <div>
                       <p className="text-sm font-medium">{ct.label}</p>
                       <p className="text-xs text-muted-foreground">{ct.desc}</p>
@@ -316,21 +351,16 @@ export default async function BotSettingsPage({
                 ))}
               </div>
             </div>
-
             <Separator />
-
             <label className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/50">
-              <input
-                type="checkbox"
-                name="selfLearning"
-                defaultChecked={selfLearning}
-                className="mt-0.5 h-4 w-4 rounded border-input"
-              />
+              <input type="checkbox" name="selfLearning" defaultChecked={selfLearning} className="mt-0.5 h-4 w-4 rounded border-input" />
               <div>
                 <p className="text-sm font-medium">Content Reactor - Self-Learning AI</p>
                 <p className="text-xs text-muted-foreground">
-                  Bot automatically learns from engagement metrics (likes, comments, shares) and adapts its content
-                  strategy over time. Uses reinforcement learning to optimize what works best on each platform.
+                  Uses reinforcement learning (epsilon-greedy exploration) to optimize content. Learns from engagement
+                  metrics: likes (1pt), comments (3pt), shares (5pt). Adapts posting times, content types, hashtags,
+                  and tone per platform. Algorithm knowledge: avoids spam triggers, optimizes for each platform&apos;s
+                  ranking signals (dwell time on LinkedIn, watch time on TikTok, saves on Instagram).
                 </p>
               </div>
             </label>
@@ -341,7 +371,7 @@ export default async function BotSettingsPage({
         <Card className="mt-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><Rss className="h-5 w-5" /> RSS Feed Sources</CardTitle>
-            <CardDescription>Add RSS feeds for content inspiration and curation. One URL per line.</CardDescription>
+            <CardDescription>Content inspiration and curation. One URL per line (max 20).</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
             <textarea
@@ -351,8 +381,8 @@ export default async function BotSettingsPage({
               className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
             <p className="text-xs text-muted-foreground">
-              {rssFeeds.length} feed{rssFeeds.length !== 1 ? 's' : ''} configured (max 20).
-              The bot scans these for trending topics and content ideas.
+              {rssFeeds.length} feed{rssFeeds.length !== 1 ? 's' : ''} configured.
+              Bot scans for trending topics and curates relevant content.
             </p>
           </CardContent>
         </Card>
@@ -371,7 +401,7 @@ export default async function BotSettingsPage({
           <div className="flex items-center justify-between">
             <div>
               <p className="font-medium">Delete this bot</p>
-              <p className="text-sm text-muted-foreground">Permanently delete this bot and all its data. This cannot be undone.</p>
+              <p className="text-sm text-muted-foreground">Permanently delete this bot and all its data.</p>
             </div>
             <form action={handleDelete}>
               <Button variant="destructive" size="sm">Delete Bot</Button>

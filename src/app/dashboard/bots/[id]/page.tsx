@@ -77,6 +77,11 @@ export default async function BotDetailPage({
   const contentTypes = (reactorState.contentTypes as string[]) || [];
   const maxPostsPerDay = (reactorState.maxPostsPerDay as number) || 10;
   const rssFeeds = Array.isArray(bot.rssFeeds) ? (bot.rssFeeds as string[]) : [];
+  const keywords = Array.isArray(bot.keywords) ? (bot.keywords as string[]) : [];
+  const goalLabels: Record<string, string> = {
+    TRAFFIC: 'Drive Traffic', SALES: 'Increase Sales', ENGAGEMENT: 'Boost Engagement',
+    BRAND_AWARENESS: 'Brand Awareness', LEADS: 'Generate Leads', COMMUNITY: 'Build Community',
+  };
 
   const weekLikes = weekStats._sum.likes || 0;
   const weekComments = weekStats._sum.comments || 0;
@@ -202,6 +207,10 @@ export default async function BotDetailPage({
           <CardContent>
             <div className="space-y-3">
               <div className="flex items-center justify-between">
+                <span className="text-sm">Goal</span>
+                <Badge variant="default">{goalLabels[bot.goal] || bot.goal}</Badge>
+              </div>
+              <div className="flex items-center justify-between">
                 <span className="text-sm">Self-Learning AI</span>
                 <Badge variant={selfLearning ? 'success' : 'secondary'}>
                   {selfLearning ? 'Enabled' : 'Disabled'}
@@ -214,6 +223,12 @@ export default async function BotDetailPage({
                 </span>
               </div>
               <div className="flex items-center justify-between">
+                <span className="text-sm">Keywords</span>
+                <span className="text-sm text-muted-foreground">
+                  {keywords.length > 0 ? `${keywords.length} keywords` : 'None'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
                 <span className="text-sm">Max Posts/Day</span>
                 <span className="text-sm font-medium">{maxPostsPerDay}</span>
               </div>
@@ -222,12 +237,18 @@ export default async function BotDetailPage({
                 <span className="text-sm font-medium">{rssFeeds.length} sources</span>
               </div>
               <div className="flex items-center justify-between">
+                <span className="text-sm">Google Analytics</span>
+                <Badge variant={bot.gaPropertyId ? 'success' : 'secondary'}>
+                  {bot.gaPropertyId ? 'Connected' : 'Not connected'}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between">
                 <span className="text-sm">Safety Level</span>
                 <Badge variant={bot.safetyLevel === 'AGGRESSIVE' ? 'warning' : bot.safetyLevel === 'CONSERVATIVE' ? 'success' : 'secondary'}>
                   {bot.safetyLevel}
                 </Badge>
               </div>
-              {contentTypes.length === 0 && rssFeeds.length === 0 && (
+              {(contentTypes.length === 0 || keywords.length === 0) && (
                 <Link href={`/dashboard/bots/${bot.id}/settings`}>
                   <Button size="sm" variant="outline" className="w-full mt-2">
                     <Settings className="mr-2 h-4 w-4" /> Configure Strategy
