@@ -1,17 +1,51 @@
 import { Metadata } from 'next';
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
+import { db } from '@/lib/db';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Bot, Mail } from 'lucide-react';
+import { Bot, Mail, CheckCircle } from 'lucide-react';
 
 export const metadata: Metadata = {
   title: 'Contact',
   description: 'Get in touch with the Grothi team. We typically respond within 24 hours.',
 };
 
-export default function ContactPage() {
+export default async function ContactPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ sent?: string; error?: string }>;
+}) {
+  const sp = await searchParams;
+
+  async function handleSubmit(formData: FormData) {
+    'use server';
+
+    const name = (formData.get('name') as string)?.trim();
+    const email = (formData.get('email') as string)?.trim();
+    const message = (formData.get('message') as string)?.trim();
+
+    if (!name || !email || !message) {
+      redirect('/contact?error=Please fill in all fields');
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      redirect('/contact?error=Please enter a valid email');
+    }
+
+    if (message.length < 10) {
+      redirect('/contact?error=Message must be at least 10 characters');
+    }
+
+    await db.contactMessage.create({
+      data: { name, email, message },
+    });
+
+    redirect('/contact?sent=1');
+  }
+
   return (
     <div className="flex flex-col min-h-screen">
       <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur">
@@ -38,31 +72,57 @@ export default function ContactPage() {
           <div className="text-center mb-8">
             <h1 className="text-4xl font-bold">Contact Us</h1>
             <p className="mt-4 text-muted-foreground">
-              Have a question? We&apos;d love to hear from you.
+              Have a question? We&apos;d love to hear from you. We typically respond within 24 hours.
             </p>
           </div>
 
-          <Card>
-            <CardContent className="pt-6 space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">Name</Label>
-                <Input id="name" placeholder="Your name" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" placeholder="you@example.com" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="message">Message</Label>
-                <textarea
-                  id="message"
-                  className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  placeholder="How can we help?"
-                />
-              </div>
-              <Button className="w-full">Send Message</Button>
-            </CardContent>
-          </Card>
+          {sp.sent ? (
+            <Card>
+              <CardContent className="pt-6 text-center space-y-4">
+                <CheckCircle className="h-12 w-12 text-green-500 mx-auto" />
+                <h2 className="text-xl font-semibold">Message Sent!</h2>
+                <p className="text-muted-foreground">
+                  Thank you for reaching out. We&apos;ll get back to you as soon as possible.
+                </p>
+                <Link href="/contact">
+                  <Button variant="outline" className="mt-4">Send Another Message</Button>
+                </Link>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              {sp.error && (
+                <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive mb-4">
+                  {sp.error}
+                </div>
+              )}
+              <Card>
+                <form action={handleSubmit}>
+                  <CardContent className="pt-6 space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="name">Name</Label>
+                      <Input id="name" name="name" placeholder="Your name" required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="email">Email</Label>
+                      <Input id="email" name="email" type="email" placeholder="you@example.com" required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="message">Message</Label>
+                      <textarea
+                        id="message"
+                        name="message"
+                        className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        placeholder="How can we help?"
+                        required
+                      />
+                    </div>
+                    <Button type="submit" className="w-full">Send Message</Button>
+                  </CardContent>
+                </form>
+              </Card>
+            </>
+          )}
 
           <div className="mt-8 text-center">
             <p className="text-muted-foreground flex items-center justify-center gap-2">

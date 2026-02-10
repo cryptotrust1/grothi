@@ -6,10 +6,9 @@ import { db } from '@/lib/db';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import {
-  Activity, Settings, Globe, BarChart3, Play, Pause,
-  AlertCircle, Clock,
+  Activity, Settings, Globe, BarChart3, Clock, Brain,
+  TrendingUp, Rss, Shield, Zap,
 } from 'lucide-react';
 
 export const metadata: Metadata = {
@@ -26,15 +25,9 @@ const statusConfig: Record<string, { variant: 'success' | 'warning' | 'destructi
 };
 
 const platformNames: Record<string, string> = {
-  MASTODON: 'Mastodon',
-  FACEBOOK: 'Facebook',
-  TELEGRAM: 'Telegram',
-  MOLTBOOK: 'Moltbook',
-  DISCORD: 'Discord',
-  TWITTER: 'Twitter',
-  BLUESKY: 'Bluesky',
-  REDDIT: 'Reddit',
-  DEVTO: 'Dev.to',
+  MASTODON: 'Mastodon', FACEBOOK: 'Facebook', TELEGRAM: 'Telegram',
+  MOLTBOOK: 'Moltbook', DISCORD: 'Discord', TWITTER: 'Twitter',
+  BLUESKY: 'Bluesky', REDDIT: 'Reddit', DEVTO: 'Dev.to',
 };
 
 export default async function BotDetailPage({
@@ -61,12 +54,37 @@ export default async function BotDetailPage({
 
   const sc = statusConfig[bot.status] || { variant: 'secondary' as const, label: bot.status };
 
-  const todayActivities = await db.botActivity.count({
-    where: {
-      botId: bot.id,
-      createdAt: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
-    },
-  });
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const [todayActivities, weekStats] = await Promise.all([
+    db.botActivity.count({
+      where: { botId: bot.id, createdAt: { gte: today } },
+    }),
+    db.botActivity.aggregate({
+      where: {
+        botId: bot.id,
+        createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
+      },
+      _sum: { likes: true, comments: true, shares: true, creditsUsed: true },
+      _count: true,
+    }),
+  ]);
+
+  // Content Reactor / Self-Learning stats
+  const reactorState = (bot.reactorState as Record<string, unknown>) || {};
+  const selfLearning = (reactorState.selfLearning as boolean) ?? true;
+  const contentTypes = (reactorState.contentTypes as string[]) || [];
+  const maxPostsPerDay = (reactorState.maxPostsPerDay as number) || 10;
+  const rssFeeds = Array.isArray(bot.rssFeeds) ? (bot.rssFeeds as string[]) : [];
+
+  const weekLikes = weekStats._sum.likes || 0;
+  const weekComments = weekStats._sum.comments || 0;
+  const weekShares = weekStats._sum.shares || 0;
+  const weekCredits = weekStats._sum.creditsUsed || 0;
+  const weekEngagement = weekStats._count > 0
+    ? ((weekLikes + weekComments * 3 + weekShares * 5) / weekStats._count).toFixed(1)
+    : '0.0';
 
   return (
     <div className="space-y-6">
@@ -94,18 +112,11 @@ export default async function BotDetailPage({
 
       {/* Sub-nav */}
       <div className="flex gap-4 border-b pb-2">
-        <Link href={`/dashboard/bots/${bot.id}`} className="text-sm font-medium border-b-2 border-primary pb-2">
-          Overview
-        </Link>
-        <Link href={`/dashboard/bots/${bot.id}/activity`} className="text-sm text-muted-foreground hover:text-foreground pb-2">
-          Activity
-        </Link>
-        <Link href={`/dashboard/bots/${bot.id}/platforms`} className="text-sm text-muted-foreground hover:text-foreground pb-2">
-          Platforms
-        </Link>
-        <Link href={`/dashboard/bots/${bot.id}/settings`} className="text-sm text-muted-foreground hover:text-foreground pb-2">
-          Settings
-        </Link>
+        <Link href={`/dashboard/bots/${bot.id}`} className="text-sm font-medium border-b-2 border-primary pb-2">Overview</Link>
+        <Link href={`/dashboard/bots/${bot.id}/activity`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Activity</Link>
+        <Link href={`/dashboard/bots/${bot.id}/platforms`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Platforms</Link>
+        <Link href={`/dashboard/bots/${bot.id}/analytics`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Analytics</Link>
+        <Link href={`/dashboard/bots/${bot.id}/settings`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Settings</Link>
       </div>
 
       {/* KPIs */}
@@ -148,6 +159,82 @@ export default async function BotDetailPage({
           <CardContent>
             <div className="text-2xl font-bold">{bot._count.activities}</div>
             <p className="text-xs text-muted-foreground">all time</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Weekly Performance + Content Reactor */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <TrendingUp className="h-5 w-5" /> This Week
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-sm text-muted-foreground">Actions</p>
+                <p className="text-2xl font-bold">{weekStats._count}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Engagement Score</p>
+                <p className="text-2xl font-bold">{weekEngagement}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Likes / Comments / Shares</p>
+                <p className="text-lg font-semibold">{weekLikes} / {weekComments} / {weekShares}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Credits Used</p>
+                <p className="text-lg font-semibold">{weekCredits} <span className="text-xs text-muted-foreground">(${(weekCredits / 100).toFixed(2)})</span></p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Brain className="h-5 w-5" /> Content Reactor
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm">Self-Learning AI</span>
+                <Badge variant={selfLearning ? 'success' : 'secondary'}>
+                  {selfLearning ? 'Enabled' : 'Disabled'}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm">Content Types</span>
+                <span className="text-sm text-muted-foreground">
+                  {contentTypes.length > 0 ? contentTypes.join(', ') : 'Not configured'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm">Max Posts/Day</span>
+                <span className="text-sm font-medium">{maxPostsPerDay}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm">RSS Feeds</span>
+                <span className="text-sm font-medium">{rssFeeds.length} sources</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm">Safety Level</span>
+                <Badge variant={bot.safetyLevel === 'AGGRESSIVE' ? 'warning' : bot.safetyLevel === 'CONSERVATIVE' ? 'success' : 'secondary'}>
+                  {bot.safetyLevel}
+                </Badge>
+              </div>
+              {contentTypes.length === 0 && rssFeeds.length === 0 && (
+                <Link href={`/dashboard/bots/${bot.id}/settings`}>
+                  <Button size="sm" variant="outline" className="w-full mt-2">
+                    <Settings className="mr-2 h-4 w-4" /> Configure Strategy
+                  </Button>
+                </Link>
+              )}
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -205,7 +292,7 @@ export default async function BotDetailPage({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <Badge variant="outline" className="text-xs">
-                        {activity.action}
+                        {activity.action.replace(/_/g, ' ')}
                       </Badge>
                       <span className="text-xs text-muted-foreground">
                         {platformNames[activity.platform] || activity.platform}
@@ -222,7 +309,7 @@ export default async function BotDetailPage({
                       <Badge variant="destructive" className="text-xs">Failed</Badge>
                     )}
                     <span className="text-xs text-muted-foreground whitespace-nowrap">
-                      {new Date(activity.createdAt).toLocaleTimeString()}
+                      {new Date(activity.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   </div>
                 </div>
