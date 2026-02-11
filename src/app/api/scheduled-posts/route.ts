@@ -107,10 +107,11 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json(post, { status: 201 });
-  } catch (error: any) {
-    console.error('Create scheduled post error:', error);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Create scheduled post error:', message);
     return NextResponse.json(
-      { error: 'Failed to create post: ' + (error.message || 'Unknown error') },
+      { error: 'Failed to create post: ' + message },
       { status: 500 }
     );
   }

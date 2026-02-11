@@ -37,8 +37,9 @@ export default async function SignInPage({
 
     try {
       await signIn(email, password);
-    } catch (e: any) {
-      redirect('/auth/signin?error=' + encodeURIComponent(e.message));
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Sign in failed';
+      redirect('/auth/signin?error=' + encodeURIComponent(message));
     }
 
     redirect('/dashboard');

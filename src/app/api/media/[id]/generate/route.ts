@@ -36,8 +36,13 @@ export async function POST(
   }
 
   const { id } = await params;
-  const body = await request.json().catch(() => ({}));
-  const platforms = (body.platforms as string[]) || ['FACEBOOK', 'INSTAGRAM', 'TWITTER'];
+  let body: Record<string, unknown> = {};
+  try {
+    body = await request.json();
+  } catch {
+    // Default to empty body - platforms will use defaults
+  }
+  const platforms = Array.isArray(body.platforms) ? (body.platforms as string[]) : ['FACEBOOK', 'INSTAGRAM', 'TWITTER'];
 
   const media = await db.media.findUnique({
     where: { id },
@@ -180,7 +185,7 @@ Return ONLY valid JSON, no markdown code blocks.`;
     }
 
     const result = await response.json();
-    const textContent = result.content?.find((c: any) => c.type === 'text')?.text || '';
+    const textContent = result.content?.find((c: { type: string; text?: string }) => c.type === 'text')?.text || '';
 
     // Parse the JSON response
     let parsed: { altText?: string; description?: string; captions?: Record<string, string> };
@@ -211,10 +216,11 @@ Return ONLY valid JSON, no markdown code blocks.`;
       description: parsed.description,
       captions: parsed.captions,
     });
-  } catch (error: any) {
-    console.error('AI generation error:', error);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('AI generation error:', message);
     return NextResponse.json(
-      { error: 'AI generation failed: ' + (error.message || 'Unknown error') },
+      { error: 'AI generation failed: ' + message },
       { status: 500 }
     );
   }

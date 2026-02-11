@@ -189,10 +189,11 @@ export async function POST(request: NextRequest) {
       fileSize: media.fileSize,
       url: `/api/media/${media.id}`,
     });
-  } catch (error: any) {
-    console.error('Upload error:', error);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Upload error:', message);
     return NextResponse.json(
-      { error: 'Upload failed: ' + (error.message || 'Unknown error') },
+      { error: 'Upload failed: ' + message },
       { status: 500 }
     );
   }

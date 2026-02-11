@@ -40,16 +40,16 @@ export default async function SettingsPage({
     const newPassword = formData.get('newPassword') as string;
 
     if (!currentPassword || !newPassword) {
-      redirect('/dashboard/settings?error=Please fill in all password fields');
+      redirect('/dashboard/settings?error=' + encodeURIComponent('Please fill in all password fields'));
     }
 
     if (newPassword.length < 8) {
-      redirect('/dashboard/settings?error=New password must be at least 8 characters');
+      redirect('/dashboard/settings?error=' + encodeURIComponent('New password must be at least 8 characters'));
     }
 
     const valid = await verifyPassword(currentPassword, currentUser.passwordHash);
     if (!valid) {
-      redirect('/dashboard/settings?error=Current password is incorrect');
+      redirect('/dashboard/settings?error=' + encodeURIComponent('Current password is incorrect'));
     }
 
     const newHash = await hashPassword(newPassword);

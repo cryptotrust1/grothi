@@ -10,25 +10,15 @@ import {
   Activity, Settings, Globe, BarChart3, Clock, Brain,
   TrendingUp, Rss, Shield, Zap,
 } from 'lucide-react';
+import { BotNav } from '@/components/dashboard/bot-nav';
+import { BOT_STATUS_CONFIG, PLATFORM_NAMES, GOAL_LABELS } from '@/lib/constants';
 
 export const metadata: Metadata = {
   title: 'Bot Detail',
   robots: { index: false },
 };
 
-const statusConfig: Record<string, { variant: 'success' | 'warning' | 'destructive' | 'secondary'; label: string }> = {
-  ACTIVE: { variant: 'success', label: 'Active' },
-  PAUSED: { variant: 'secondary', label: 'Paused' },
-  STOPPED: { variant: 'secondary', label: 'Stopped' },
-  ERROR: { variant: 'destructive', label: 'Error' },
-  NO_CREDITS: { variant: 'warning', label: 'No Credits' },
-};
-
-const platformNames: Record<string, string> = {
-  MASTODON: 'Mastodon', FACEBOOK: 'Facebook', TELEGRAM: 'Telegram',
-  MOLTBOOK: 'Moltbook', DISCORD: 'Discord', TWITTER: 'Twitter',
-  BLUESKY: 'Bluesky', REDDIT: 'Reddit', DEVTO: 'Dev.to',
-};
+const statusConfig = BOT_STATUS_CONFIG;
 
 export default async function BotDetailPage({
   params,
@@ -78,10 +68,7 @@ export default async function BotDetailPage({
   const maxPostsPerDay = (reactorState.maxPostsPerDay as number) || 10;
   const rssFeeds = Array.isArray(bot.rssFeeds) ? (bot.rssFeeds as string[]) : [];
   const keywords = Array.isArray(bot.keywords) ? (bot.keywords as string[]) : [];
-  const goalLabels: Record<string, string> = {
-    TRAFFIC: 'Drive Traffic', SALES: 'Increase Sales', ENGAGEMENT: 'Boost Engagement',
-    BRAND_AWARENESS: 'Brand Awareness', LEADS: 'Generate Leads', COMMUNITY: 'Build Community',
-  };
+  const goalLabels = GOAL_LABELS;
 
   const weekLikes = weekStats._sum.likes || 0;
   const weekComments = weekStats._sum.comments || 0;
@@ -115,17 +102,7 @@ export default async function BotDetailPage({
         </div>
       </div>
 
-      {/* Sub-nav */}
-      <div className="flex flex-wrap gap-4 border-b pb-2">
-        <Link href={`/dashboard/bots/${bot.id}`} className="text-sm font-medium border-b-2 border-primary pb-2">Overview</Link>
-        <Link href={`/dashboard/bots/${bot.id}/activity`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Activity</Link>
-        <Link href={`/dashboard/bots/${bot.id}/platforms`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Platforms</Link>
-        <Link href={`/dashboard/bots/${bot.id}/media`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Media</Link>
-        <Link href={`/dashboard/bots/${bot.id}/scheduler`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Scheduler</Link>
-        <Link href={`/dashboard/bots/${bot.id}/image-style`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Image Style</Link>
-        <Link href={`/dashboard/bots/${bot.id}/analytics`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Analytics</Link>
-        <Link href={`/dashboard/bots/${bot.id}/settings`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Settings</Link>
-      </div>
+      <BotNav botId={bot.id} activeTab="overview" />
 
       {/* KPIs */}
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
@@ -281,7 +258,7 @@ export default async function BotDetailPage({
               {bot.platformConns.map((conn) => (
                 <div key={conn.id} className="flex items-center justify-between py-2 border-b last:border-0">
                   <div className="flex items-center gap-3">
-                    <span className="font-medium">{platformNames[conn.platform] || conn.platform}</span>
+                    <span className="font-medium">{PLATFORM_NAMES[conn.platform] || conn.platform}</span>
                     <Badge variant={conn.status === 'CONNECTED' ? 'success' : conn.status === 'ERROR' ? 'destructive' : 'secondary'}>
                       {conn.status}
                     </Badge>
@@ -319,7 +296,7 @@ export default async function BotDetailPage({
                         {activity.action.replace(/_/g, ' ')}
                       </Badge>
                       <span className="text-xs text-muted-foreground">
-                        {platformNames[activity.platform] || activity.platform}
+                        {PLATFORM_NAMES[activity.platform] || activity.platform}
                       </span>
                     </div>
                     {activity.content && (

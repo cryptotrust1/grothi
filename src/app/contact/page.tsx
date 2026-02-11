@@ -28,20 +28,25 @@ export default async function ContactPage({
     const message = (formData.get('message') as string)?.trim();
 
     if (!name || !email || !message) {
-      redirect('/contact?error=Please fill in all fields');
+      redirect('/contact?error=' + encodeURIComponent('Please fill in all fields'));
     }
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      redirect('/contact?error=Please enter a valid email');
+      redirect('/contact?error=' + encodeURIComponent('Please enter a valid email'));
     }
 
     if (message.length < 10) {
-      redirect('/contact?error=Message must be at least 10 characters');
+      redirect('/contact?error=' + encodeURIComponent('Message must be at least 10 characters'));
     }
 
-    await db.contactMessage.create({
-      data: { name, email, message },
-    });
+    try {
+      await db.contactMessage.create({
+        data: { name, email, message },
+      });
+    } catch (error) {
+      console.error('Contact form error:', error);
+      redirect('/contact?error=' + encodeURIComponent('Failed to send message. Please try again.'));
+    }
 
     redirect('/contact?sent=1');
   }

@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Rss, Clock, Brain, Trash2, Target, Key, BarChart3, Link2 } from 'lucide-react';
+import { BotNav } from '@/components/dashboard/bot-nav';
 
 export const metadata: Metadata = { title: 'Bot Settings', robots: { index: false } };
 
@@ -153,16 +154,7 @@ export default async function BotSettingsPage({
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">{bot.name} - Settings</h1>
-        <div className="flex flex-wrap gap-4 mt-4 border-b pb-2">
-          <Link href={`/dashboard/bots/${id}`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Overview</Link>
-          <Link href={`/dashboard/bots/${id}/activity`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Activity</Link>
-          <Link href={`/dashboard/bots/${id}/platforms`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Platforms</Link>
-          <Link href={`/dashboard/bots/${id}/media`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Media</Link>
-          <Link href={`/dashboard/bots/${id}/scheduler`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Scheduler</Link>
-          <Link href={`/dashboard/bots/${id}/image-style`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Image Style</Link>
-          <Link href={`/dashboard/bots/${id}/analytics`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Analytics</Link>
-          <Link href={`/dashboard/bots/${id}/settings`} className="text-sm font-medium border-b-2 border-primary pb-2">Settings</Link>
-        </div>
+        <BotNav botId={id} activeTab="settings" />
       </div>
 
       {sp.success && <div className="rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-800">{sp.success}</div>}

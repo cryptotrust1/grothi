@@ -7,22 +7,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight, Filter } from 'lucide-react';
+import { BotNav } from '@/components/dashboard/bot-nav';
+import { PLATFORM_NAMES, ALL_PLATFORMS, ACTION_TYPES } from '@/lib/constants';
 
 export const metadata: Metadata = { title: 'Bot Activity', robots: { index: false } };
 
-const platformNames: Record<string, string> = {
-  MASTODON: 'Mastodon', FACEBOOK: 'Facebook', TELEGRAM: 'Telegram',
-  MOLTBOOK: 'Moltbook', DISCORD: 'Discord', TWITTER: 'X (Twitter)',
-  BLUESKY: 'Bluesky', REDDIT: 'Reddit', DEVTO: 'Dev.to',
-  LINKEDIN: 'LinkedIn', INSTAGRAM: 'Instagram', TIKTOK: 'TikTok',
-  PINTEREST: 'Pinterest', THREADS: 'Threads', MEDIUM: 'Medium',
-  YOUTUBE: 'YouTube', NOSTR: 'Nostr',
-};
-
-const PLATFORMS = ['ALL', 'FACEBOOK', 'INSTAGRAM', 'TWITTER', 'LINKEDIN', 'TIKTOK',
-  'MASTODON', 'BLUESKY', 'TELEGRAM', 'DISCORD', 'THREADS', 'PINTEREST',
-  'REDDIT', 'MEDIUM', 'DEVTO', 'YOUTUBE', 'NOSTR', 'MOLTBOOK'];
-const ACTIONS = ['ALL', 'POST', 'REPLY', 'FAVOURITE', 'BOOST', 'SCAN_FEEDS', 'COLLECT_METRICS', 'GENERATE_CONTENT', 'SAFETY_BLOCK'];
+const platformNames = PLATFORM_NAMES;
+const PLATFORMS = ['ALL', ...ALL_PLATFORMS];
+const ACTIONS = ['ALL', ...ACTION_TYPES];
 const STATUSES = ['ALL', 'SUCCESS', 'FAILED'];
 const PAGE_SIZE = 25;
 
@@ -83,16 +75,7 @@ export default async function BotActivityPage({
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">{bot.name} - Activity</h1>
-        <div className="flex flex-wrap gap-4 mt-4 border-b pb-2">
-          <Link href={`/dashboard/bots/${bot.id}`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Overview</Link>
-          <Link href={`/dashboard/bots/${bot.id}/activity`} className="text-sm font-medium border-b-2 border-primary pb-2">Activity</Link>
-          <Link href={`/dashboard/bots/${bot.id}/platforms`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Platforms</Link>
-          <Link href={`/dashboard/bots/${bot.id}/media`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Media</Link>
-          <Link href={`/dashboard/bots/${bot.id}/scheduler`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Scheduler</Link>
-          <Link href={`/dashboard/bots/${bot.id}/image-style`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Image Style</Link>
-          <Link href={`/dashboard/bots/${bot.id}/analytics`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Analytics</Link>
-          <Link href={`/dashboard/bots/${bot.id}/settings`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Settings</Link>
-        </div>
+        <BotNav botId={bot.id} activeTab="activity" />
       </div>
 
       {/* Filters */}

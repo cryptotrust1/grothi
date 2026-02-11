@@ -58,7 +58,12 @@ export async function PATCH(
     );
   }
 
-  const body = await request.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+  }
   const updates: Record<string, unknown> = {};
 
   if (body.content !== undefined) updates.content = body.content;
@@ -69,7 +74,7 @@ export async function PATCH(
 
   if (body.scheduledAt !== undefined) {
     if (body.scheduledAt) {
-      const scheduled = new Date(body.scheduledAt);
+      const scheduled = new Date(body.scheduledAt as string | number);
       if (scheduled < new Date()) {
         return NextResponse.json({ error: 'Scheduled time must be in the future' }, { status: 400 });
       }

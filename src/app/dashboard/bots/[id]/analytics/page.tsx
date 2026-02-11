@@ -6,6 +6,7 @@ import { db } from '@/lib/db';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Heart, MessageSquare, Share2, TrendingUp, Activity, DollarSign, BarChart3 } from 'lucide-react';
 import { EngagementChart, ActivityChart, CreditsChart } from '@/components/dashboard/analytics-charts';
+import { BotNav } from '@/components/dashboard/bot-nav';
 
 export const metadata: Metadata = { title: 'Bot Analytics', robots: { index: false } };
 
@@ -66,16 +67,7 @@ export default async function BotAnalyticsPage({ params }: { params: Promise<{ i
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">{bot.name} - Analytics</h1>
-        <div className="flex flex-wrap gap-4 mt-4 border-b pb-2">
-          <Link href={`/dashboard/bots/${id}`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Overview</Link>
-          <Link href={`/dashboard/bots/${id}/activity`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Activity</Link>
-          <Link href={`/dashboard/bots/${id}/platforms`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Platforms</Link>
-          <Link href={`/dashboard/bots/${id}/media`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Media</Link>
-          <Link href={`/dashboard/bots/${id}/scheduler`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Scheduler</Link>
-          <Link href={`/dashboard/bots/${id}/image-style`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Image Style</Link>
-          <Link href={`/dashboard/bots/${id}/analytics`} className="text-sm font-medium text-foreground border-b-2 border-primary pb-2">Analytics</Link>
-          <Link href={`/dashboard/bots/${id}/settings`} className="text-sm text-muted-foreground hover:text-foreground pb-2">Settings</Link>
-        </div>
+        <BotNav botId={id} activeTab="analytics" />
       </div>
 
       {/* Engagement KPIs */}
