@@ -21,10 +21,12 @@ const platformConfigs: Record<string, {
   fields: { key: string; label: string; placeholder: string; optional?: boolean; helpText?: string }[];
   algTip: string;
   docsUrl?: string;
+  oauthSupported?: boolean;
 }> = {
   FACEBOOK: {
     name: 'Facebook',
     category: 'social',
+    oauthSupported: !!process.env.FACEBOOK_APP_ID,
     fields: [
       { key: 'pageId', label: 'Page ID', placeholder: 'Your Facebook Page ID', helpText: 'Found in your Facebook Page\'s About section or Page Settings under "Page ID".' },
       { key: 'accessToken', label: 'Page Access Token', placeholder: 'Permanent page access token', helpText: 'A long-lived token generated via the Meta Graph API Explorer with pages_manage_posts permission.' },
@@ -35,6 +37,7 @@ const platformConfigs: Record<string, {
   INSTAGRAM: {
     name: 'Instagram',
     category: 'social',
+    oauthSupported: !!process.env.FACEBOOK_APP_ID,
     fields: [
       { key: 'accountId', label: 'Business Account ID', placeholder: 'Instagram Business Account ID', helpText: 'Your Instagram Business or Creator account ID from the Meta Business Suite.' },
       { key: 'accessToken', label: 'Access Token', placeholder: 'Meta Graph API access token', helpText: 'Generated via the Meta Graph API Explorer with instagram_basic and instagram_content_publish permissions.' },
@@ -45,6 +48,7 @@ const platformConfigs: Record<string, {
   TWITTER: {
     name: 'X (Twitter)',
     category: 'social',
+    oauthSupported: !!process.env.TWITTER_CLIENT_ID,
     fields: [
       { key: 'apiKey', label: 'API Key', placeholder: 'Consumer API key', helpText: 'The API Key (Consumer Key) from your X Developer Portal app settings.' },
       { key: 'apiSecret', label: 'API Secret', placeholder: 'Consumer API secret', helpText: 'The API Secret (Consumer Secret) paired with your API Key.' },
@@ -52,26 +56,28 @@ const platformConfigs: Record<string, {
       { key: 'accessSecret', label: 'Access Secret', placeholder: 'OAuth access token secret', helpText: 'The secret paired with your OAuth access token.' },
     ],
     algTip: 'Replies and quote tweets drive more impressions than standalone posts.',
-    docsUrl: 'https://developer.x.com/en/docs/authentication/oauth-1-0a',
+    docsUrl: 'https://developer.x.com/en/docs/authentication/oauth-2-0/authorization-code',
   },
   LINKEDIN: {
     name: 'LinkedIn',
     category: 'social',
+    oauthSupported: !!process.env.LINKEDIN_CLIENT_ID,
     fields: [
       { key: 'accessToken', label: 'Access Token', placeholder: 'OAuth2 access token', helpText: 'OAuth 2.0 token with w_member_social permission from the LinkedIn Developer Portal.' },
       { key: 'orgId', label: 'Organization ID', placeholder: 'Company page ID (optional)', optional: true, helpText: 'Your LinkedIn Company Page ID. Leave blank to post as your personal profile.' },
     ],
     algTip: 'Text-only posts outperform links. Dwell time boosts reach significantly.',
-    docsUrl: 'https://learn.microsoft.com/en-us/linkedin/shared/authentication/',
+    docsUrl: 'https://learn.microsoft.com/en-us/linkedin/shared/authentication/authorization-code-flow',
   },
   TIKTOK: {
     name: 'TikTok',
     category: 'social',
+    oauthSupported: !!process.env.TIKTOK_CLIENT_KEY,
     fields: [
       { key: 'accessToken', label: 'Creator Access Token', placeholder: 'TikTok Creator API token', helpText: 'Access token from the TikTok Developer Portal with video.publish scope.' },
     ],
     algTip: 'Watch time is the #1 ranking factor. First 3 seconds determine performance.',
-    docsUrl: 'https://developers.tiktok.com/doc/getting-started',
+    docsUrl: 'https://developers.tiktok.com/doc/content-posting-api-get-started',
   },
   MASTODON: {
     name: 'Mastodon',
@@ -116,6 +122,7 @@ const platformConfigs: Record<string, {
   THREADS: {
     name: 'Threads',
     category: 'social',
+    oauthSupported: !!process.env.THREADS_APP_ID,
     fields: [
       { key: 'accessToken', label: 'Access Token', placeholder: 'Threads API access token', helpText: 'Access token from the Meta Developer Portal with threads_basic and threads_content_publish permissions.' },
     ],
@@ -125,12 +132,13 @@ const platformConfigs: Record<string, {
   PINTEREST: {
     name: 'Pinterest',
     category: 'social',
+    oauthSupported: !!process.env.PINTEREST_APP_ID,
     fields: [
       { key: 'accessToken', label: 'Access Token', placeholder: 'Pinterest API access token', helpText: 'OAuth token from the Pinterest Developer Portal with pins:read and pins:write scopes.' },
       { key: 'boardId', label: 'Board ID', placeholder: 'Target board ID', optional: true, helpText: 'The board to pin to. Find it in the board URL. Leave blank for the default board.' },
     ],
     algTip: 'Vertical images (2:3) perform best. Keywords in description are critical for SEO.',
-    docsUrl: 'https://developers.pinterest.com/docs/getting-started/',
+    docsUrl: 'https://developers.pinterest.com/docs/getting-started/set-up-authentication-and-authorization/',
   },
   REDDIT: {
     name: 'Reddit',
@@ -165,12 +173,13 @@ const platformConfigs: Record<string, {
   YOUTUBE: {
     name: 'YouTube',
     category: 'social',
+    oauthSupported: !!process.env.GOOGLE_CLIENT_ID,
     fields: [
       { key: 'refreshToken', label: 'Refresh Token', placeholder: 'OAuth2 refresh token', helpText: 'OAuth 2.0 refresh token from Google Cloud Console with YouTube Data API v3 enabled.' },
       { key: 'channelId', label: 'Channel ID', placeholder: 'Your YouTube channel ID', helpText: 'Found in YouTube Studio > Settings > Channel > Advanced settings, starts with "UC".' },
     ],
     algTip: 'Community posts boost visibility. Shorts algorithm favors watch completion.',
-    docsUrl: 'https://developers.google.com/youtube/v3/getting-started',
+    docsUrl: 'https://developers.google.com/youtube/v3/guides/auth/server-side-web-apps',
   },
   NOSTR: {
     name: 'Nostr',
@@ -272,7 +281,7 @@ export default async function BotPlatformsPage({ params, searchParams }: {
             <Info className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
             <div className="text-sm space-y-1">
               <p className="font-medium text-blue-900">How platform connections work</p>
-              <p className="text-blue-700">Enter your API credentials for each platform. Your credentials are encrypted with AES-256-GCM and stored securely. The bot uses these to post content, reply to comments, and track engagement on your behalf.</p>
+              <p className="text-blue-700">Some platforms support <strong>one-click OAuth</strong> — just click &quot;Connect&quot; and authorize. For others, enter your API credentials manually. All credentials are encrypted with AES-256-GCM and stored securely. The bot uses these to post content, reply to comments, and track engagement on your behalf.</p>
             </div>
           </div>
         </CardContent>
@@ -318,42 +327,106 @@ export default async function BotPlatformsPage({ params, searchParams }: {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {platforms.map(([key, config]) => {
                 const isConnected = connectedPlatforms.has(key as any);
+                const conn = bot.platformConns.find((p) => p.platform === key);
+                const connConfig = conn?.config && typeof conn.config === 'object' ? conn.config as Record<string, unknown> : null;
+                const connectedViaOAuth = connConfig?.connectedVia === 'oauth';
+                // Build a display label for the connected account
+                const oauthLabel = connectedViaOAuth
+                  ? connConfig?.username ? `@${connConfig.username}` // Twitter, Pinterest
+                  : connConfig?.igUsername ? `@${connConfig.igUsername}` // Instagram
+                  : connConfig?.threadsUsername ? `@${connConfig.threadsUsername}` // Threads
+                  : connConfig?.tiktokUsername ? `@${connConfig.tiktokUsername}` // TikTok
+                  : connConfig?.channelName ? `${connConfig.channelName}` // YouTube
+                  : connConfig?.profileName ? `${connConfig.profileName}` // LinkedIn
+                  : connConfig?.pageName ? `Page: ${connConfig.pageName}` // Facebook
+                  : connConfig?.displayName ? `${connConfig.displayName}` // TikTok fallback
+                  : null
+                  : null;
+
                 return (
                   <Card key={key} className={isConnected ? 'border-green-300 bg-green-50/30' : ''}>
-                    <form action={handleAddPlatform}>
-                      <input type="hidden" name="platform" value={key} />
-                      <CardHeader className="pb-2">
-                        <div className="flex items-center justify-between">
-                          <CardTitle className="text-base">{config.name}</CardTitle>
-                          {isConnected && <Badge variant="success" className="text-xs">Connected</Badge>}
-                        </div>
-                        <p className="text-xs text-blue-600 dark:text-blue-400">{config.algTip}</p>
-                      </CardHeader>
-                      <CardContent className="space-y-2">
-                        {config.fields.map((field) => (
-                          <div key={field.key} className="space-y-1">
-                            <div className="flex items-center gap-1">
-                              <Label className="text-xs">{field.label}{field.optional ? '' : ' *'}</Label>
-                              {field.helpText && <HelpTip text={field.helpText} side="right" />}
-                            </div>
-                            <Input
-                              name={field.key}
-                              type="password"
-                              placeholder={field.placeholder}
-                              className="text-sm h-8"
-                            />
-                          </div>
-                        ))}
-                        {config.docsUrl && (
-                          <a href={config.docsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:underline mt-1">
-                            <ExternalLink className="h-3 w-3" /> How to get these credentials
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-base">{config.name}</CardTitle>
+                        {isConnected && <Badge variant="success" className="text-xs">Connected</Badge>}
+                      </div>
+                      <p className="text-xs text-blue-600 dark:text-blue-400">{config.algTip}</p>
+                      {isConnected && oauthLabel && (
+                        <p className="text-xs text-green-700">{oauthLabel}</p>
+                      )}
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      {/* OAuth one-click connect (Facebook, and future platforms) */}
+                      {config.oauthSupported && (
+                        <div className="space-y-2">
+                          <a href={`/api/oauth/${key.toLowerCase()}?botId=${id}`}>
+                            <Button type="button" size="sm" variant={isConnected ? 'outline' : 'default'} className="w-full">
+                              {isConnected ? `Reconnect with ${config.name}` : `Connect with ${config.name}`}
+                            </Button>
                           </a>
-                        )}
-                        <Button type="submit" size="sm" variant={isConnected ? 'outline' : 'default'} className="w-full mt-1">
-                          {isConnected ? 'Update Credentials' : 'Connect'}
-                        </Button>
-                      </CardContent>
-                    </form>
+                          <p className="text-xs text-muted-foreground text-center">One-click — no API keys needed</p>
+                          <details className="text-xs">
+                            <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                              Or enter credentials manually
+                            </summary>
+                            <form action={handleAddPlatform} className="space-y-2 mt-2">
+                              <input type="hidden" name="platform" value={key} />
+                              {config.fields.map((field) => (
+                                <div key={field.key} className="space-y-1">
+                                  <div className="flex items-center gap-1">
+                                    <Label className="text-xs">{field.label}{field.optional ? '' : ' *'}</Label>
+                                    {field.helpText && <HelpTip text={field.helpText} side="right" />}
+                                  </div>
+                                  <Input
+                                    name={field.key}
+                                    type="password"
+                                    placeholder={field.placeholder}
+                                    className="text-sm h-8"
+                                  />
+                                </div>
+                              ))}
+                              {config.docsUrl && (
+                                <a href={config.docsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:underline mt-1">
+                                  <ExternalLink className="h-3 w-3" /> How to get these credentials
+                                </a>
+                              )}
+                              <Button type="submit" size="sm" variant="outline" className="w-full mt-1">
+                                Save Manual Credentials
+                              </Button>
+                            </form>
+                          </details>
+                        </div>
+                      )}
+
+                      {/* Manual-only platforms (no OAuth) */}
+                      {!config.oauthSupported && (
+                        <form action={handleAddPlatform} className="space-y-2">
+                          <input type="hidden" name="platform" value={key} />
+                          {config.fields.map((field) => (
+                            <div key={field.key} className="space-y-1">
+                              <div className="flex items-center gap-1">
+                                <Label className="text-xs">{field.label}{field.optional ? '' : ' *'}</Label>
+                                {field.helpText && <HelpTip text={field.helpText} side="right" />}
+                              </div>
+                              <Input
+                                name={field.key}
+                                type="password"
+                                placeholder={field.placeholder}
+                                className="text-sm h-8"
+                              />
+                            </div>
+                          ))}
+                          {config.docsUrl && (
+                            <a href={config.docsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:underline mt-1">
+                              <ExternalLink className="h-3 w-3" /> How to get these credentials
+                            </a>
+                          )}
+                          <Button type="submit" size="sm" variant={isConnected ? 'outline' : 'default'} className="w-full mt-1">
+                            {isConnected ? 'Update Credentials' : 'Connect'}
+                          </Button>
+                        </form>
+                      )}
+                    </CardContent>
                   </Card>
                 );
               })}
