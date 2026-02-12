@@ -85,12 +85,15 @@ model Bot {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user          User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  platformConns PlatformConnection[]
-  activities    BotActivity[]
-  dailyStats    BotDailyStat[]
-  media         Media[]
-  scheduledPosts ScheduledPost[]
+  user            User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platformConns   PlatformConnection[]
+  activities      BotActivity[]
+  dailyStats      BotDailyStat[]
+  media           Media[]
+  scheduledPosts  ScheduledPost[]
+  postEngagements PostEngagement[]
+  rlArmStates     RLArmState[]
+  rlConfigs       RLConfig[]
 
   @@index([userId])
   @@index([status])
@@ -189,6 +192,7 @@ model BotActivity {
   likes    Int?
   comments Int?
   shares   Int?
+  saves    Int?
 
   creditsUsed Int @default(0)
 
@@ -378,6 +382,10 @@ model ScheduledPost {
   publishedAt DateTime?
   autoSchedule Boolean @default(false)
 
+  // RL Content Strategy
+  toneStyle      String?
+  hashtagPattern String?
+
   // Results
   publishResults Json?
   error          String?
@@ -400,6 +408,111 @@ enum PostStatus {
   PUBLISHED
   FAILED
   CANCELLED
+}
+
+// ============ REINFORCEMENT LEARNING ============
+
+model PostEngagement {
+  id              String       @id @default(cuid())
+  botId           String
+  platform        PlatformType
+  scheduledPostId String?
+  activityId      String?
+  externalPostId  String?
+
+  // Raw engagement metrics
+  likes           Int          @default(0)
+  comments        Int          @default(0)
+  shares          Int          @default(0)
+  saves           Int          @default(0)
+
+  // Platform-specific metrics
+  dwellTimeMs     Int?
+  watchTimeSec    Float?
+  impressions     Int?
+  reach           Int?
+  clickthroughs   Int?
+
+  // Computed weighted score
+  engagementScore Float        @default(0)
+
+  // Content dimensions at time of posting (denormalized for fast queries)
+  contentType     String?
+  timeSlot        Int?
+  dayOfWeek       Int?
+  hashtagPattern  String?
+  toneStyle       String?
+
+  collectedAt     DateTime?
+  postedAt        DateTime     @default(now())
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  bot Bot @relation(fields: [botId], references: [id], onDelete: Cascade)
+
+  @@index([botId, platform])
+  @@index([botId, contentType])
+  @@index([botId, platform, timeSlot])
+  @@index([postedAt])
+}
+
+model RLArmState {
+  id          String       @id @default(cuid())
+  botId       String
+  platform    PlatformType
+  dimension   RLDimension
+  armKey      String
+
+  // Bandit statistics
+  pulls       Int          @default(0)
+  totalReward Float        @default(0)
+  avgReward   Float        @default(0)
+  lastReward  Float        @default(0)
+  maxReward   Float        @default(0)
+
+  // Exponentially weighted moving average
+  ewmaReward  Float        @default(0)
+  variance    Float        @default(0)
+
+  updatedAt   DateTime     @updatedAt
+
+  bot Bot @relation(fields: [botId], references: [id], onDelete: Cascade)
+
+  @@unique([botId, platform, dimension, armKey])
+  @@index([botId, platform, dimension])
+}
+
+model RLConfig {
+  id            String       @id @default(cuid())
+  botId         String
+  platform      PlatformType
+
+  epsilon       Float        @default(0.2)
+  epsilonMin    Float        @default(0.05)
+  epsilonDecay  Float        @default(0.995)
+  totalEpisodes Int          @default(0)
+  ewmaAlpha     Float        @default(0.3)
+
+  // Spam prevention state
+  lastPostAt          DateTime?
+  postsInLastHour     Int      @default(0)
+  postsInLast24Hours  Int      @default(0)
+  consecutiveSameType Int      @default(0)
+  lastContentType     String?
+
+  updatedAt DateTime @updatedAt
+
+  bot Bot @relation(fields: [botId], references: [id], onDelete: Cascade)
+
+  @@unique([botId, platform])
+  @@index([botId])
+}
+
+enum RLDimension {
+  TIME_SLOT
+  CONTENT_TYPE
+  HASHTAG_PATTERN
+  TONE_STYLE
 }
 
 // ============ CONTACT ============

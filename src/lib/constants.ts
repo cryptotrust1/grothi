@@ -112,6 +112,35 @@ export const CONTENT_TYPES = [
   { value: 'ugc', label: 'UGC Prompts', desc: 'Encourage user-generated content' },
 ];
 
+// ============ TONE STYLES (RL dimension) ============
+export const TONE_STYLES = [
+  { value: 'professional', label: 'Professional', desc: 'Formal, authoritative, data-driven' },
+  { value: 'casual', label: 'Casual', desc: 'Friendly, conversational, approachable' },
+  { value: 'humorous', label: 'Humorous', desc: 'Witty, fun, entertaining' },
+  { value: 'inspirational', label: 'Inspirational', desc: 'Motivating, uplifting, visionary' },
+  { value: 'educational', label: 'Educational', desc: 'Informative, step-by-step, detailed' },
+  { value: 'provocative', label: 'Provocative', desc: 'Bold, contrarian, debate-starting' },
+];
+
+// ============ HASHTAG PATTERNS (RL dimension) ============
+export const HASHTAG_PATTERNS = [
+  { value: 'none', label: 'No Hashtags', desc: 'Clean text, no tags' },
+  { value: 'minimal', label: 'Minimal (1-2)', desc: 'Subtle, focused tags' },
+  { value: 'moderate', label: 'Moderate (3-5)', desc: 'Balanced visibility' },
+  { value: 'heavy', label: 'Heavy (6-10)', desc: 'Maximum discoverability' },
+  { value: 'trending', label: 'Trending', desc: 'Use viral/trending tags' },
+  { value: 'niche', label: 'Niche', desc: 'Industry-specific deep tags' },
+  { value: 'branded', label: 'Branded', desc: 'Custom brand hashtags' },
+];
+
+// ============ RL DIMENSIONS (for display) ============
+export const RL_DIMENSION_LABELS: Record<string, string> = {
+  TIME_SLOT: 'Posting Time',
+  CONTENT_TYPE: 'Content Type',
+  HASHTAG_PATTERN: 'Hashtag Strategy',
+  TONE_STYLE: 'Tone & Style',
+};
+
 // ============ ALL PLATFORM TYPES (for filters) ============
 export const ALL_PLATFORMS = [
   'FACEBOOK', 'INSTAGRAM', 'TWITTER', 'LINKEDIN', 'TIKTOK',

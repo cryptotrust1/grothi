@@ -4,10 +4,12 @@ import { notFound } from 'next/navigation';
 import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Heart, MessageSquare, Share2, TrendingUp, Activity, DollarSign, BarChart3 } from 'lucide-react';
+import { Heart, MessageSquare, Share2, TrendingUp, Activity, DollarSign, BarChart3, Brain } from 'lucide-react';
 import { EngagementChart, ActivityChart, CreditsChart } from '@/components/dashboard/analytics-charts';
 import { BotNav } from '@/components/dashboard/bot-nav';
+import { Badge } from '@/components/ui/badge';
 import { HelpTip } from '@/components/ui/help-tip';
+import { RL_DIMENSION_LABELS, TONE_STYLES, HASHTAG_PATTERNS, CONTENT_TYPES, PLATFORM_NAMES } from '@/lib/constants';
 
 export const metadata: Metadata = { title: 'Bot Analytics', robots: { index: false } };
 
@@ -24,7 +26,7 @@ export default async function BotAnalyticsPage({ params }: { params: Promise<{ i
   const last7Days = new Date();
   last7Days.setDate(last7Days.getDate() - 7);
 
-  const [stats, recentStats, weeklyActivities, platformBreakdown] = await Promise.all([
+  const [stats, recentStats, weeklyActivities, platformBreakdown, rlConfigs, rlTopArms] = await Promise.all([
     db.botActivity.aggregate({
       where: { botId: bot.id },
       _sum: { likes: true, comments: true, shares: true, creditsUsed: true },
@@ -43,6 +45,15 @@ export default async function BotAnalyticsPage({ params }: { params: Promise<{ i
       where: { botId: bot.id },
       _count: true,
       _sum: { likes: true, comments: true, shares: true },
+    }),
+    db.rLConfig.findMany({
+      where: { botId: bot.id },
+      orderBy: { totalEpisodes: 'desc' },
+    }),
+    db.rLArmState.findMany({
+      where: { botId: bot.id },
+      orderBy: { ewmaReward: 'desc' },
+      take: 50,
     }),
   ]);
 
@@ -203,6 +214,76 @@ export default async function BotAnalyticsPage({ params }: { params: Promise<{ i
           )}
         </CardContent>
       </Card>
+
+      {/* AI Learning Analytics */}
+      {rlConfigs.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Brain className="h-5 w-5" /> AI Learning Analytics
+              <HelpTip text="Detailed view of what the reinforcement learning engine has learned per platform. The exploration rate decreases as the bot gains confidence in its strategy." />
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-6">
+              {rlConfigs.map((config) => {
+                const platformArms = rlTopArms.filter(
+                  (a) => a.platform === config.platform
+                );
+                const bestByDim: Record<string, typeof rlTopArms[0]> = {};
+                for (const arm of platformArms) {
+                  if (!bestByDim[arm.dimension] || arm.ewmaReward > bestByDim[arm.dimension].ewmaReward) {
+                    bestByDim[arm.dimension] = arm;
+                  }
+                }
+                const explorationPct = Math.round(config.epsilon * 100);
+                const exploitPct = 100 - explorationPct;
+
+                return (
+                  <div key={config.id} className="border rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="font-medium">{PLATFORM_NAMES[config.platform] || config.platform}</h4>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <span>{config.totalEpisodes} episodes</span>
+                        <span>Explore: {explorationPct}% / Exploit: {exploitPct}%</span>
+                      </div>
+                    </div>
+                    <div className="w-full h-2 rounded-full bg-muted overflow-hidden mb-3">
+                      <div
+                        className="h-full bg-primary rounded-full transition-all"
+                        style={{ width: `${exploitPct}%` }}
+                      />
+                    </div>
+                    {Object.keys(bestByDim).length > 0 ? (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {Object.entries(bestByDim).map(([dim, arm]) => {
+                          const dimLabel = RL_DIMENSION_LABELS[dim] || dim;
+                          let armLabel = arm.armKey;
+                          if (dim === 'TIME_SLOT') armLabel = `${arm.armKey}:00`;
+                          if (dim === 'CONTENT_TYPE') armLabel = CONTENT_TYPES.find(c => c.value === arm.armKey)?.label || arm.armKey;
+                          if (dim === 'TONE_STYLE') armLabel = TONE_STYLES.find(t => t.value === arm.armKey)?.label || arm.armKey;
+                          if (dim === 'HASHTAG_PATTERN') armLabel = HASHTAG_PATTERNS.find(h => h.value === arm.armKey)?.label || arm.armKey;
+                          return (
+                            <div key={dim} className="flex items-center justify-between p-2 bg-muted/30 rounded">
+                              <span className="text-xs text-muted-foreground">{dimLabel}</span>
+                              <div className="flex items-center gap-1.5">
+                                <Badge variant="outline" className="text-xs">{armLabel}</Badge>
+                                <span className="text-xs text-muted-foreground">({arm.pulls}x, avg: {(Math.round(arm.ewmaReward * 100) / 100)})</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">Not enough data yet. The bot needs more posts to identify patterns.</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Quick Stats */}
       <div className="grid gap-4 md:grid-cols-3">

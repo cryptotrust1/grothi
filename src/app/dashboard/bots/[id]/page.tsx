@@ -13,7 +13,7 @@ import {
 import { BotNav } from '@/components/dashboard/bot-nav';
 import { HelpTip } from '@/components/ui/help-tip';
 import { Progress } from '@/components/ui/progress';
-import { BOT_STATUS_CONFIG, PLATFORM_NAMES, GOAL_LABELS } from '@/lib/constants';
+import { BOT_STATUS_CONFIG, PLATFORM_NAMES, GOAL_LABELS, RL_DIMENSION_LABELS, TONE_STYLES, HASHTAG_PATTERNS, CONTENT_TYPES } from '@/lib/constants';
 
 export const metadata: Metadata = {
   title: 'Bot Detail',
@@ -62,6 +62,30 @@ export default async function BotDetailPage({
       _count: true,
     }),
   ]);
+
+  // RL Learning Stats per platform
+  const [rlConfigs, topArms] = await Promise.all([
+    db.rLConfig.findMany({ where: { botId: bot.id }, orderBy: { totalEpisodes: 'desc' }, take: 5 }),
+    db.rLArmState.findMany({
+      where: { botId: bot.id },
+      orderBy: { ewmaReward: 'desc' },
+      take: 20,
+    }),
+  ]);
+
+  const totalEpisodes = rlConfigs.reduce((sum, c) => sum + c.totalEpisodes, 0);
+  const avgEpsilon = rlConfigs.length > 0
+    ? rlConfigs.reduce((sum, c) => sum + c.epsilon, 0) / rlConfigs.length
+    : 0.2;
+
+  // Build best arms per dimension
+  const bestArmsByDimension: Record<string, { arm: string; reward: number; pulls: number }> = {};
+  for (const arm of topArms) {
+    const key = arm.dimension;
+    if (!bestArmsByDimension[key] || arm.ewmaReward > bestArmsByDimension[key].reward) {
+      bestArmsByDimension[key] = { arm: arm.armKey, reward: Math.round(arm.ewmaReward * 100) / 100, pulls: arm.pulls };
+    }
+  }
 
   // Content Reactor / Self-Learning stats
   const reactorState = (bot.reactorState as Record<string, unknown>) || {};
@@ -272,7 +296,7 @@ export default async function BotDetailPage({
                 </Badge>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm flex items-center gap-1">Safety Level <HelpTip text="Conservative: max 2 posts/day, safest. Moderate: 3-5 posts/day, balanced. Aggressive: up to 10 posts/day, higher engagement but more visibility." /></span>
+                <span className="text-sm flex items-center gap-1">Safety Level <HelpTip text="Conservative: max 5 posts/day, safest. Moderate: 10 posts/day, balanced. Aggressive: 20 posts/day, higher engagement but more visibility." /></span>
                 <Badge variant={bot.safetyLevel === 'AGGRESSIVE' ? 'warning' : bot.safetyLevel === 'CONSERVATIVE' ? 'success' : 'secondary'}>
                   {bot.safetyLevel}
                 </Badge>
@@ -288,6 +312,56 @@ export default async function BotDetailPage({
           </CardContent>
         </Card>
       </div>
+
+      {/* RL Learning Progress */}
+      {selfLearning && totalEpisodes > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Brain className="h-5 w-5" /> AI Learning Progress
+              <HelpTip text="Shows what the reinforcement learning engine has learned. Exploration rate decreases as the bot gains confidence. Best performing strategies are shown per dimension." />
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 sm:grid-cols-3 mb-4">
+              <div className="text-center p-3 rounded-lg bg-muted/50">
+                <p className="text-2xl font-bold">{totalEpisodes}</p>
+                <p className="text-xs text-muted-foreground">Learning Episodes</p>
+              </div>
+              <div className="text-center p-3 rounded-lg bg-muted/50">
+                <p className="text-2xl font-bold">{Math.round(avgEpsilon * 100)}%</p>
+                <p className="text-xs text-muted-foreground">Exploration Rate</p>
+              </div>
+              <div className="text-center p-3 rounded-lg bg-muted/50">
+                <p className="text-2xl font-bold">{rlConfigs.length}</p>
+                <p className="text-xs text-muted-foreground">Platforms Learning</p>
+              </div>
+            </div>
+            {Object.keys(bestArmsByDimension).length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Best Performing Strategies</p>
+                {Object.entries(bestArmsByDimension).map(([dim, data]) => {
+                  const dimLabel = RL_DIMENSION_LABELS[dim] || dim;
+                  let armLabel = data.arm;
+                  if (dim === 'TIME_SLOT') armLabel = `${data.arm}:00`;
+                  if (dim === 'CONTENT_TYPE') armLabel = CONTENT_TYPES.find(c => c.value === data.arm)?.label || data.arm;
+                  if (dim === 'TONE_STYLE') armLabel = TONE_STYLES.find(t => t.value === data.arm)?.label || data.arm;
+                  if (dim === 'HASHTAG_PATTERN') armLabel = HASHTAG_PATTERNS.find(h => h.value === data.arm)?.label || data.arm;
+                  return (
+                    <div key={dim} className="flex items-center justify-between py-1.5 border-b last:border-0">
+                      <span className="text-sm text-muted-foreground">{dimLabel}</span>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline">{armLabel}</Badge>
+                        <span className="text-xs text-muted-foreground">({data.pulls} tests, score: {data.reward})</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Connected Platforms */}
       <Card>
