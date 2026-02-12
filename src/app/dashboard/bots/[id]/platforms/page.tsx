@@ -122,6 +122,7 @@ const platformConfigs: Record<string, {
   THREADS: {
     name: 'Threads',
     category: 'social',
+    oauthSupported: !!process.env.THREADS_APP_ID,
     fields: [
       { key: 'accessToken', label: 'Access Token', placeholder: 'Threads API access token', helpText: 'Access token from the Meta Developer Portal with threads_basic and threads_content_publish permissions.' },
     ],
@@ -131,12 +132,13 @@ const platformConfigs: Record<string, {
   PINTEREST: {
     name: 'Pinterest',
     category: 'social',
+    oauthSupported: !!process.env.PINTEREST_APP_ID,
     fields: [
       { key: 'accessToken', label: 'Access Token', placeholder: 'Pinterest API access token', helpText: 'OAuth token from the Pinterest Developer Portal with pins:read and pins:write scopes.' },
       { key: 'boardId', label: 'Board ID', placeholder: 'Target board ID', optional: true, helpText: 'The board to pin to. Find it in the board URL. Leave blank for the default board.' },
     ],
     algTip: 'Vertical images (2:3) perform best. Keywords in description are critical for SEO.',
-    docsUrl: 'https://developers.pinterest.com/docs/getting-started/',
+    docsUrl: 'https://developers.pinterest.com/docs/getting-started/set-up-authentication-and-authorization/',
   },
   REDDIT: {
     name: 'Reddit',
@@ -171,12 +173,13 @@ const platformConfigs: Record<string, {
   YOUTUBE: {
     name: 'YouTube',
     category: 'social',
+    oauthSupported: !!process.env.GOOGLE_CLIENT_ID,
     fields: [
       { key: 'refreshToken', label: 'Refresh Token', placeholder: 'OAuth2 refresh token', helpText: 'OAuth 2.0 refresh token from Google Cloud Console with YouTube Data API v3 enabled.' },
       { key: 'channelId', label: 'Channel ID', placeholder: 'Your YouTube channel ID', helpText: 'Found in YouTube Studio > Settings > Channel > Advanced settings, starts with "UC".' },
     ],
     algTip: 'Community posts boost visibility. Shorts algorithm favors watch completion.',
-    docsUrl: 'https://developers.google.com/youtube/v3/getting-started',
+    docsUrl: 'https://developers.google.com/youtube/v3/guides/auth/server-side-web-apps',
   },
   NOSTR: {
     name: 'Nostr',
@@ -329,9 +332,11 @@ export default async function BotPlatformsPage({ params, searchParams }: {
                 const connectedViaOAuth = connConfig?.connectedVia === 'oauth';
                 // Build a display label for the connected account
                 const oauthLabel = connectedViaOAuth
-                  ? connConfig?.username ? `@${connConfig.username}` // Twitter
+                  ? connConfig?.username ? `@${connConfig.username}` // Twitter, Pinterest
                   : connConfig?.igUsername ? `@${connConfig.igUsername}` // Instagram
+                  : connConfig?.threadsUsername ? `@${connConfig.threadsUsername}` // Threads
                   : connConfig?.tiktokUsername ? `@${connConfig.tiktokUsername}` // TikTok
+                  : connConfig?.channelName ? `${connConfig.channelName}` // YouTube
                   : connConfig?.profileName ? `${connConfig.profileName}` // LinkedIn
                   : connConfig?.pageName ? `Page: ${connConfig.pageName}` // Facebook
                   : connConfig?.displayName ? `${connConfig.displayName}` // TikTok fallback
