@@ -21,10 +21,12 @@ const platformConfigs: Record<string, {
   fields: { key: string; label: string; placeholder: string; optional?: boolean; helpText?: string }[];
   algTip: string;
   docsUrl?: string;
+  oauthSupported?: boolean;
 }> = {
   FACEBOOK: {
     name: 'Facebook',
     category: 'social',
+    oauthSupported: !!process.env.FACEBOOK_APP_ID,
     fields: [
       { key: 'pageId', label: 'Page ID', placeholder: 'Your Facebook Page ID', helpText: 'Found in your Facebook Page\'s About section or Page Settings under "Page ID".' },
       { key: 'accessToken', label: 'Page Access Token', placeholder: 'Permanent page access token', helpText: 'A long-lived token generated via the Meta Graph API Explorer with pages_manage_posts permission.' },
@@ -272,7 +274,7 @@ export default async function BotPlatformsPage({ params, searchParams }: {
             <Info className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
             <div className="text-sm space-y-1">
               <p className="font-medium text-blue-900">How platform connections work</p>
-              <p className="text-blue-700">Enter your API credentials for each platform. Your credentials are encrypted with AES-256-GCM and stored securely. The bot uses these to post content, reply to comments, and track engagement on your behalf.</p>
+              <p className="text-blue-700">Some platforms support <strong>one-click OAuth</strong> — just click &quot;Connect&quot; and authorize. For others, enter your API credentials manually. All credentials are encrypted with AES-256-GCM and stored securely. The bot uses these to post content, reply to comments, and track engagement on your behalf.</p>
             </div>
           </div>
         </CardContent>
@@ -318,42 +320,94 @@ export default async function BotPlatformsPage({ params, searchParams }: {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {platforms.map(([key, config]) => {
                 const isConnected = connectedPlatforms.has(key as any);
+                const conn = bot.platformConns.find((p) => p.platform === key);
+                const connectedViaOAuth = conn?.config && typeof conn.config === 'object' && 'connectedVia' in (conn.config as Record<string, unknown>) && (conn.config as Record<string, unknown>).connectedVia === 'oauth';
+                const pageName = conn?.config && typeof conn.config === 'object' && 'pageName' in (conn.config as Record<string, unknown>) ? (conn.config as Record<string, unknown>).pageName as string : null;
+
                 return (
                   <Card key={key} className={isConnected ? 'border-green-300 bg-green-50/30' : ''}>
-                    <form action={handleAddPlatform}>
-                      <input type="hidden" name="platform" value={key} />
-                      <CardHeader className="pb-2">
-                        <div className="flex items-center justify-between">
-                          <CardTitle className="text-base">{config.name}</CardTitle>
-                          {isConnected && <Badge variant="success" className="text-xs">Connected</Badge>}
-                        </div>
-                        <p className="text-xs text-blue-600 dark:text-blue-400">{config.algTip}</p>
-                      </CardHeader>
-                      <CardContent className="space-y-2">
-                        {config.fields.map((field) => (
-                          <div key={field.key} className="space-y-1">
-                            <div className="flex items-center gap-1">
-                              <Label className="text-xs">{field.label}{field.optional ? '' : ' *'}</Label>
-                              {field.helpText && <HelpTip text={field.helpText} side="right" />}
-                            </div>
-                            <Input
-                              name={field.key}
-                              type="password"
-                              placeholder={field.placeholder}
-                              className="text-sm h-8"
-                            />
-                          </div>
-                        ))}
-                        {config.docsUrl && (
-                          <a href={config.docsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:underline mt-1">
-                            <ExternalLink className="h-3 w-3" /> How to get these credentials
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-base">{config.name}</CardTitle>
+                        {isConnected && <Badge variant="success" className="text-xs">Connected</Badge>}
+                      </div>
+                      <p className="text-xs text-blue-600 dark:text-blue-400">{config.algTip}</p>
+                      {isConnected && connectedViaOAuth && pageName && (
+                        <p className="text-xs text-green-700">Page: {pageName}</p>
+                      )}
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      {/* OAuth one-click connect (Facebook, and future platforms) */}
+                      {config.oauthSupported && (
+                        <div className="space-y-2">
+                          <a href={`/api/oauth/${key.toLowerCase()}?botId=${id}`}>
+                            <Button type="button" size="sm" variant={isConnected ? 'outline' : 'default'} className="w-full">
+                              {isConnected ? `Reconnect with ${config.name}` : `Connect with ${config.name}`}
+                            </Button>
                           </a>
-                        )}
-                        <Button type="submit" size="sm" variant={isConnected ? 'outline' : 'default'} className="w-full mt-1">
-                          {isConnected ? 'Update Credentials' : 'Connect'}
-                        </Button>
-                      </CardContent>
-                    </form>
+                          <p className="text-xs text-muted-foreground text-center">One-click — no API keys needed</p>
+                          <details className="text-xs">
+                            <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                              Or enter credentials manually
+                            </summary>
+                            <form action={handleAddPlatform} className="space-y-2 mt-2">
+                              <input type="hidden" name="platform" value={key} />
+                              {config.fields.map((field) => (
+                                <div key={field.key} className="space-y-1">
+                                  <div className="flex items-center gap-1">
+                                    <Label className="text-xs">{field.label}{field.optional ? '' : ' *'}</Label>
+                                    {field.helpText && <HelpTip text={field.helpText} side="right" />}
+                                  </div>
+                                  <Input
+                                    name={field.key}
+                                    type="password"
+                                    placeholder={field.placeholder}
+                                    className="text-sm h-8"
+                                  />
+                                </div>
+                              ))}
+                              {config.docsUrl && (
+                                <a href={config.docsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:underline mt-1">
+                                  <ExternalLink className="h-3 w-3" /> How to get these credentials
+                                </a>
+                              )}
+                              <Button type="submit" size="sm" variant="outline" className="w-full mt-1">
+                                Save Manual Credentials
+                              </Button>
+                            </form>
+                          </details>
+                        </div>
+                      )}
+
+                      {/* Manual-only platforms (no OAuth) */}
+                      {!config.oauthSupported && (
+                        <form action={handleAddPlatform} className="space-y-2">
+                          <input type="hidden" name="platform" value={key} />
+                          {config.fields.map((field) => (
+                            <div key={field.key} className="space-y-1">
+                              <div className="flex items-center gap-1">
+                                <Label className="text-xs">{field.label}{field.optional ? '' : ' *'}</Label>
+                                {field.helpText && <HelpTip text={field.helpText} side="right" />}
+                              </div>
+                              <Input
+                                name={field.key}
+                                type="password"
+                                placeholder={field.placeholder}
+                                className="text-sm h-8"
+                              />
+                            </div>
+                          ))}
+                          {config.docsUrl && (
+                            <a href={config.docsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:underline mt-1">
+                              <ExternalLink className="h-3 w-3" /> How to get these credentials
+                            </a>
+                          )}
+                          <Button type="submit" size="sm" variant={isConnected ? 'outline' : 'default'} className="w-full mt-1">
+                            {isConnected ? 'Update Credentials' : 'Connect'}
+                          </Button>
+                        </form>
+                      )}
+                    </CardContent>
                   </Card>
                 );
               })}
