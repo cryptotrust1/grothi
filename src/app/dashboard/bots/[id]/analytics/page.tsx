@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Heart, MessageSquare, Share2, TrendingUp, Activity, DollarSign, BarChart3 } from 'lucide-react';
 import { EngagementChart, ActivityChart, CreditsChart } from '@/components/dashboard/analytics-charts';
 import { BotNav } from '@/components/dashboard/bot-nav';
+import { HelpTip } from '@/components/ui/help-tip';
 
 export const metadata: Metadata = { title: 'Bot Analytics', robots: { index: false } };
 
@@ -95,7 +96,7 @@ export default async function BotAnalyticsPage({ params }: { params: Promise<{ i
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Engagement</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1">Engagement <HelpTip text="Engagement score = Likes (1pt) + Comments (3pt) + Shares (5pt) per action. Higher score means your content generates more interaction." /></CardTitle>
             <Activity className="h-4 w-4 text-purple-500" />
           </CardHeader>
           <CardContent>
@@ -160,7 +161,9 @@ export default async function BotAnalyticsPage({ params }: { params: Promise<{ i
 
       {/* Platform Performance */}
       <Card>
-        <CardHeader><CardTitle>Platform Performance</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">Platform Performance <HelpTip text="Breakdown of bot activity across all connected platforms. The 'Score' column shows engagement per action - use it to identify your best-performing platforms." /></CardTitle>
+        </CardHeader>
         <CardContent>
           {platformBreakdown.length === 0 ? (
             <p className="text-center py-8 text-muted-foreground">No platform data yet.</p>

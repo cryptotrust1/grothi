@@ -6,8 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Palette, Sparkles, Type, Image, Layout, Smile } from 'lucide-react';
+import { Palette, Sparkles, Type, Image, Layout, Smile, Info } from 'lucide-react';
 import { BotNav } from '@/components/dashboard/bot-nav';
+import { HelpTip } from '@/components/ui/help-tip';
 
 export const metadata: Metadata = { title: 'Image Style Preferences', robots: { index: false } };
 
@@ -132,6 +133,19 @@ export default async function ImageStylePage({
       {sp.success && <div className="rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-800">{sp.success}</div>}
       {sp.error && <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">{sp.error}</div>}
 
+      {/* How it works */}
+      <Card className="bg-blue-50/50 border-blue-200">
+        <CardContent className="pt-6">
+          <div className="flex gap-3">
+            <Info className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
+            <div className="text-sm space-y-1">
+              <p className="font-medium text-blue-900">How image style preferences work</p>
+              <p className="text-blue-700">These settings guide the AI when generating images and selecting visuals for your posts. The AI uses your brand colors, visual style, and tone to create on-brand content across all platforms.</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <form action={handleSavePreferences}>
         {/* Brand Colors */}
         <Card>
@@ -219,7 +233,7 @@ export default async function ImageStylePage({
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label>Primary Tone</Label>
+              <Label className="flex items-center gap-1">Primary Tone <HelpTip text="The emotional feel of your visual content. This affects color intensity, image composition, and overall mood of AI-generated visuals." /></Label>
               <select name="tone" defaultValue={tone} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
                 {TONES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
@@ -251,13 +265,13 @@ export default async function ImageStylePage({
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>Logo Placement</Label>
+                <Label className="flex items-center gap-1">Logo Placement <HelpTip text="Where your logo or watermark appears on generated images. Choose 'No Logo' if you don't want branding on visuals." /></Label>
                 <select name="logoPlacement" defaultValue={logoPlacement} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
                   {LOGO_PLACEMENT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </div>
               <div className="space-y-2">
-                <Label>Font Style</Label>
+                <Label className="flex items-center gap-1">Font Style <HelpTip text="The typeface style used for text overlays on generated images. Should match your brand's typography." /></Label>
                 <select name="fontStyle" defaultValue={fontStyle} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
                   <option value="modern">Modern Sans-serif</option>
                   <option value="classic">Classic Serif</option>

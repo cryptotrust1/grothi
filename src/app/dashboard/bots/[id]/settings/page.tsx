@@ -11,39 +11,11 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Rss, Clock, Brain, Trash2, Target, Key, BarChart3, Link2 } from 'lucide-react';
 import { BotNav } from '@/components/dashboard/bot-nav';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { HelpTip } from '@/components/ui/help-tip';
+import { SCHEDULE_PRESETS, TIMEZONES, CONTENT_TYPES } from '@/lib/constants';
 
 export const metadata: Metadata = { title: 'Bot Settings', robots: { index: false } };
-
-const SCHEDULE_PRESETS = [
-  { value: '', label: 'Custom' },
-  { value: '0 */1 * * *', label: 'Every hour' },
-  { value: '0 */2 * * *', label: 'Every 2 hours' },
-  { value: '0 */3 * * *', label: 'Every 3 hours' },
-  { value: '0 */4 * * *', label: 'Every 4 hours' },
-  { value: '0 */6 * * *', label: 'Every 6 hours' },
-  { value: '0 */8 * * *', label: 'Every 8 hours' },
-  { value: '0 */12 * * *', label: 'Every 12 hours' },
-  { value: '0 9 * * *', label: 'Once daily (9 AM)' },
-  { value: '0 9,18 * * *', label: 'Twice daily (9 AM, 6 PM)' },
-  { value: '0 9,13,18 * * *', label: '3x daily (9 AM, 1 PM, 6 PM)' },
-];
-
-const TIMEZONES = [
-  'UTC', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
-  'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Prague', 'Europe/Bratislava',
-  'Europe/Helsinki', 'Europe/Moscow', 'Asia/Tokyo', 'Asia/Shanghai', 'Asia/Singapore',
-  'Australia/Sydney', 'Pacific/Auckland',
-];
-
-const CONTENT_TYPES = [
-  { value: 'educational', label: 'Educational Posts', desc: 'Tips, tutorials, how-tos' },
-  { value: 'promotional', label: 'Promotional', desc: 'Product features, offers' },
-  { value: 'engagement', label: 'Engagement', desc: 'Questions, polls, discussions' },
-  { value: 'news', label: 'News & Updates', desc: 'Industry news, trending topics' },
-  { value: 'curated', label: 'Curated Content', desc: 'Shared articles, RSS feeds' },
-  { value: 'storytelling', label: 'Brand Stories', desc: 'Behind-the-scenes, case studies' },
-  { value: 'ugc', label: 'UGC Prompts', desc: 'Encourage user-generated content' },
-];
 
 const GOALS = [
   { value: 'TRAFFIC', label: 'Drive Traffic' },
@@ -162,17 +134,29 @@ export default async function BotSettingsPage({
 
       {/* Bot Status */}
       <Card>
-        <CardHeader><CardTitle>Bot Status</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Bot Status</CardTitle>
+          <CardDescription>Pause or activate the bot to control automated actions</CardDescription>
+        </CardHeader>
         <CardContent className="flex items-center justify-between">
           <div>
             <span className="font-medium">Current status: </span>
             <Badge variant={bot.status === 'ACTIVE' ? 'success' : 'secondary'}>{bot.status}</Badge>
           </div>
-          <form action={handleToggleStatus}>
-            <Button variant={bot.status === 'ACTIVE' ? 'outline' : 'default'} size="sm">
-              {bot.status === 'ACTIVE' ? 'Pause Bot' : 'Activate Bot'}
-            </Button>
-          </form>
+          <ConfirmDialog
+            title={bot.status === 'ACTIVE' ? 'Pause Bot' : 'Activate Bot'}
+            description={bot.status === 'ACTIVE'
+              ? 'Pausing the bot will stop all automated posting, replies, and engagement actions. You can reactivate it at any time.'
+              : 'Activating the bot will resume automated posting, replies, and engagement actions based on your configured schedule.'}
+            confirmLabel={bot.status === 'ACTIVE' ? 'Pause Bot' : 'Activate Bot'}
+            variant={bot.status === 'ACTIVE' ? 'destructive' : 'default'}
+            formAction={handleToggleStatus}
+            trigger={
+              <Button variant={bot.status === 'ACTIVE' ? 'outline' : 'default'} size="sm">
+                {bot.status === 'ACTIVE' ? 'Pause Bot' : 'Activate Bot'}
+              </Button>
+            }
+          />
         </CardContent>
       </Card>
 
@@ -243,12 +227,18 @@ export default async function BotSettingsPage({
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>UTM Source</Label>
+                <div className="flex items-center gap-1.5">
+                  <Label>UTM Source</Label>
+                  <HelpTip text="Identifies the traffic source in Google Analytics. Typically set to your tool name (e.g. 'grothi'). Appears as ?utm_source= in all links the bot shares." />
+                </div>
                 <Input name="utmSource" defaultValue={bot.utmSource || 'grothi'} placeholder="grothi" />
                 <p className="text-xs text-muted-foreground">Appears as utm_source in tracking links</p>
               </div>
               <div className="space-y-2">
-                <Label>UTM Medium</Label>
+                <div className="flex items-center gap-1.5">
+                  <Label>UTM Medium</Label>
+                  <HelpTip text="Identifies the marketing medium in Google Analytics. Typically 'social' for social media posts. Appears as ?utm_medium= in all links the bot shares." />
+                </div>
                 <Input name="utmMedium" defaultValue={bot.utmMedium || 'social'} placeholder="social" />
                 <p className="text-xs text-muted-foreground">Appears as utm_medium in tracking links</p>
               </div>
@@ -264,7 +254,10 @@ export default async function BotSettingsPage({
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label>GA4 Measurement ID</Label>
+              <div className="flex items-center gap-1.5">
+                <Label>GA4 Measurement ID</Label>
+                <HelpTip text="Found in Google Analytics under Admin > Data Streams. Starts with 'G-' followed by alphanumeric characters. Enables the bot to learn which content drives the most conversions." />
+              </div>
               <Input name="gaPropertyId" defaultValue={bot.gaPropertyId || ''} placeholder="G-XXXXXXXXXX" />
               <p className="text-xs text-muted-foreground">
                 Your Google Analytics 4 Measurement ID. The bot uses this data to learn which content drives the most traffic and conversions to your site.
@@ -303,7 +296,10 @@ export default async function BotSettingsPage({
                 </select>
               </div>
               <div className="space-y-2">
-                <Label>Safety Level</Label>
+                <div className="flex items-center gap-1.5">
+                  <Label>Safety Level</Label>
+                  <HelpTip text="Controls how aggressively the bot engages. Conservative avoids risky content and limits frequency. Moderate balances reach with safety. Aggressive maximizes visibility but may trigger spam filters on some platforms." />
+                </div>
                 <select name="safetyLevel" defaultValue={bot.safetyLevel} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
                   <option value="CONSERVATIVE">Conservative - Safe</option>
                   <option value="MODERATE">Moderate - Balanced</option>
@@ -314,7 +310,10 @@ export default async function BotSettingsPage({
             <Separator />
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>Max Posts / Day</Label>
+                <div className="flex items-center gap-1.5">
+                  <Label>Max Posts / Day</Label>
+                  <HelpTip text="The maximum number of new posts the bot can create per day across all connected platforms. Higher values consume more credits. Recommended: 5-15 for most use cases." />
+                </div>
                 <Input name="maxPostsPerDay" type="number" min={1} max={50} defaultValue={maxPostsPerDay} />
               </div>
               <div className="space-y-2">
@@ -350,7 +349,7 @@ export default async function BotSettingsPage({
             <label className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/50">
               <input type="checkbox" name="selfLearning" defaultChecked={selfLearning} className="mt-0.5 h-4 w-4 rounded border-input" />
               <div>
-                <p className="text-sm font-medium">Content Reactor - Self-Learning AI</p>
+                <p className="text-sm font-medium flex items-center gap-1.5">Content Reactor - Self-Learning AI <HelpTip text="When enabled, the bot uses reinforcement learning to continuously improve its content strategy. It analyzes engagement metrics from each post and automatically adjusts timing, tone, hashtags, and content types to maximize performance on each platform." /></p>
                 <p className="text-xs text-muted-foreground">
                   Uses reinforcement learning (epsilon-greedy exploration) to optimize content. Learns from engagement
                   metrics: likes (1pt), comments (3pt), shares (5pt). Adapts posting times, content types, hashtags,
@@ -391,6 +390,7 @@ export default async function BotSettingsPage({
       <Card className="border-destructive/50">
         <CardHeader>
           <CardTitle className="text-destructive flex items-center gap-2"><Trash2 className="h-5 w-5" /> Danger Zone</CardTitle>
+          <CardDescription>Irreversible actions that permanently affect your bot</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex items-center justify-between">
@@ -398,9 +398,14 @@ export default async function BotSettingsPage({
               <p className="font-medium">Delete this bot</p>
               <p className="text-sm text-muted-foreground">Permanently delete this bot and all its data.</p>
             </div>
-            <form action={handleDelete}>
-              <Button variant="destructive" size="sm">Delete Bot</Button>
-            </form>
+            <ConfirmDialog
+              title="Delete Bot"
+              description="This will permanently delete this bot and all its data including platform connections, activity history, media, and scheduled posts. This action cannot be undone."
+              confirmLabel="Delete Bot"
+              variant="destructive"
+              formAction={handleDelete}
+              trigger={<Button variant="destructive" size="sm">Delete Bot</Button>}
+            />
           </div>
         </CardContent>
       </Card>

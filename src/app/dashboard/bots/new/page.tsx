@@ -7,7 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Bot, Target, Key } from 'lucide-react';
+import { Bot, Target, Key, ChevronRight } from 'lucide-react';
+import { HelpTip } from '@/components/ui/help-tip';
 
 export const metadata: Metadata = {
   title: 'Create Bot',
@@ -87,9 +88,19 @@ export default async function NewBotPage({
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
-      <div>
+      <div className="space-y-3">
         <h1 className="text-2xl font-bold">Create New Bot</h1>
         <p className="text-muted-foreground">Set up your AI marketing bot in a few steps.</p>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">1</span>
+          <span className="font-medium text-foreground">Create Bot</span>
+          <ChevronRight className="h-4 w-4" />
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-muted-foreground text-xs font-bold">2</span>
+          <span>Add Platforms</span>
+          <ChevronRight className="h-4 w-4" />
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-muted-foreground text-xs font-bold">3</span>
+          <span>Configure Style</span>
+        </div>
       </div>
 
       <Card>
@@ -114,17 +125,17 @@ export default async function NewBotPage({
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="name">Bot Name *</Label>
+                <Label htmlFor="name">Bot Name * <HelpTip text="Give your bot a unique name to identify it in your dashboard. This is for your reference only and won't be shown publicly." /></Label>
                 <Input id="name" name="name" placeholder="e.g., My Brand Bot" required />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="brandName">Brand Name *</Label>
+                <Label htmlFor="brandName">Brand Name * <HelpTip text="The company or product name your bot will promote. This helps the AI stay on-brand in all content." /></Label>
                 <Input id="brandName" name="brandName" placeholder="e.g., AceChange.io" required />
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="description">Description</Label>
+              <Label htmlFor="description">Description <HelpTip text="A short internal note about what this bot does. Helps you remember its purpose when you have multiple bots." /></Label>
               <Input id="description" name="description" placeholder="Short description of what this bot does" />
             </div>
 
@@ -132,7 +143,7 @@ export default async function NewBotPage({
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <Target className="h-4 w-4" />
-                <Label>Primary Goal *</Label>
+                <Label>Primary Goal * <HelpTip text="This determines how the AI optimizes content. For example, 'Drive Traffic' focuses on link sharing, while 'Boost Engagement' focuses on conversations." /></Label>
               </div>
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {GOALS.map((g) => (
@@ -154,7 +165,7 @@ export default async function NewBotPage({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="targetUrl">Target Website URL</Label>
+              <Label htmlFor="targetUrl">Target Website URL <HelpTip text="The main website your bot will drive traffic to. All shared links will include UTM parameters for analytics tracking." /></Label>
               <Input id="targetUrl" name="targetUrl" type="url" placeholder="https://your-website.com" />
               <p className="text-xs text-muted-foreground">The website your bot will drive traffic to. UTM tracking links will be auto-generated.</p>
             </div>
@@ -163,7 +174,7 @@ export default async function NewBotPage({
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <Key className="h-4 w-4" />
-                <Label htmlFor="keywords">Keywords</Label>
+                <Label htmlFor="keywords">Keywords <HelpTip text="The bot uses these keywords to find relevant conversations to join, generate hashtags, and optimize content for search." /></Label>
               </div>
               <Input
                 id="keywords"
@@ -174,7 +185,7 @@ export default async function NewBotPage({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="instructions">Bot Instructions *</Label>
+              <Label htmlFor="instructions">Bot Instructions * <HelpTip text="This is the most important field - it's the AI's 'personality'. Be specific about tone, topics, rules, and any restrictions." /></Label>
               <textarea
                 id="instructions"
                 name="instructions"
@@ -188,7 +199,7 @@ export default async function NewBotPage({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="brandKnowledge">Brand Knowledge Base</Label>
+              <Label htmlFor="brandKnowledge">Brand Knowledge Base <HelpTip text="Add key facts about your brand here. The AI will reference this information to ensure accuracy in all content." /></Label>
               <textarea
                 id="brandKnowledge"
                 name="brandKnowledge"
@@ -198,7 +209,7 @@ export default async function NewBotPage({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="safetyLevel">Safety Level</Label>
+              <Label htmlFor="safetyLevel">Safety Level <HelpTip text="Controls how frequently and aggressively the bot posts. Conservative is safest for new bots." /></Label>
               <select
                 id="safetyLevel"
                 name="safetyLevel"

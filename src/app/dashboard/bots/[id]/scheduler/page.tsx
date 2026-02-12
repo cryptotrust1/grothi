@@ -12,6 +12,7 @@ import {
   ChevronLeft, ChevronRight, Film,
 } from 'lucide-react';
 import { BotNav } from '@/components/dashboard/bot-nav';
+import { HelpTip } from '@/components/ui/help-tip';
 
 export const metadata: Metadata = { title: 'Post Scheduler', robots: { index: false } };
 
@@ -219,6 +220,11 @@ export default async function SchedulerPage({
                 className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 required
               />
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">
+                  Character limits: X/Twitter 280 · Mastodon 500 · LinkedIn 3,000 · Instagram 2,200
+                </p>
+              </div>
             </div>
 
             {/* Media Selection */}
@@ -236,7 +242,10 @@ export default async function SchedulerPage({
 
             {/* Platform Selection */}
             <div className="space-y-2">
-              <label className="text-sm font-medium">Target Platforms</label>
+              <label className="text-sm font-medium flex items-center gap-1">
+                Target Platforms
+                <HelpTip text="Select which connected platforms should receive this post. Each platform will get an optimized version." />
+              </label>
               <div className="flex flex-wrap gap-2">
                 {connectedPlatforms.length > 0 ? (
                   connectedPlatforms.map((p) => (
@@ -256,7 +265,10 @@ export default async function SchedulerPage({
             {/* Scheduling */}
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <label className="text-sm font-medium">Schedule For</label>
+                <label className="text-sm font-medium flex items-center gap-1">
+                  Schedule For
+                  <HelpTip text="Set a specific date and time to publish. Leave empty to save as a draft that you can schedule later." />
+                </label>
                 <input
                   type="datetime-local"
                   name="scheduledAt"
@@ -265,7 +277,10 @@ export default async function SchedulerPage({
                 <p className="text-xs text-muted-foreground">Leave empty to save as draft</p>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Auto-Schedule</label>
+                <label className="text-sm font-medium flex items-center gap-1">
+                  Auto-Schedule
+                  <HelpTip text="When enabled, the AI analyzes the best posting time for each platform based on when your audience is most active." />
+                </label>
                 <label className="flex items-center gap-2 h-10 cursor-pointer">
                   <input type="checkbox" name="autoSchedule" className="h-4 w-4" />
                   <span className="text-sm">Let AI pick the best time</span>
