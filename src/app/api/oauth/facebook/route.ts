@@ -4,7 +4,7 @@ import { SignJWT } from 'jose';
 
 const FB_GRAPH_VERSION = 'v21.0';
 const JWT_SECRET = new TextEncoder().encode(
-  process.env.NEXTAUTH_SECRET || 'fallback-secret-change-me'
+  process.env.NEXTAUTH_SECRET!
 );
 
 /**

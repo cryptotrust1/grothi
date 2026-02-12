@@ -142,6 +142,23 @@ export const PLATFORM_IMAGE_SPECS: Record<string, {
     maxFileSize: '5MB',
     supportedFormats: ['JPEG', 'PNG'],
   },
+  NOSTR: {
+    name: 'Nostr',
+    formats: [
+      { label: 'Post Image', width: 1200, height: 675, aspect: '16:9', use: 'Standard note image' },
+    ],
+    maxFileSize: '5MB',
+    supportedFormats: ['JPEG', 'PNG', 'GIF', 'WebP'],
+  },
+  MOLTBOOK: {
+    name: 'Moltbook',
+    formats: [
+      { label: 'Post Image', width: 1200, height: 630, aspect: '1.91:1', use: 'Standard post' },
+      { label: 'Square Post', width: 1080, height: 1080, aspect: '1:1', use: 'Square format' },
+    ],
+    maxFileSize: '8MB',
+    supportedFormats: ['JPEG', 'PNG', 'GIF'],
+  },
 };
 
 // Optimal posting times by platform (in hours, UTC)
@@ -161,4 +178,6 @@ export const OPTIMAL_POSTING_TIMES: Record<string, { weekday: number[]; weekend:
   REDDIT: { weekday: [6, 8, 12], weekend: [8, 11] },
   MEDIUM: { weekday: [7, 10], weekend: [9] },
   DEVTO: { weekday: [8, 14], weekend: [10] },
+  NOSTR: { weekday: [9, 14, 20], weekend: [10, 16] },
+  MOLTBOOK: { weekday: [8, 12, 17], weekend: [10, 14] },
 };

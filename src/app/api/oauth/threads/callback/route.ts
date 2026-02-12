@@ -5,7 +5,7 @@ import { db } from '@/lib/db';
 import { encrypt } from '@/lib/encryption';
 
 const JWT_SECRET = new TextEncoder().encode(
-  process.env.NEXTAUTH_SECRET || 'fallback-secret-change-me'
+  process.env.NEXTAUTH_SECRET!
 );
 
 /**

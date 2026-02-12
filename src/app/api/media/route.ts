@@ -3,7 +3,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { randomUUID } from 'crypto';
 
 const UPLOAD_DIR = join(process.cwd(), 'data', 'uploads');
@@ -49,6 +49,13 @@ function validateMagicBytes(buffer: Buffer, mimeType: string): boolean {
     'video/mp4': [], // ftyp box at offset 4
     'video/webm': [[0x1A, 0x45, 0xDF, 0xA3]],
   };
+
+  // AVIF: also uses ftyp box like MP4 but with 'ftyp' at offset 4
+  if (mimeType === 'image/avif') {
+    if (buffer.length < 12) return false;
+    const ftyp = buffer.slice(4, 8).toString('ascii');
+    return ftyp === 'ftyp';
+  }
 
   // MP4 check: "ftyp" at offset 4
   if (mimeType === 'video/mp4' || mimeType === 'video/quicktime') {
@@ -119,8 +126,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Ensure upload directory exists
-    const botDir = join(UPLOAD_DIR, botId);
+    // Ensure upload directory exists - validate botId to prevent path traversal
+    const botDir = resolve(join(UPLOAD_DIR, botId));
+    if (!botDir.startsWith(resolve(UPLOAD_DIR))) {
+      return NextResponse.json({ error: 'Invalid bot ID' }, { status: 400 });
+    }
     if (!existsSync(botDir)) {
       await mkdir(botDir, { recursive: true });
     }
@@ -193,7 +203,7 @@ export async function POST(request: NextRequest) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Upload error:', message);
     return NextResponse.json(
-      { error: 'Upload failed: ' + message },
+      { error: 'Upload failed. Please try again.' },
       { status: 500 }
     );
   }

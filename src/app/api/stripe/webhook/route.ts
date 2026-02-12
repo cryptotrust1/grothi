@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getStripe } from '@/lib/stripe';
 import { addCredits } from '@/lib/credits';
+import { db } from '@/lib/db';
+
+const MAX_CREDITS_PER_TRANSACTION = 100000;
 
 export async function POST(req: NextRequest) {
   const body = await req.text();
@@ -25,14 +28,29 @@ export async function POST(req: NextRequest) {
     const userId = session.metadata?.userId;
     const credits = parseInt(session.metadata?.credits || '0', 10);
     const planId = session.metadata?.planId;
+    const paymentIntentId = session.payment_intent as string;
 
-    if (userId && credits > 0) {
+    if (isNaN(credits) || credits <= 0 || credits > MAX_CREDITS_PER_TRANSACTION) {
+      console.error(`[Stripe] Invalid credit amount: ${credits} for user ${userId}`);
+      return NextResponse.json({ received: true });
+    }
+
+    if (userId && paymentIntentId) {
+      // Idempotency check - prevent duplicate credit additions
+      const existing = await db.creditTransaction.findFirst({
+        where: { stripePaymentId: paymentIntentId },
+      });
+      if (existing) {
+        console.log(`[Stripe] Duplicate webhook for payment ${paymentIntentId}, skipping`);
+        return NextResponse.json({ received: true });
+      }
+
       await addCredits(
         userId,
         credits,
         'PURCHASE',
         `Purchased ${credits} credits (${planId} plan)`,
-        session.payment_intent as string
+        paymentIntentId
       );
 
       console.log(`[Stripe] Added ${credits} credits to user ${userId}`);

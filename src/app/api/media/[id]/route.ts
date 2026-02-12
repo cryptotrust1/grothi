@@ -3,7 +3,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 
 const UPLOAD_DIR = join(process.cwd(), 'data', 'uploads');
 
@@ -27,7 +27,12 @@ export async function GET(
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
-  const filePath = join(UPLOAD_DIR, media.filePath);
+  const filePath = resolve(join(UPLOAD_DIR, media.filePath));
+
+  // Prevent path traversal - ensure resolved path is within UPLOAD_DIR
+  if (!filePath.startsWith(resolve(UPLOAD_DIR))) {
+    return NextResponse.json({ error: 'Invalid file path' }, { status: 400 });
+  }
 
   if (!existsSync(filePath)) {
     return NextResponse.json({ error: 'File not found on disk' }, { status: 404 });
@@ -35,12 +40,19 @@ export async function GET(
 
   const buffer = await readFile(filePath);
 
+  // Use inline for images, attachment for other types to prevent XSS
+  const isImage = media.mimeType.startsWith('image/');
+  const disposition = isImage ? 'inline' : 'attachment';
+  const safeFilename = media.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+
   return new NextResponse(buffer, {
     headers: {
       'Content-Type': media.mimeType,
       'Content-Length': String(media.fileSize),
       'Cache-Control': 'private, max-age=86400',
-      'Content-Disposition': `inline; filename="${media.filename}"`,
+      'Content-Disposition': `${disposition}; filename="${safeFilename}"`,
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'",
     },
   });
 }

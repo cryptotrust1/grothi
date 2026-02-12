@@ -9,6 +9,8 @@ const DEFAULT_ACTION_COSTS: Record<string, number> = {
   BOOST: 1,
   SCAN_FEEDS: 2,
   COLLECT_METRICS: 1,
+  SAFETY_BLOCK: 0,
+  BAN_DETECTED: 0,
 };
 
 export async function getActionCost(actionType: ActionType): Promise<number> {

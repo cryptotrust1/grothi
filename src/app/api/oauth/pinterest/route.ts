@@ -3,7 +3,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { SignJWT } from 'jose';
 
 const JWT_SECRET = new TextEncoder().encode(
-  process.env.NEXTAUTH_SECRET || 'fallback-secret-change-me'
+  process.env.NEXTAUTH_SECRET!
 );
 
 /**
