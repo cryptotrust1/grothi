@@ -37,6 +37,7 @@ const platformConfigs: Record<string, {
   INSTAGRAM: {
     name: 'Instagram',
     category: 'social',
+    oauthSupported: !!process.env.FACEBOOK_APP_ID,
     fields: [
       { key: 'accountId', label: 'Business Account ID', placeholder: 'Instagram Business Account ID', helpText: 'Your Instagram Business or Creator account ID from the Meta Business Suite.' },
       { key: 'accessToken', label: 'Access Token', placeholder: 'Meta Graph API access token', helpText: 'Generated via the Meta Graph API Explorer with instagram_basic and instagram_content_publish permissions.' },
@@ -47,6 +48,7 @@ const platformConfigs: Record<string, {
   TWITTER: {
     name: 'X (Twitter)',
     category: 'social',
+    oauthSupported: !!process.env.TWITTER_CLIENT_ID,
     fields: [
       { key: 'apiKey', label: 'API Key', placeholder: 'Consumer API key', helpText: 'The API Key (Consumer Key) from your X Developer Portal app settings.' },
       { key: 'apiSecret', label: 'API Secret', placeholder: 'Consumer API secret', helpText: 'The API Secret (Consumer Secret) paired with your API Key.' },
@@ -54,7 +56,7 @@ const platformConfigs: Record<string, {
       { key: 'accessSecret', label: 'Access Secret', placeholder: 'OAuth access token secret', helpText: 'The secret paired with your OAuth access token.' },
     ],
     algTip: 'Replies and quote tweets drive more impressions than standalone posts.',
-    docsUrl: 'https://developer.x.com/en/docs/authentication/oauth-1-0a',
+    docsUrl: 'https://developer.x.com/en/docs/authentication/oauth-2-0/authorization-code',
   },
   LINKEDIN: {
     name: 'LinkedIn',
@@ -321,8 +323,15 @@ export default async function BotPlatformsPage({ params, searchParams }: {
               {platforms.map(([key, config]) => {
                 const isConnected = connectedPlatforms.has(key as any);
                 const conn = bot.platformConns.find((p) => p.platform === key);
-                const connectedViaOAuth = conn?.config && typeof conn.config === 'object' && 'connectedVia' in (conn.config as Record<string, unknown>) && (conn.config as Record<string, unknown>).connectedVia === 'oauth';
-                const pageName = conn?.config && typeof conn.config === 'object' && 'pageName' in (conn.config as Record<string, unknown>) ? (conn.config as Record<string, unknown>).pageName as string : null;
+                const connConfig = conn?.config && typeof conn.config === 'object' ? conn.config as Record<string, unknown> : null;
+                const connectedViaOAuth = connConfig?.connectedVia === 'oauth';
+                // Build a display label for the connected account
+                const oauthLabel = connectedViaOAuth
+                  ? connConfig?.username ? `@${connConfig.username}` // Twitter
+                  : connConfig?.igUsername ? `@${connConfig.igUsername}` // Instagram
+                  : connConfig?.pageName ? `Page: ${connConfig.pageName}` // Facebook
+                  : null
+                  : null;
 
                 return (
                   <Card key={key} className={isConnected ? 'border-green-300 bg-green-50/30' : ''}>
@@ -332,8 +341,8 @@ export default async function BotPlatformsPage({ params, searchParams }: {
                         {isConnected && <Badge variant="success" className="text-xs">Connected</Badge>}
                       </div>
                       <p className="text-xs text-blue-600 dark:text-blue-400">{config.algTip}</p>
-                      {isConnected && connectedViaOAuth && pageName && (
-                        <p className="text-xs text-green-700">Page: {pageName}</p>
+                      {isConnected && oauthLabel && (
+                        <p className="text-xs text-green-700">{oauthLabel}</p>
                       )}
                     </CardHeader>
                     <CardContent className="space-y-2">
