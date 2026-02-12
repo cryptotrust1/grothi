@@ -7,7 +7,7 @@ import { encrypt } from '@/lib/encryption';
 const FB_GRAPH_VERSION = 'v21.0';
 const GRAPH_BASE = `https://graph.facebook.com/${FB_GRAPH_VERSION}`;
 const JWT_SECRET = new TextEncoder().encode(
-  process.env.NEXTAUTH_SECRET || 'fallback-secret-change-me'
+  process.env.NEXTAUTH_SECRET!
 );
 
 interface IGAccount {

@@ -5,9 +5,15 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { addCredits, WELCOME_BONUS_CREDITS } from './credits';
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.NEXTAUTH_SECRET || 'fallback-secret-change-me'
-);
+function getJwtSecret() {
+  const secret = process.env.NEXTAUTH_SECRET;
+  if (!secret) {
+    throw new Error('NEXTAUTH_SECRET environment variable is required');
+  }
+  return new TextEncoder().encode(secret);
+}
+
+const JWT_SECRET = getJwtSecret();
 
 const SESSION_DURATION = 30 * 24 * 60 * 60 * 1000; // 30 days
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { OPTIMAL_POSTING_TIMES } from '@/lib/platform-specs';
+import { ALL_PLATFORMS } from '@/lib/constants';
 
 // GET: List scheduled posts for a bot
 export async function GET(request: NextRequest) {
@@ -70,6 +71,11 @@ export async function POST(request: NextRequest) {
     if (selectedPlatforms.length === 0) {
       return NextResponse.json({ error: 'At least one platform required' }, { status: 400 });
     }
+    const validPlatforms = new Set(ALL_PLATFORMS as readonly string[]);
+    const invalidPlatforms = selectedPlatforms.filter((p: string) => !validPlatforms.has(p));
+    if (invalidPlatforms.length > 0) {
+      return NextResponse.json({ error: `Invalid platforms: ${invalidPlatforms.join(', ')}` }, { status: 400 });
+    }
 
     // If autoSchedule, determine the next optimal time
     let finalScheduledAt: Date | null = null;
@@ -77,6 +83,9 @@ export async function POST(request: NextRequest) {
       finalScheduledAt = getNextOptimalTime(selectedPlatforms, bot.timezone);
     } else if (scheduledAt) {
       finalScheduledAt = new Date(scheduledAt);
+      if (isNaN(finalScheduledAt.getTime())) {
+        return NextResponse.json({ error: 'Invalid date format' }, { status: 400 });
+      }
       if (finalScheduledAt < new Date()) {
         return NextResponse.json({ error: 'Scheduled time must be in the future' }, { status: 400 });
       }
@@ -111,7 +120,7 @@ export async function POST(request: NextRequest) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Create scheduled post error:', message);
     return NextResponse.json(
-      { error: 'Failed to create post: ' + message },
+      { error: 'Failed to create post. Please try again.' },
       { status: 500 }
     );
   }

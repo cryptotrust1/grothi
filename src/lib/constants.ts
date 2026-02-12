@@ -122,5 +122,5 @@ export const ALL_PLATFORMS = [
 // ============ ACTION TYPES (for filters) ============
 export const ACTION_TYPES = [
   'POST', 'REPLY', 'FAVOURITE', 'BOOST', 'SCAN_FEEDS',
-  'COLLECT_METRICS', 'GENERATE_CONTENT', 'SAFETY_BLOCK',
+  'COLLECT_METRICS', 'GENERATE_CONTENT', 'SAFETY_BLOCK', 'BAN_DETECTED',
 ] as const;

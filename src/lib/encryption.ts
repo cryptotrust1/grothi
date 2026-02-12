@@ -7,6 +7,9 @@ function getEncryptionKey(): Buffer {
   if (!key || key.length !== 64) {
     throw new Error('ENCRYPTION_KEY must be a 64-character hex string');
   }
+  if (!/^[0-9a-fA-F]{64}$/.test(key)) {
+    throw new Error('ENCRYPTION_KEY must contain only valid hex characters (0-9, a-f)');
+  }
   return Buffer.from(key, 'hex');
 }
 

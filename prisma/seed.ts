@@ -55,6 +55,8 @@ async function main() {
     { actionType: 'BOOST' as const, credits: 1, description: 'Boost/Repost' },
     { actionType: 'SCAN_FEEDS' as const, credits: 2, description: 'RSS feed scan' },
     { actionType: 'COLLECT_METRICS' as const, credits: 1, description: 'Engagement metrics collection' },
+    { actionType: 'SAFETY_BLOCK' as const, credits: 0, description: 'Content blocked by safety filter' },
+    { actionType: 'BAN_DETECTED' as const, credits: 0, description: 'Platform ban detected' },
   ];
 
   for (const ac of actionCosts) {

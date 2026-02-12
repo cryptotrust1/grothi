@@ -70,11 +70,22 @@ export async function PATCH(
   if (body.contentType !== undefined) updates.contentType = body.contentType;
   if (body.platforms !== undefined) updates.platforms = body.platforms;
   if (body.platformContent !== undefined) updates.platformContent = body.platformContent;
-  if (body.mediaId !== undefined) updates.mediaId = body.mediaId || null;
+  if (body.mediaId !== undefined) {
+    if (body.mediaId) {
+      const media = await db.media.findFirst({ where: { id: body.mediaId as string, botId: post.botId } });
+      if (!media) {
+        return NextResponse.json({ error: 'Media not found' }, { status: 404 });
+      }
+    }
+    updates.mediaId = body.mediaId || null;
+  }
 
   if (body.scheduledAt !== undefined) {
     if (body.scheduledAt) {
       const scheduled = new Date(body.scheduledAt as string | number);
+      if (isNaN(scheduled.getTime())) {
+        return NextResponse.json({ error: 'Invalid date format' }, { status: 400 });
+      }
       if (scheduled < new Date()) {
         return NextResponse.json({ error: 'Scheduled time must be in the future' }, { status: 400 });
       }
