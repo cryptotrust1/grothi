@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 export const metadata: Metadata = { title: 'Account Settings', robots: { index: false } };
 
@@ -106,12 +107,14 @@ export default async function SettingsPage({
       <Card>
         <CardHeader>
           <CardTitle>Change Password</CardTitle>
+          <CardDescription>Keep your account secure by updating your password regularly.</CardDescription>
         </CardHeader>
         <form action={handleChangePassword}>
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label>Current Password</Label>
               <Input name="currentPassword" type="password" />
+              <p className="text-xs text-muted-foreground">Enter your existing password to verify your identity.</p>
             </div>
             <div className="space-y-2">
               <Label>New Password</Label>
@@ -130,9 +133,14 @@ export default async function SettingsPage({
           <CardDescription>Permanently delete your account and all associated data.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form action={handleDeleteAccount}>
-            <Button variant="destructive" size="sm">Delete My Account</Button>
-          </form>
+          <ConfirmDialog
+            title="Delete Account"
+            description="This will permanently delete your account and all associated data including bots, media, and credit history. This action cannot be undone."
+            confirmLabel="Delete My Account"
+            variant="destructive"
+            formAction={handleDeleteAccount}
+            trigger={<Button variant="destructive" size="sm">Delete My Account</Button>}
+          />
         </CardContent>
       </Card>
     </div>

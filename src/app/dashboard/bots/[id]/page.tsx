@@ -8,9 +8,11 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
   Activity, Settings, Globe, BarChart3, Clock, Brain,
-  TrendingUp, Rss, Shield, Zap,
+  TrendingUp, Rss, Shield, Zap, CheckCircle2, Circle,
 } from 'lucide-react';
 import { BotNav } from '@/components/dashboard/bot-nav';
+import { HelpTip } from '@/components/ui/help-tip';
+import { Progress } from '@/components/ui/progress';
 import { BOT_STATUS_CONFIG, PLATFORM_NAMES, GOAL_LABELS } from '@/lib/constants';
 
 export const metadata: Metadata = {
@@ -70,6 +72,18 @@ export default async function BotDetailPage({
   const keywords = Array.isArray(bot.keywords) ? (bot.keywords as string[]) : [];
   const goalLabels = GOAL_LABELS;
 
+  // Setup progress checklist
+  const setupSteps = [
+    { label: 'Create bot', done: true, href: '' },
+    { label: 'Connect at least one platform', done: bot.platformConns.length > 0, href: `/dashboard/bots/${bot.id}/platforms` },
+    { label: 'Add keywords for content optimization', done: keywords.length > 0, href: `/dashboard/bots/${bot.id}/settings` },
+    { label: 'Configure image style preferences', done: Boolean(bot.imagePreferences), href: `/dashboard/bots/${bot.id}/image-style` },
+    { label: 'Activate the bot', done: bot.status === 'ACTIVE', href: `/dashboard/bots/${bot.id}/settings` },
+  ];
+  const completedSteps = setupSteps.filter(s => s.done).length;
+  const setupProgress = Math.round((completedSteps / setupSteps.length) * 100);
+  const isSetupComplete = completedSteps === setupSteps.length;
+
   const weekLikes = weekStats._sum.likes || 0;
   const weekComments = weekStats._sum.comments || 0;
   const weekShares = weekStats._sum.shares || 0;
@@ -103,6 +117,41 @@ export default async function BotDetailPage({
       </div>
 
       <BotNav botId={bot.id} activeTab="overview" />
+
+      {/* Setup Checklist - shown until all steps are complete */}
+      {!isSetupComplete && (
+        <Card className="border-blue-200 bg-blue-50/30">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Zap className="h-5 w-5 text-blue-600" /> Getting Started
+            </CardTitle>
+            <div className="flex items-center gap-3 mt-2">
+              <Progress value={setupProgress} className="h-2 flex-1" />
+              <span className="text-sm font-medium text-muted-foreground">{completedSteps}/{setupSteps.length}</span>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {setupSteps.map((step) => (
+                <div key={step.label} className="flex items-center gap-3">
+                  {step.done ? (
+                    <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />
+                  ) : (
+                    <Circle className="h-5 w-5 text-muted-foreground shrink-0" />
+                  )}
+                  {step.done ? (
+                    <span className="text-sm text-muted-foreground line-through">{step.label}</span>
+                  ) : step.href ? (
+                    <Link href={step.href} className="text-sm text-blue-600 hover:underline font-medium">{step.label}</Link>
+                  ) : (
+                    <span className="text-sm font-medium">{step.label}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* KPIs */}
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
@@ -163,7 +212,7 @@ export default async function BotDetailPage({
                 <p className="text-2xl font-bold">{weekStats._count}</p>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Engagement Score</p>
+                <p className="text-sm text-muted-foreground flex items-center gap-1">Engagement Score <HelpTip text="Calculated as: Likes (1pt) + Comments (3pt) + Shares (5pt) divided by total actions. Higher means your content resonates better with your audience." /></p>
                 <p className="text-2xl font-bold">{weekEngagement}</p>
               </div>
               <div>
@@ -191,7 +240,7 @@ export default async function BotDetailPage({
                 <Badge variant="default">{goalLabels[bot.goal] || bot.goal}</Badge>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm">Self-Learning AI</span>
+                <span className="text-sm flex items-center gap-1">Self-Learning AI <HelpTip text="When enabled, the bot uses reinforcement learning to optimize content. It learns which post types, times, and hashtags work best for each platform." /></span>
                 <Badge variant={selfLearning ? 'success' : 'secondary'}>
                   {selfLearning ? 'Enabled' : 'Disabled'}
                 </Badge>
@@ -223,7 +272,7 @@ export default async function BotDetailPage({
                 </Badge>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm">Safety Level</span>
+                <span className="text-sm flex items-center gap-1">Safety Level <HelpTip text="Conservative: max 2 posts/day, safest. Moderate: 3-5 posts/day, balanced. Aggressive: up to 10 posts/day, higher engagement but more visibility." /></span>
                 <Badge variant={bot.safetyLevel === 'AGGRESSIVE' ? 'warning' : bot.safetyLevel === 'CONSERVATIVE' ? 'success' : 'secondary'}>
                   {bot.safetyLevel}
                 </Badge>
@@ -248,9 +297,11 @@ export default async function BotDetailPage({
         <CardContent>
           {bot.platformConns.length === 0 ? (
             <div className="text-center py-6">
-              <p className="text-muted-foreground mb-4">No platforms connected yet.</p>
+              <Globe className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+              <p className="font-medium mb-1">No platforms connected yet</p>
+              <p className="text-sm text-muted-foreground mb-4">Connect at least one social network so your bot can start posting and engaging with your audience.</p>
               <Link href={`/dashboard/bots/${bot.id}/platforms`}>
-                <Button size="sm"><Globe className="mr-2 h-4 w-4" /> Add Platform</Button>
+                <Button size="sm"><Globe className="mr-2 h-4 w-4" /> Connect Your First Platform</Button>
               </Link>
             </div>
           ) : (
@@ -283,9 +334,11 @@ export default async function BotDetailPage({
         </CardHeader>
         <CardContent>
           {bot.activities.length === 0 ? (
-            <p className="text-center py-6 text-muted-foreground">
-              No activity yet. Start your bot to see actions here.
-            </p>
+            <div className="text-center py-6">
+              <Activity className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+              <p className="font-medium mb-1">No activity yet</p>
+              <p className="text-sm text-muted-foreground">Once your bot is active and has connected platforms, you&apos;ll see posts, replies, and engagement actions here.</p>
+            </div>
           ) : (
             <div className="space-y-3">
               {bot.activities.map((activity) => (
