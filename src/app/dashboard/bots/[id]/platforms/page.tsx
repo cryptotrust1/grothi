@@ -61,21 +61,23 @@ const platformConfigs: Record<string, {
   LINKEDIN: {
     name: 'LinkedIn',
     category: 'social',
+    oauthSupported: !!process.env.LINKEDIN_CLIENT_ID,
     fields: [
       { key: 'accessToken', label: 'Access Token', placeholder: 'OAuth2 access token', helpText: 'OAuth 2.0 token with w_member_social permission from the LinkedIn Developer Portal.' },
       { key: 'orgId', label: 'Organization ID', placeholder: 'Company page ID (optional)', optional: true, helpText: 'Your LinkedIn Company Page ID. Leave blank to post as your personal profile.' },
     ],
     algTip: 'Text-only posts outperform links. Dwell time boosts reach significantly.',
-    docsUrl: 'https://learn.microsoft.com/en-us/linkedin/shared/authentication/',
+    docsUrl: 'https://learn.microsoft.com/en-us/linkedin/shared/authentication/authorization-code-flow',
   },
   TIKTOK: {
     name: 'TikTok',
     category: 'social',
+    oauthSupported: !!process.env.TIKTOK_CLIENT_KEY,
     fields: [
       { key: 'accessToken', label: 'Creator Access Token', placeholder: 'TikTok Creator API token', helpText: 'Access token from the TikTok Developer Portal with video.publish scope.' },
     ],
     algTip: 'Watch time is the #1 ranking factor. First 3 seconds determine performance.',
-    docsUrl: 'https://developers.tiktok.com/doc/getting-started',
+    docsUrl: 'https://developers.tiktok.com/doc/content-posting-api-get-started',
   },
   MASTODON: {
     name: 'Mastodon',
@@ -329,7 +331,10 @@ export default async function BotPlatformsPage({ params, searchParams }: {
                 const oauthLabel = connectedViaOAuth
                   ? connConfig?.username ? `@${connConfig.username}` // Twitter
                   : connConfig?.igUsername ? `@${connConfig.igUsername}` // Instagram
+                  : connConfig?.tiktokUsername ? `@${connConfig.tiktokUsername}` // TikTok
+                  : connConfig?.profileName ? `${connConfig.profileName}` // LinkedIn
                   : connConfig?.pageName ? `Page: ${connConfig.pageName}` // Facebook
+                  : connConfig?.displayName ? `${connConfig.displayName}` // TikTok fallback
                   : null
                   : null;
 
