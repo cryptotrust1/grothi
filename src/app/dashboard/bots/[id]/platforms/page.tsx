@@ -1,18 +1,17 @@
 import { Metadata } from 'next';
-import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { encrypt } from '@/lib/encryption';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Globe, Info, ExternalLink, Trash2 } from 'lucide-react';
+import { Globe, Info, ExternalLink, CheckCircle2, AlertCircle } from 'lucide-react';
 import { BotNav } from '@/components/dashboard/bot-nav';
 import { HelpTip } from '@/components/ui/help-tip';
-import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { SubmitButton } from '@/components/dashboard/platform-form-client';
 
 export const metadata: Metadata = { title: 'Bot Platforms', robots: { index: false } };
 
@@ -216,20 +215,30 @@ export default async function BotPlatformsPage({ params, searchParams }: {
   });
   if (!bot) notFound();
 
+  // ── Server Actions ────────────────────────────────────────────────
+
   async function handleAddPlatform(formData: FormData) {
     'use server';
 
+    console.log('[Platform Connect] Starting connection...');
+
     const currentUser = await requireAuth();
+    console.log('[Platform Connect] User:', currentUser.id);
+
     const currentBot = await db.bot.findFirst({ where: { id, userId: currentUser.id } });
-    if (!currentBot) redirect('/dashboard/bots');
+    if (!currentBot) {
+      console.log('[Platform Connect] Bot not found or not owned by user');
+      redirect('/dashboard/bots');
+    }
 
     const platform = formData.get('platform') as string;
+    console.log('[Platform Connect] Platform:', platform);
     const config = platformConfigs[platform];
     if (!config) {
+      console.log('[Platform Connect] Invalid platform:', platform);
       redirect(`/dashboard/bots/${id}/platforms?error=Invalid platform`);
     }
 
-    // Validate each field - required fields must be non-empty after trimming
     const credentials: Record<string, string> = {};
     const missingFields: string[] = [];
 
@@ -245,14 +254,16 @@ export default async function BotPlatformsPage({ params, searchParams }: {
     }
 
     if (missingFields.length > 0) {
+      console.log('[Platform Connect] Missing required fields:', missingFields);
       redirect(`/dashboard/bots/${id}/platforms?error=${encodeURIComponent(`Missing required fields: ${missingFields.join(', ')}`)}`);
     }
 
     if (Object.keys(credentials).length === 0) {
+      console.log('[Platform Connect] No credentials provided');
       redirect(`/dashboard/bots/${id}/platforms?error=Please fill in at least one credential field`);
     }
 
-    // Format validation for specific field types
+    // Format validation
     for (const field of config.fields) {
       const value = credentials[field.key];
       if (!value) continue;
@@ -273,18 +284,31 @@ export default async function BotPlatformsPage({ params, searchParams }: {
           redirect(`/dashboard/bots/${id}/platforms?error=${encodeURIComponent(`Invalid relay URL: ${invalid}. Relays must start with wss://`)}`);
         }
       }
-      // General minimum length check for tokens/keys (skip short fields like handles/usernames)
       if (['accessToken', 'apiKey', 'apiSecret', 'accessSecret', 'clientSecret', 'integrationToken', 'refreshToken', 'appPassword', 'privateKey', 'botToken'].includes(field.key) && value.length < 10) {
         redirect(`/dashboard/bots/${id}/platforms?error=${encodeURIComponent(`${field.label} appears too short. Please check your credential.`)}`);
       }
     }
 
+    console.log('[Platform Connect] Credentials validated, encrypting...');
+
     const encrypted: Record<string, string> = {};
-    for (const [key, value] of Object.entries(credentials)) {
-      encrypted[key] = encrypt(value);
+    let errorMessage: string | null = null;
+
+    try {
+      for (const [key, value] of Object.entries(credentials)) {
+        encrypted[key] = encrypt(value);
+      }
+    } catch (e) {
+      console.error('[Platform Connect] Encryption failed:', e instanceof Error ? e.message : e);
+      errorMessage = 'Encryption failed. Server configuration error — contact admin.';
     }
 
-    let errorMessage: string | null = null;
+    if (errorMessage) {
+      redirect(`/dashboard/bots/${id}/platforms?error=${encodeURIComponent(errorMessage)}`);
+    }
+
+    console.log('[Platform Connect] Encrypted, saving to database...');
+
     try {
       await db.platformConnection.upsert({
         where: { botId_platform: { botId: id, platform: platform as any } },
@@ -297,28 +321,43 @@ export default async function BotPlatformsPage({ params, searchParams }: {
         update: {
           encryptedCredentials: encrypted,
           status: 'CONNECTED',
+          lastError: null,
         },
       });
     } catch (e) {
-      errorMessage = e instanceof Error ? 'Failed to save connection. Please try again.' : 'Connection failed';
+      console.error('[Platform Connect] Database error:', e instanceof Error ? e.message : e);
+      errorMessage = 'Failed to save connection. Please try again.';
     }
 
     if (errorMessage) {
       redirect(`/dashboard/bots/${id}/platforms?error=${encodeURIComponent(errorMessage)}`);
     }
+
+    console.log('[Platform Connect] Success:', config.name);
     redirect(`/dashboard/bots/${id}/platforms?success=${encodeURIComponent(config.name + ' connected successfully')}`);
   }
 
   async function handleDisconnect(formData: FormData) {
     'use server';
 
+    console.log('[Platform Disconnect] Starting...');
+
     const currentUser = await requireAuth();
+    console.log('[Platform Disconnect] User:', currentUser.id);
+
     const currentBot = await db.bot.findFirst({ where: { id, userId: currentUser.id } });
-    if (!currentBot) redirect('/dashboard/bots');
+    if (!currentBot) {
+      console.log('[Platform Disconnect] Bot not found');
+      redirect('/dashboard/bots');
+    }
 
     const platform = formData.get('platform') as string;
+    console.log('[Platform Disconnect] Platform:', platform);
     const config = platformConfigs[platform];
-    if (!config) redirect(`/dashboard/bots/${id}/platforms?error=Invalid platform`);
+    if (!config) {
+      console.log('[Platform Disconnect] Invalid platform:', platform);
+      redirect(`/dashboard/bots/${id}/platforms?error=Invalid platform`);
+    }
 
     let errorMessage: string | null = null;
     try {
@@ -326,77 +365,79 @@ export default async function BotPlatformsPage({ params, searchParams }: {
         where: { botId_platform: { botId: id, platform: platform as any } },
       });
     } catch (e) {
+      console.error('[Platform Disconnect] Error:', e instanceof Error ? e.message : e);
       errorMessage = e instanceof Error ? 'Failed to disconnect. Please try again.' : 'Disconnect failed';
     }
 
     if (errorMessage) {
       redirect(`/dashboard/bots/${id}/platforms?error=${encodeURIComponent(errorMessage)}`);
     }
+    console.log('[Platform Disconnect] Success:', config.name);
     redirect(`/dashboard/bots/${id}/platforms?success=${encodeURIComponent(config.name + ' disconnected')}`);
   }
 
+  // ── Data ──────────────────────────────────────────────────────────
+
   const connectedPlatforms = new Set(bot.platformConns.map((p) => p.platform));
+  const connectedCount = bot.platformConns.filter(p => p.status === 'CONNECTED').length;
+  const errorCount = bot.platformConns.filter(p => p.status === 'ERROR').length;
+
+  // ── Render ────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div>
         <h1 className="text-2xl font-bold">{bot.name} - Platforms</h1>
         <p className="text-sm text-muted-foreground mt-1">Connect to 17 social networks. Each platform includes algorithm optimization tips.</p>
         <BotNav botId={id} activeTab="platforms" />
       </div>
 
+      {/* Info banner */}
       <Card className="bg-blue-50/50 border-blue-200">
         <CardContent className="pt-6">
           <div className="flex gap-3">
             <Info className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
             <div className="text-sm space-y-1">
               <p className="font-medium text-blue-900">How platform connections work</p>
-              <p className="text-blue-700">Some platforms support <strong>one-click OAuth</strong> — just click &quot;Connect&quot; and authorize. For others, enter your API credentials manually. All credentials are encrypted with AES-256-GCM and stored securely. The bot uses these to post content, reply to comments, and track engagement on your behalf.</p>
+              <p className="text-blue-700">Enter your API credentials for each platform below. All credentials are encrypted with AES-256-GCM and stored securely. The bot uses these to post content, reply to comments, and track engagement on your behalf.</p>
             </div>
           </div>
         </CardContent>
       </Card>
 
+      {/* Status / error / success messages */}
       {sp.error && (
-        <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">{sp.error}</div>
+        <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive flex items-start gap-2">
+          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>{sp.error}</span>
+        </div>
       )}
       {sp.success && (
-        <div className="rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-800">{sp.success}</div>
+        <div className="rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-800 flex items-start gap-2">
+          <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>{sp.success}</span>
+        </div>
       )}
 
-      {/* Connected Platforms Summary */}
+      {/* Quick status summary */}
       {bot.platformConns.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Connected ({bot.platformConns.length})</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {bot.platformConns.map((conn) => (
-                <div key={conn.id} className="flex items-center gap-2 p-2 rounded-lg border">
-                  <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <span className="text-sm font-medium">{platformConfigs[conn.platform]?.name || conn.platform}</span>
-                  <Badge variant={conn.status === 'CONNECTED' ? 'success' : conn.status === 'ERROR' ? 'destructive' : 'secondary'} className="text-xs ml-auto">
-                    {conn.status}
-                  </Badge>
-                  <ConfirmDialog
-                    title={`Disconnect ${platformConfigs[conn.platform]?.name || conn.platform}`}
-                    description="This will remove the platform connection and delete all stored credentials. You can reconnect later."
-                    confirmLabel="Disconnect"
-                    variant="destructive"
-                    formAction={handleDisconnect}
-                    formFields={{ platform: conn.platform }}
-                    trigger={
-                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive">
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    }
-                  />
-                </div>
-              ))}
+        <div className="flex flex-wrap gap-3">
+          <div className="flex items-center gap-2 text-sm">
+            <div className="h-2.5 w-2.5 rounded-full bg-green-500" />
+            <span className="text-muted-foreground">{connectedCount} connected</span>
+          </div>
+          {errorCount > 0 && (
+            <div className="flex items-center gap-2 text-sm">
+              <div className="h-2.5 w-2.5 rounded-full bg-red-500" />
+              <span className="text-muted-foreground">{errorCount} with errors</span>
             </div>
-          </CardContent>
-        </Card>
+          )}
+          <div className="flex items-center gap-2 text-sm">
+            <div className="h-2.5 w-2.5 rounded-full bg-gray-300" />
+            <span className="text-muted-foreground">{17 - bot.platformConns.length} not connected</span>
+          </div>
+        </div>
       )}
 
       {/* Platforms by Category */}
@@ -413,16 +454,15 @@ export default async function BotPlatformsPage({ params, searchParams }: {
                 const conn = bot.platformConns.find((p) => p.platform === key);
                 const connConfig = conn?.config && typeof conn.config === 'object' ? conn.config as Record<string, unknown> : null;
                 const connectedViaOAuth = connConfig?.connectedVia === 'oauth';
-                // Build a display label for the connected account
                 const oauthLabel = connectedViaOAuth
-                  ? connConfig?.username ? `@${connConfig.username}` // Twitter, Pinterest
-                  : connConfig?.igUsername ? `@${connConfig.igUsername}` // Instagram
-                  : connConfig?.threadsUsername ? `@${connConfig.threadsUsername}` // Threads
-                  : connConfig?.tiktokUsername ? `@${connConfig.tiktokUsername}` // TikTok
-                  : connConfig?.channelName ? `${connConfig.channelName}` // YouTube
-                  : connConfig?.profileName ? `${connConfig.profileName}` // LinkedIn
-                  : connConfig?.pageName ? `Page: ${connConfig.pageName}` // Facebook
-                  : connConfig?.displayName ? `${connConfig.displayName}` // TikTok fallback
+                  ? connConfig?.username ? `@${connConfig.username}`
+                  : connConfig?.igUsername ? `@${connConfig.igUsername}`
+                  : connConfig?.threadsUsername ? `@${connConfig.threadsUsername}`
+                  : connConfig?.tiktokUsername ? `@${connConfig.tiktokUsername}`
+                  : connConfig?.channelName ? `${connConfig.channelName}`
+                  : connConfig?.profileName ? `${connConfig.profileName}`
+                  : connConfig?.pageName ? `Page: ${connConfig.pageName}`
+                  : connConfig?.displayName ? `${connConfig.displayName}`
                   : null
                   : null;
 
@@ -431,26 +471,43 @@ export default async function BotPlatformsPage({ params, searchParams }: {
                     <CardHeader className="pb-2">
                       <div className="flex items-center justify-between">
                         <CardTitle className="text-base">{config.name}</CardTitle>
-                        {isConnected && <Badge variant="success" className="text-xs">Connected</Badge>}
+                        {isConnected && (
+                          <Badge variant={conn?.status === 'ERROR' ? 'destructive' : 'success'} className="text-xs">
+                            {conn?.status === 'ERROR' ? 'Error' : 'Connected'}
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-xs text-blue-600 dark:text-blue-400">{config.algTip}</p>
                       {isConnected && oauthLabel && (
                         <p className="text-xs text-green-700">{oauthLabel}</p>
                       )}
+                      {conn?.lastError && (
+                        <p className="text-xs text-red-600 mt-1">Last error: {conn.lastError}</p>
+                      )}
+                      {conn?.updatedAt && (
+                        <p className="text-xs text-muted-foreground">
+                          {connectedViaOAuth ? 'Connected via OAuth' : 'Connected via API keys'} &middot; {new Date(conn.updatedAt).toLocaleDateString()}
+                        </p>
+                      )}
                     </CardHeader>
-                    <CardContent className="space-y-2">
-                      {/* OAuth one-click connect (Facebook, and future platforms) */}
-                      {config.oauthSupported && (
-                        <div className="space-y-2">
-                          <a href={`/api/oauth/${key.toLowerCase()}?botId=${id}`}>
-                            <Button type="button" size="sm" variant={isConnected ? 'outline' : 'default'} className="w-full">
-                              {isConnected ? `Reconnect with ${config.name}` : `Connect with ${config.name}`}
-                            </Button>
-                          </a>
-                          <p className="text-xs text-muted-foreground text-center">One-click — no API keys needed</p>
+                    <CardContent className="space-y-3">
+
+                      {/* ── CONNECTED: show disconnect + update credentials ── */}
+                      {isConnected && (
+                        <>
+                          {/* OAuth reconnect (if supported) */}
+                          {config.oauthSupported && (
+                            <a href={`/api/oauth/${key.toLowerCase()}?botId=${id}`}>
+                              <Button type="button" size="sm" variant="outline" className="w-full">
+                                Reconnect with {config.name}
+                              </Button>
+                            </a>
+                          )}
+
+                          {/* Update credentials - collapsible */}
                           <details className="text-xs">
-                            <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-                              Or enter credentials manually
+                            <summary className="cursor-pointer text-muted-foreground hover:text-foreground font-medium py-1">
+                              Update credentials
                             </summary>
                             <form action={handleAddPlatform} className="space-y-2 mt-2">
                               <input type="hidden" name="platform" value={key} />
@@ -475,44 +532,102 @@ export default async function BotPlatformsPage({ params, searchParams }: {
                                   <ExternalLink className="h-3 w-3" /> How to get these credentials
                                 </a>
                               )}
-                              <Button type="submit" size="sm" variant="outline" className="w-full mt-1">
-                                Save Manual Credentials
-                              </Button>
+                              <SubmitButton variant="outline" className="w-full mt-1" pendingText="Saving...">
+                                Save New Credentials
+                              </SubmitButton>
                             </form>
                           </details>
-                        </div>
+
+                          {/* ── DISCONNECT ── plain HTML form, no JS dialog needed */}
+                          <form action={handleDisconnect} className="pt-2 border-t">
+                            <input type="hidden" name="platform" value={key} />
+                            <SubmitButton variant="destructive" className="w-full" pendingText="Disconnecting...">
+                              Disconnect {config.name}
+                            </SubmitButton>
+                          </form>
+                        </>
                       )}
 
-                      {/* Manual-only platforms (no OAuth) */}
-                      {!config.oauthSupported && (
-                        <form action={handleAddPlatform} className="space-y-2">
-                          <input type="hidden" name="platform" value={key} />
-                          {config.fields.map((field) => (
-                            <div key={field.key} className="space-y-1">
-                              <div className="flex items-center gap-1">
-                                <Label className="text-xs">{field.label}{field.optional ? '' : ' *'}</Label>
-                                {field.helpText && <HelpTip text={field.helpText} side="right" />}
-                              </div>
-                              <Input
-                                name={field.key}
-                                type="password"
-                                placeholder={field.placeholder}
-                                required={!field.optional}
-                                minLength={field.optional ? undefined : 3}
-                                className="text-sm h-8"
-                              />
+                      {/* ── NOT CONNECTED: show connect form ── */}
+                      {!isConnected && (
+                        <>
+                          {/* OAuth one-click connect */}
+                          {config.oauthSupported && (
+                            <div className="space-y-2">
+                              <a href={`/api/oauth/${key.toLowerCase()}?botId=${id}`}>
+                                <Button type="button" size="sm" variant="default" className="w-full">
+                                  Connect with {config.name}
+                                </Button>
+                              </a>
+                              <p className="text-xs text-muted-foreground text-center">One-click — no API keys needed</p>
+                              <details className="text-xs">
+                                <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                                  Or enter credentials manually
+                                </summary>
+                                <form action={handleAddPlatform} className="space-y-2 mt-2">
+                                  <input type="hidden" name="platform" value={key} />
+                                  {config.fields.map((field) => (
+                                    <div key={field.key} className="space-y-1">
+                                      <div className="flex items-center gap-1">
+                                        <Label className="text-xs">{field.label}{field.optional ? '' : ' *'}</Label>
+                                        {field.helpText && <HelpTip text={field.helpText} side="right" />}
+                                      </div>
+                                      <Input
+                                        name={field.key}
+                                        type="password"
+                                        placeholder={field.placeholder}
+                                        required={!field.optional}
+                                        minLength={field.optional ? undefined : 3}
+                                        className="text-sm h-8"
+                                      />
+                                    </div>
+                                  ))}
+                                  {config.docsUrl && (
+                                    <a href={config.docsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:underline mt-1">
+                                      <ExternalLink className="h-3 w-3" /> How to get these credentials
+                                    </a>
+                                  )}
+                                  <SubmitButton variant="outline" className="w-full mt-1" pendingText="Connecting...">
+                                    Save Manual Credentials
+                                  </SubmitButton>
+                                </form>
+                              </details>
                             </div>
-                          ))}
-                          {config.docsUrl && (
-                            <a href={config.docsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:underline mt-1">
-                              <ExternalLink className="h-3 w-3" /> How to get these credentials
-                            </a>
                           )}
-                          <Button type="submit" size="sm" variant={isConnected ? 'outline' : 'default'} className="w-full mt-1">
-                            {isConnected ? 'Update Credentials' : 'Connect'}
-                          </Button>
-                        </form>
+
+                          {/* Manual-only platforms */}
+                          {!config.oauthSupported && (
+                            <form action={handleAddPlatform} className="space-y-2">
+                              <input type="hidden" name="platform" value={key} />
+                              {config.fields.map((field) => (
+                                <div key={field.key} className="space-y-1">
+                                  <div className="flex items-center gap-1">
+                                    <Label className="text-xs">{field.label}{field.optional ? '' : ' *'}</Label>
+                                    {field.helpText && <HelpTip text={field.helpText} side="right" />}
+                                  </div>
+                                  <Input
+                                    name={field.key}
+                                    type="password"
+                                    placeholder={field.placeholder}
+                                    required={!field.optional}
+                                    minLength={field.optional ? undefined : 3}
+                                    className="text-sm h-8"
+                                  />
+                                </div>
+                              ))}
+                              {config.docsUrl && (
+                                <a href={config.docsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:underline mt-1">
+                                  <ExternalLink className="h-3 w-3" /> How to get these credentials
+                                </a>
+                              )}
+                              <SubmitButton variant="default" className="w-full mt-1" pendingText="Connecting...">
+                                Connect
+                              </SubmitButton>
+                            </form>
+                          )}
+                        </>
                       )}
+
                     </CardContent>
                   </Card>
                 );
