@@ -31,10 +31,8 @@ export async function GET(request: NextRequest) {
 
   const appId = process.env.FACEBOOK_APP_ID;
   if (!appId) {
-    return NextResponse.json(
-      { error: 'Instagram OAuth not configured. FACEBOOK_APP_ID is missing.' },
-      { status: 500 }
-    );
+    const errorMsg = encodeURIComponent('Instagram OAuth is not yet configured. Please use manual credentials for now, or contact support.');
+    return NextResponse.redirect(new URL(botId ? `/dashboard/bots/${botId}/platforms?error=${errorMsg}` : `/dashboard?error=${errorMsg}`, request.nextUrl.origin));
   }
 
   const baseUrl = process.env.NEXTAUTH_URL || request.nextUrl.origin;

@@ -27,10 +27,8 @@ export async function GET(request: NextRequest) {
 
   const appId = process.env.THREADS_APP_ID;
   if (!appId) {
-    return NextResponse.json(
-      { error: 'Threads OAuth not configured. THREADS_APP_ID is missing.' },
-      { status: 500 }
-    );
+    const errorMsg = encodeURIComponent('Threads OAuth is not yet configured. Please use manual credentials for now, or contact support.');
+    return NextResponse.redirect(new URL(botId ? `/dashboard/bots/${botId}/platforms?error=${errorMsg}` : `/dashboard?error=${errorMsg}`, request.nextUrl.origin));
   }
 
   const baseUrl = process.env.NEXTAUTH_URL || request.nextUrl.origin;

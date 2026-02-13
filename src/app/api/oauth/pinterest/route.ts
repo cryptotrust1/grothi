@@ -26,10 +26,8 @@ export async function GET(request: NextRequest) {
 
   const clientId = process.env.PINTEREST_APP_ID;
   if (!clientId) {
-    return NextResponse.json(
-      { error: 'Pinterest OAuth not configured. PINTEREST_APP_ID is missing.' },
-      { status: 500 }
-    );
+    const errorMsg = encodeURIComponent('Pinterest OAuth is not yet configured. Please use manual credentials for now, or contact support.');
+    return NextResponse.redirect(new URL(botId ? `/dashboard/bots/${botId}/platforms?error=${errorMsg}` : `/dashboard?error=${errorMsg}`, request.nextUrl.origin));
   }
 
   const baseUrl = process.env.NEXTAUTH_URL || request.nextUrl.origin;
