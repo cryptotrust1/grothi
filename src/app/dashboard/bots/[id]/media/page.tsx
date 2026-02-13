@@ -77,7 +77,7 @@ export default async function BotMediaPage({
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Upload className="h-5 w-5" /> Upload Media</CardTitle>
-          <CardDescription>Drag & drop or click to upload images (JPEG, PNG, WebP, GIF, AVIF) or videos (MP4, WebM, MOV). Max 10MB for images, 50MB for videos.</CardDescription>
+          <CardDescription>Drag & drop or click to upload. Supports JPEG, PNG, WebP, GIF, AVIF (up to 10MB) and MP4, WebM, MOV (up to 50MB). Select multiple files at once.</CardDescription>
         </CardHeader>
         <CardContent>
           <MediaUploadForm botId={bot.id} />
