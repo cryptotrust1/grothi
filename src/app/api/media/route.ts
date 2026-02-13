@@ -6,6 +6,9 @@ import { existsSync } from 'fs';
 import { join, resolve } from 'path';
 import { randomUUID } from 'crypto';
 
+// Allow up to 2 minutes for large video uploads
+export const maxDuration = 120;
+
 const UPLOAD_DIR = join(process.cwd(), 'data', 'uploads');
 
 const ALLOWED_IMAGE_TYPES = [

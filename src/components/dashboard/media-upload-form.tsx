@@ -74,8 +74,16 @@ export function MediaUploadForm({ botId }: { botId: string }) {
       });
 
       if (!res.ok) {
-        const data = await res.json().catch(() => ({ error: 'Upload failed' }));
-        return { ...entry, status: 'error', error: data.error || `Server error (${res.status})` };
+        // 413 from Nginx returns HTML, not JSON
+        if (res.status === 413) {
+          return { ...entry, status: 'error', error: `File too large for server (${formatBytes(entry.file.size)}). The server rejected it. Contact support if this persists.` };
+        }
+        if (res.status === 408 || res.status === 504) {
+          return { ...entry, status: 'error', error: 'Upload timed out. Try a smaller file or check your connection.' };
+        }
+        const data = await res.json().catch(() => null);
+        const msg = data?.error || `Upload failed (HTTP ${res.status})`;
+        return { ...entry, status: 'error', error: msg };
       }
 
       const data = await res.json();
