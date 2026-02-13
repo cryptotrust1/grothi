@@ -91,7 +91,7 @@ export default async function SettingsPage({
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label>Name</Label>
-              <Input name="name" defaultValue={user.name || ''} />
+              <Input name="name" autoComplete="name" defaultValue={user.name || ''} />
             </div>
             <div className="space-y-2">
               <Label>Email</Label>
@@ -113,12 +113,12 @@ export default async function SettingsPage({
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label>Current Password</Label>
-              <Input name="currentPassword" type="password" />
+              <Input name="currentPassword" type="password" autoComplete="current-password" />
               <p className="text-xs text-muted-foreground">Enter your existing password to verify your identity.</p>
             </div>
             <div className="space-y-2">
               <Label>New Password</Label>
-              <Input name="newPassword" type="password" />
+              <Input name="newPassword" type="password" autoComplete="new-password" />
               <p className="text-xs text-muted-foreground">Min 8 characters</p>
             </div>
             <Button type="submit">Change Password</Button>

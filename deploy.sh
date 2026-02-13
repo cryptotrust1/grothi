@@ -55,9 +55,11 @@ echo ""
 echo "[6/7] Seeding database..."
 npx tsx prisma/seed.ts 2>&1 || echo "WARN: Seed failed (may already be seeded)"
 
-# Step 6: Build Next.js
+# Step 6: Build Next.js (clean old chunks first to prevent ChunkLoadError)
 echo ""
 echo "[7/7] Building Next.js..."
+echo "Cleaning old build artifacts..."
+rm -rf .next
 npm run build
 
 # Step 7: Restart PM2

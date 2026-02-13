@@ -73,7 +73,7 @@ export default async function SignInPage({
             )}
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
-              <Input id="email" name="email" type="email" placeholder="you@example.com" required />
+              <Input id="email" name="email" type="email" autoComplete="email" placeholder="you@example.com" required />
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -82,7 +82,7 @@ export default async function SignInPage({
                   Forgot password?
                 </Link>
               </div>
-              <Input id="password" name="password" type="password" placeholder="••••••••" required />
+              <Input id="password" name="password" type="password" autoComplete="current-password" placeholder="••••••••" required />
             </div>
           </CardContent>
           <CardFooter className="flex flex-col space-y-4">

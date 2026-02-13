@@ -69,15 +69,15 @@ export default async function SignUpPage({
             )}
             <div className="space-y-2">
               <Label htmlFor="name">Full Name</Label>
-              <Input id="name" name="name" type="text" placeholder="John Doe" required />
+              <Input id="name" name="name" type="text" autoComplete="name" placeholder="John Doe" required />
             </div>
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
-              <Input id="email" name="email" type="email" placeholder="you@example.com" required />
+              <Input id="email" name="email" type="email" autoComplete="email" placeholder="you@example.com" required />
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
-              <Input id="password" name="password" type="password" placeholder="••••••••" required />
+              <Input id="password" name="password" type="password" autoComplete="new-password" placeholder="••••••••" required />
               <p className="text-xs text-muted-foreground">
                 Min 8 characters, 1 uppercase, 1 number
               </p>
