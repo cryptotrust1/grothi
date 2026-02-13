@@ -13,7 +13,7 @@ import { Rss, Clock, Brain, Trash2, Target, Key, BarChart3, Link2 } from 'lucide
 import { BotNav } from '@/components/dashboard/bot-nav';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { HelpTip } from '@/components/ui/help-tip';
-import { SCHEDULE_PRESETS, TIMEZONES, CONTENT_TYPES } from '@/lib/constants';
+import { SCHEDULE_PRESETS, TIMEZONES, CONTENT_TYPES, TONE_STYLES, HASHTAG_PATTERNS } from '@/lib/constants';
 
 export const metadata: Metadata = { title: 'Bot Settings', robots: { index: false } };
 
@@ -46,6 +46,8 @@ export default async function BotSettingsPage({
   const selfLearning = (reactorState.selfLearning as boolean) ?? true;
   const maxPostsPerDay = (reactorState.maxPostsPerDay as number) || 10;
   const maxRepliesPerDay = (reactorState.maxRepliesPerDay as number) || 20;
+  const toneStyles = (reactorState.toneStyles as string[]) || ['professional', 'casual'];
+  const hashtagPatterns = (reactorState.hashtagPatterns as string[]) || ['moderate'];
   const keywords = Array.isArray(bot.keywords) ? (bot.keywords as string[]) : [];
 
   async function handleUpdate(formData: FormData) {
@@ -64,6 +66,14 @@ export default async function BotSettingsPage({
     const selectedTypes = CONTENT_TYPES
       .map((ct) => ct.value)
       .filter((v) => formData.get(`ct_${v}`) === 'on');
+
+    const selectedTones = TONE_STYLES
+      .map((t) => t.value)
+      .filter((v) => formData.get(`tone_${v}`) === 'on');
+
+    const selectedHashtags = HASHTAG_PATTERNS
+      .map((h) => h.value)
+      .filter((v) => formData.get(`ht_${v}`) === 'on');
 
     const currentReactor = (currentBot.reactorState as Record<string, unknown>) || {};
 
@@ -95,6 +105,8 @@ export default async function BotSettingsPage({
         reactorState: {
           ...currentReactor,
           contentTypes: selectedTypes.length > 0 ? selectedTypes : ['educational'],
+          toneStyles: selectedTones.length > 0 ? selectedTones : ['professional'],
+          hashtagPatterns: selectedHashtags.length > 0 ? selectedHashtags : ['moderate'],
           selfLearning: formData.get('selfLearning') === 'on',
           maxPostsPerDay: parseInt(formData.get('maxPostsPerDay') as string) || 10,
           maxRepliesPerDay: parseInt(formData.get('maxRepliesPerDay') as string) || 20,
@@ -346,15 +358,47 @@ export default async function BotSettingsPage({
               </div>
             </div>
             <Separator />
+            <div>
+              <Label className="mb-3 block">Tone Styles (AI will rotate between selected)</Label>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {TONE_STYLES.map((t) => (
+                  <label key={t.value} className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50">
+                    <input type="checkbox" name={`tone_${t.value}`} defaultChecked={toneStyles.includes(t.value)} className="mt-0.5 h-4 w-4 rounded border-input" />
+                    <div>
+                      <p className="text-sm font-medium">{t.label}</p>
+                      <p className="text-xs text-muted-foreground">{t.desc}</p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">The RL engine learns which tones perform best on each platform and adapts over time.</p>
+            </div>
+            <Separator />
+            <div>
+              <Label className="mb-3 block">Hashtag Strategy (AI will test and optimize)</Label>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {HASHTAG_PATTERNS.map((h) => (
+                  <label key={h.value} className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50">
+                    <input type="checkbox" name={`ht_${h.value}`} defaultChecked={hashtagPatterns.includes(h.value)} className="mt-0.5 h-4 w-4 rounded border-input" />
+                    <div>
+                      <p className="text-sm font-medium">{h.label}</p>
+                      <p className="text-xs text-muted-foreground">{h.desc}</p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">The engine explores different hashtag strategies and converges on what drives the most engagement per platform.</p>
+            </div>
+            <Separator />
             <label className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/50">
               <input type="checkbox" name="selfLearning" defaultChecked={selfLearning} className="mt-0.5 h-4 w-4 rounded border-input" />
               <div>
                 <p className="text-sm font-medium flex items-center gap-1.5">Content Reactor - Self-Learning AI <HelpTip text="When enabled, the bot uses reinforcement learning to continuously improve its content strategy. It analyzes engagement metrics from each post and automatically adjusts timing, tone, hashtags, and content types to maximize performance on each platform." /></p>
                 <p className="text-xs text-muted-foreground">
                   Uses reinforcement learning (epsilon-greedy exploration) to optimize content. Learns from engagement
-                  metrics: likes (1pt), comments (3pt), shares (5pt). Adapts posting times, content types, hashtags,
-                  and tone per platform. Algorithm knowledge: avoids spam triggers, optimizes for each platform&apos;s
-                  ranking signals (dwell time on LinkedIn, watch time on TikTok, saves on Instagram).
+                  metrics: likes (1pt), comments (3pt), shares (5pt), saves (2pt). Adapts posting times, content types, hashtags,
+                  and tone per platform independently. Platform-specific bonuses: dwell time on LinkedIn, watch time on TikTok/YouTube,
+                  saves on Instagram/Pinterest, shares on Twitter/Facebook. Each bot learns its own optimal strategy.
                 </p>
               </div>
             </label>
