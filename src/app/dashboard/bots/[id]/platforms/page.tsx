@@ -361,12 +361,26 @@ export default async function BotPlatformsPage({ params, searchParams }: {
 
     let errorMessage: string | null = null;
     try {
-      await db.platformConnection.delete({
-        where: { botId_platform: { botId: id, platform: platform as any } },
-      });
+      await db.$transaction([
+        db.platformConnection.delete({
+          where: { botId_platform: { botId: id, platform: platform as any } },
+        }),
+        db.rLConfig.deleteMany({
+          where: { botId: id, platform: platform as any },
+        }),
+        db.rLArmState.deleteMany({
+          where: { botId: id, platform: platform as any },
+        }),
+      ]);
     } catch (e) {
-      console.error('[Platform Disconnect] Error:', e instanceof Error ? e.message : e);
-      errorMessage = e instanceof Error ? 'Failed to disconnect. Please try again.' : 'Disconnect failed';
+      // If record not found, treat as already disconnected (success)
+      const msg = e instanceof Error ? e.message : '';
+      if (msg.includes('Record to delete does not exist') || msg.includes('RecordNotFound')) {
+        console.log('[Platform Disconnect] Already disconnected:', platform);
+      } else {
+        console.error('[Platform Disconnect] Error:', msg || e);
+        errorMessage = 'Failed to disconnect. Please try again.';
+      }
     }
 
     if (errorMessage) {
@@ -520,6 +534,7 @@ export default async function BotPlatformsPage({ params, searchParams }: {
                                   <Input
                                     name={field.key}
                                     type="password"
+                                    autoComplete="off"
                                     placeholder={field.placeholder}
                                     required={!field.optional}
                                     minLength={field.optional ? undefined : 3}
@@ -575,6 +590,7 @@ export default async function BotPlatformsPage({ params, searchParams }: {
                                       <Input
                                         name={field.key}
                                         type="password"
+                                        autoComplete="off"
                                         placeholder={field.placeholder}
                                         required={!field.optional}
                                         minLength={field.optional ? undefined : 3}
@@ -608,6 +624,7 @@ export default async function BotPlatformsPage({ params, searchParams }: {
                                   <Input
                                     name={field.key}
                                     type="password"
+                                    autoComplete="off"
                                     placeholder={field.placeholder}
                                     required={!field.optional}
                                     minLength={field.optional ? undefined : 3}
