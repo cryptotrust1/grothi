@@ -6,8 +6,9 @@ import { db } from '@/lib/db';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Image, Film, Upload, Trash2, Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Image, Film, Upload, Trash2, Sparkles, ChevronLeft, ChevronRight, Wand2 } from 'lucide-react';
 import { MediaUploadForm } from '@/components/dashboard/media-upload-form';
+import { MediaGenerateForm } from '@/components/dashboard/media-generate-form';
 import { BotNav } from '@/components/dashboard/bot-nav';
 
 export const metadata: Metadata = { title: 'Media Library', robots: { index: false } };
@@ -77,10 +78,21 @@ export default async function BotMediaPage({
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Upload className="h-5 w-5" /> Upload Media</CardTitle>
-          <CardDescription>Drag & drop or click to upload images (JPEG, PNG, WebP, GIF, AVIF) or videos (MP4, WebM, MOV). Max 10MB for images, 50MB for videos.</CardDescription>
+          <CardDescription>Drag & drop or click to upload. Supports JPEG, PNG, WebP, GIF, AVIF (up to 10MB) and MP4, WebM, MOV (up to 50MB). Select multiple files at once.</CardDescription>
         </CardHeader>
         <CardContent>
           <MediaUploadForm botId={bot.id} />
+        </CardContent>
+      </Card>
+
+      {/* AI Generate Card */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Wand2 className="h-5 w-5" /> AI Generate</CardTitle>
+          <CardDescription>Generate images and videos with AI. Uses your Creative Style preferences. Images cost 3 credits, videos cost 8 credits.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <MediaGenerateForm botId={bot.id} />
         </CardContent>
       </Card>
 

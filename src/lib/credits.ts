@@ -9,6 +9,8 @@ const DEFAULT_ACTION_COSTS: Record<string, number> = {
   BOOST: 1,
   SCAN_FEEDS: 2,
   COLLECT_METRICS: 1,
+  GENERATE_IMAGE: 3,
+  GENERATE_VIDEO: 8,
   SAFETY_BLOCK: 0,
   BAN_DETECTED: 0,
 };
