@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { computeEngagementScore } from '@/lib/rl-engine';
-import type { PlatformType } from '@prisma/client';
+import type { PlatformType, Prisma } from '@prisma/client';
 import { ALL_PLATFORMS } from '@/lib/constants';
 
 // POST: Record engagement metrics for a published post
@@ -114,11 +114,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Bot not found' }, { status: 404 });
   }
 
-  const where: Record<string, unknown> = { botId };
-  if (platform) where.platform = platform;
+  const where: Prisma.PostEngagementWhereInput = { botId };
+  if (platform) where.platform = platform as PlatformType;
 
   const engagements = await db.postEngagement.findMany({
-    where: where as Parameters<typeof db.postEngagement.findMany>[0]['where'],
+    where,
     orderBy: { postedAt: 'desc' },
     take: limit,
   });
