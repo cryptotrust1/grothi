@@ -13,7 +13,7 @@ export const metadata: Metadata = { title: 'Admin - Pricing', robots: { index: f
 export default async function AdminPricingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ success?: string }>;
+  searchParams: Promise<{ success?: string; error?: string }>;
 }) {
   await requireAdmin();
   const sp = await searchParams;
@@ -33,9 +33,10 @@ export default async function AdminPricingPage({
     const priceRaw = parseInt(formData.get('priceUsd') as string, 10);
 
     if (!name || isNaN(creditsRaw) || isNaN(priceRaw) || creditsRaw <= 0 || priceRaw <= 0) {
-      redirect('/admin/pricing?success=' + encodeURIComponent('Error: Name, credits, and price are required'));
+      redirect('/admin/pricing?error=' + encodeURIComponent('Name, credits (>0), and price (>0) are required'));
     }
 
+    let errorMessage: string | null = null;
     try {
       await db.pricingPlan.create({
         data: {
@@ -48,9 +49,12 @@ export default async function AdminPricingPage({
       });
     } catch (error) {
       console.error('Create plan error:', error);
-      redirect('/admin/pricing?success=' + encodeURIComponent('Error: Failed to create plan'));
+      errorMessage = 'Failed to create plan. Please try again.';
     }
 
+    if (errorMessage) {
+      redirect('/admin/pricing?error=' + encodeURIComponent(errorMessage));
+    }
     redirect('/admin/pricing?success=Plan+created');
   }
 
@@ -60,13 +64,18 @@ export default async function AdminPricingPage({
 
     const code = (formData.get('code') as string)?.trim();
     if (!code) {
-      redirect('/admin/pricing?success=' + encodeURIComponent('Error: Promo code is required'));
+      redirect('/admin/pricing?error=' + encodeURIComponent('Promo code is required'));
     }
 
     const discountPct = parseInt(formData.get('discountPct') as string, 10);
     const bonusCredits = parseInt(formData.get('bonusCredits') as string, 10);
     const maxUsesRaw = parseInt(formData.get('maxUses') as string, 10);
 
+    if (!isNaN(discountPct) && (discountPct < 0 || discountPct > 100)) {
+      redirect('/admin/pricing?error=' + encodeURIComponent('Discount must be between 0 and 100%'));
+    }
+
+    let errorMessage: string | null = null;
     try {
       await db.promoCode.create({
         data: {
@@ -78,9 +87,12 @@ export default async function AdminPricingPage({
       });
     } catch (error) {
       console.error('Create promo error:', error);
-      redirect('/admin/pricing?success=' + encodeURIComponent('Error: Failed to create promo code'));
+      errorMessage = 'Failed to create promo code. It may already exist.';
     }
 
+    if (errorMessage) {
+      redirect('/admin/pricing?error=' + encodeURIComponent(errorMessage));
+    }
     redirect('/admin/pricing?success=Promo+code+created');
   }
 
@@ -90,6 +102,9 @@ export default async function AdminPricingPage({
 
       {sp.success && (
         <div className="rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-800">{sp.success}</div>
+      )}
+      {sp.error && (
+        <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">{sp.error}</div>
       )}
 
       {/* Plans */}
