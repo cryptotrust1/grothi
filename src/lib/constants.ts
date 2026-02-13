@@ -58,9 +58,10 @@ export const BOT_NAV_TABS = [
   { key: 'overview', label: 'Overview', path: '' },
   { key: 'activity', label: 'Activity', path: '/activity' },
   { key: 'platforms', label: 'Platforms', path: '/platforms' },
+  { key: 'strategy', label: 'Content Strategy', path: '/strategy' },
   { key: 'media', label: 'Media', path: '/media' },
   { key: 'scheduler', label: 'Scheduler', path: '/scheduler' },
-  { key: 'image-style', label: 'Image Style', path: '/image-style' },
+  { key: 'creative-style', label: 'Creative Style', path: '/creative-style' },
   { key: 'analytics', label: 'Analytics', path: '/analytics' },
   { key: 'settings', label: 'Settings', path: '/settings' },
 ] as const;
@@ -133,6 +134,30 @@ export const HASHTAG_PATTERNS = [
   { value: 'branded', label: 'Branded', desc: 'Custom brand hashtags' },
 ];
 
+// ============ VIDEO STYLES ============
+export const VIDEO_STYLES = [
+  { value: 'quick_tips', label: 'Quick Tips', desc: 'Fast-paced educational clips' },
+  { value: 'product_demo', label: 'Product Demo', desc: 'Showcase features and benefits' },
+  { value: 'storytelling', label: 'Storytelling', desc: 'Narrative-driven, emotional' },
+  { value: 'behind_scenes', label: 'Behind the Scenes', desc: 'Authentic, raw, personal' },
+  { value: 'testimonial', label: 'Testimonial', desc: 'Customer stories, social proof' },
+  { value: 'trending', label: 'Trending/Meme', desc: 'Current trends, viral formats' },
+  { value: 'explainer', label: 'Explainer', desc: 'Concept breakdowns, how-it-works' },
+  { value: 'slideshow', label: 'Slideshow', desc: 'Image carousel with transitions' },
+];
+
+export const VIDEO_LENGTHS = [
+  { value: 'short_5_15s', label: '5-15 seconds', desc: 'Quick hooks — TikTok, Reels, Shorts' },
+  { value: 'medium_30_60s', label: '30-60 seconds', desc: 'Tips, demos, explainers' },
+  { value: 'long_2_5min', label: '2-5 minutes', desc: 'Tutorials, deep dives, YouTube' },
+];
+
+export const VIDEO_FORMATS = [
+  { value: 'vertical_9_16', label: 'Vertical 9:16', desc: 'TikTok, Reels, Shorts, Stories' },
+  { value: 'square_1_1', label: 'Square 1:1', desc: 'Facebook, Instagram feed, LinkedIn' },
+  { value: 'landscape_16_9', label: 'Landscape 16:9', desc: 'YouTube, Twitter, LinkedIn' },
+];
+
 // ============ RL DIMENSIONS (for display) ============
 export const RL_DIMENSION_LABELS: Record<string, string> = {
   TIME_SLOT: 'Posting Time',
@@ -151,5 +176,6 @@ export const ALL_PLATFORMS = [
 // ============ ACTION TYPES (for filters) ============
 export const ACTION_TYPES = [
   'POST', 'REPLY', 'FAVOURITE', 'BOOST', 'SCAN_FEEDS',
-  'COLLECT_METRICS', 'GENERATE_CONTENT', 'SAFETY_BLOCK', 'BAN_DETECTED',
+  'COLLECT_METRICS', 'GENERATE_CONTENT', 'GENERATE_IMAGE', 'GENERATE_VIDEO',
+  'SAFETY_BLOCK', 'BAN_DETECTED',
 ] as const;

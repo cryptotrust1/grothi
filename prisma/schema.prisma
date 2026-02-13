@@ -76,11 +76,12 @@ model Bot {
   timezone        String  @default("UTC")
 
   // AI Engine State
-  rssFeeds         Json?
-  reactorState     Json?
-  dedupHistory     Json?
-  algorithmConfig  Json?
-  imagePreferences Json?
+  rssFeeds            Json?
+  reactorState        Json?
+  dedupHistory        Json?
+  algorithmConfig     Json?
+  imagePreferences    Json?
+  creativePreferences Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -94,6 +95,7 @@ model Bot {
   postEngagements PostEngagement[]
   rlArmStates     RLArmState[]
   rlConfigs       RLConfig[]
+  contentPlans    PlatformContentPlan[]
 
   @@index([userId])
   @@index([status])
@@ -212,6 +214,8 @@ enum ActionType {
   SCAN_FEEDS
   COLLECT_METRICS
   GENERATE_CONTENT
+  GENERATE_IMAGE
+  GENERATE_VIDEO
   SAFETY_BLOCK
   BAN_DETECTED
 }
@@ -513,6 +517,42 @@ enum RLDimension {
   CONTENT_TYPE
   HASHTAG_PATTERN
   TONE_STYLE
+}
+
+// ============ PLATFORM CONTENT PLANS ============
+
+model PlatformContentPlan {
+  id        String       @id @default(cuid())
+  botId     String
+  platform  PlatformType
+  enabled   Boolean      @default(true)
+
+  // Daily content quotas
+  dailyTexts    Int @default(1)
+  dailyImages   Int @default(1)
+  dailyVideos   Int @default(0)
+  dailyStories  Int @default(0)
+
+  // Platform-specific style overrides (null = use bot defaults)
+  toneOverride       String?
+  imageStyleOverride String?
+  videoStyleOverride String?
+  hashtagOverride    String?
+
+  // Video preferences for this platform
+  videoLength   String?
+  videoFormat   String?
+
+  // Posting windows (JSON array of hour ints, e.g. [9,13,17])
+  postingHours  Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bot Bot @relation(fields: [botId], references: [id], onDelete: Cascade)
+
+  @@unique([botId, platform])
+  @@index([botId])
 }
 
 // ============ CONTACT ============
