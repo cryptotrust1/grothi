@@ -27,10 +27,8 @@ export async function GET(request: NextRequest) {
 
   const clientId = process.env.GOOGLE_CLIENT_ID;
   if (!clientId) {
-    return NextResponse.json(
-      { error: 'YouTube OAuth not configured. GOOGLE_CLIENT_ID is missing.' },
-      { status: 500 }
-    );
+    const errorMsg = encodeURIComponent('YouTube OAuth is not yet configured. Please use manual credentials for now, or contact support.');
+    return NextResponse.redirect(new URL(botId ? `/dashboard/bots/${botId}/platforms?error=${errorMsg}` : `/dashboard?error=${errorMsg}`, request.nextUrl.origin));
   }
 
   const baseUrl = process.env.NEXTAUTH_URL || request.nextUrl.origin;

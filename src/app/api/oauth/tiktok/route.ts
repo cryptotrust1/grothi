@@ -29,10 +29,8 @@ export async function GET(request: NextRequest) {
 
   const clientKey = process.env.TIKTOK_CLIENT_KEY;
   if (!clientKey) {
-    return NextResponse.json(
-      { error: 'TikTok OAuth not configured. TIKTOK_CLIENT_KEY is missing.' },
-      { status: 500 }
-    );
+    const errorMsg = encodeURIComponent('TikTok OAuth is not yet configured. Please use manual credentials for now, or contact support.');
+    return NextResponse.redirect(new URL(botId ? `/dashboard/bots/${botId}/platforms?error=${errorMsg}` : `/dashboard?error=${errorMsg}`, request.nextUrl.origin));
   }
 
   const baseUrl = process.env.NEXTAUTH_URL || request.nextUrl.origin;

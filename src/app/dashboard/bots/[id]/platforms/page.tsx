@@ -26,7 +26,7 @@ const platformConfigs: Record<string, {
   FACEBOOK: {
     name: 'Facebook',
     category: 'social',
-    oauthSupported: !!process.env.FACEBOOK_APP_ID,
+    oauthSupported: true,
     fields: [
       { key: 'pageId', label: 'Page ID', placeholder: 'Your Facebook Page ID', helpText: 'Found in your Facebook Page\'s About section or Page Settings under "Page ID".' },
       { key: 'accessToken', label: 'Page Access Token', placeholder: 'Permanent page access token', helpText: 'A long-lived token generated via the Meta Graph API Explorer with pages_manage_posts permission.' },
@@ -37,7 +37,7 @@ const platformConfigs: Record<string, {
   INSTAGRAM: {
     name: 'Instagram',
     category: 'social',
-    oauthSupported: !!process.env.FACEBOOK_APP_ID,
+    oauthSupported: true,
     fields: [
       { key: 'accountId', label: 'Business Account ID', placeholder: 'Instagram Business Account ID', helpText: 'Your Instagram Business or Creator account ID from the Meta Business Suite.' },
       { key: 'accessToken', label: 'Access Token', placeholder: 'Meta Graph API access token', helpText: 'Generated via the Meta Graph API Explorer with instagram_basic and instagram_content_publish permissions.' },
@@ -48,7 +48,7 @@ const platformConfigs: Record<string, {
   TWITTER: {
     name: 'X (Twitter)',
     category: 'social',
-    oauthSupported: !!process.env.TWITTER_CLIENT_ID,
+    oauthSupported: true,
     fields: [
       { key: 'apiKey', label: 'API Key', placeholder: 'Consumer API key', helpText: 'The API Key (Consumer Key) from your X Developer Portal app settings.' },
       { key: 'apiSecret', label: 'API Secret', placeholder: 'Consumer API secret', helpText: 'The API Secret (Consumer Secret) paired with your API Key.' },
@@ -61,7 +61,7 @@ const platformConfigs: Record<string, {
   LINKEDIN: {
     name: 'LinkedIn',
     category: 'social',
-    oauthSupported: !!process.env.LINKEDIN_CLIENT_ID,
+    oauthSupported: true,
     fields: [
       { key: 'accessToken', label: 'Access Token', placeholder: 'OAuth2 access token', helpText: 'OAuth 2.0 token with w_member_social permission from the LinkedIn Developer Portal.' },
       { key: 'orgId', label: 'Organization ID', placeholder: 'Company page ID (optional)', optional: true, helpText: 'Your LinkedIn Company Page ID. Leave blank to post as your personal profile.' },
@@ -72,7 +72,7 @@ const platformConfigs: Record<string, {
   TIKTOK: {
     name: 'TikTok',
     category: 'social',
-    oauthSupported: !!process.env.TIKTOK_CLIENT_KEY,
+    oauthSupported: true,
     fields: [
       { key: 'accessToken', label: 'Creator Access Token', placeholder: 'TikTok Creator API token', helpText: 'Access token from the TikTok Developer Portal with video.publish scope.' },
     ],
@@ -122,7 +122,7 @@ const platformConfigs: Record<string, {
   THREADS: {
     name: 'Threads',
     category: 'social',
-    oauthSupported: !!process.env.THREADS_APP_ID,
+    oauthSupported: true,
     fields: [
       { key: 'accessToken', label: 'Access Token', placeholder: 'Threads API access token', helpText: 'Access token from the Meta Developer Portal with threads_basic and threads_content_publish permissions.' },
     ],
@@ -132,7 +132,7 @@ const platformConfigs: Record<string, {
   PINTEREST: {
     name: 'Pinterest',
     category: 'social',
-    oauthSupported: !!process.env.PINTEREST_APP_ID,
+    oauthSupported: true,
     fields: [
       { key: 'accessToken', label: 'Access Token', placeholder: 'Pinterest API access token', helpText: 'OAuth token from the Pinterest Developer Portal with pins:read and pins:write scopes.' },
       { key: 'boardId', label: 'Board ID', placeholder: 'Target board ID', optional: true, helpText: 'The board to pin to. Find it in the board URL. Leave blank for the default board.' },
@@ -173,7 +173,7 @@ const platformConfigs: Record<string, {
   YOUTUBE: {
     name: 'YouTube',
     category: 'social',
-    oauthSupported: !!process.env.GOOGLE_CLIENT_ID,
+    oauthSupported: true,
     fields: [
       { key: 'refreshToken', label: 'Refresh Token', placeholder: 'OAuth2 refresh token', helpText: 'OAuth 2.0 refresh token from Google Cloud Console with YouTube Data API v3 enabled.' },
       { key: 'channelId', label: 'Channel ID', placeholder: 'Your YouTube channel ID', helpText: 'Found in YouTube Studio > Settings > Channel > Advanced settings, starts with "UC".' },
@@ -412,9 +412,10 @@ export default async function BotPlatformsPage({ params, searchParams }: {
         <CardContent className="pt-6">
           <div className="flex gap-3">
             <Info className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
-            <div className="text-sm space-y-1">
+            <div className="text-sm space-y-2">
               <p className="font-medium text-blue-900">How platform connections work</p>
-              <p className="text-blue-700">Enter your API credentials for each platform below. All credentials are encrypted with AES-256-GCM and stored securely. The bot uses these to post content, reply to comments, and track engagement on your behalf.</p>
+              <p className="text-blue-700"><strong>One-click OAuth</strong> &mdash; For major platforms (Facebook, Instagram, X, LinkedIn, TikTok, YouTube, Pinterest, Threads) just click &quot;Connect with ...&quot; and authorize access. No API keys needed.</p>
+              <p className="text-blue-700"><strong>Manual credentials</strong> &mdash; For other platforms (Reddit, Telegram, Discord, Mastodon, etc.) enter your API keys or tokens. All credentials are encrypted with AES-256-GCM.</p>
             </div>
           </div>
         </CardContent>
