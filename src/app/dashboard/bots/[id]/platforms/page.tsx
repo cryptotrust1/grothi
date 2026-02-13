@@ -9,10 +9,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Globe, Info, ExternalLink, Trash2 } from 'lucide-react';
+import { Globe, Info, ExternalLink } from 'lucide-react';
 import { BotNav } from '@/components/dashboard/bot-nav';
 import { HelpTip } from '@/components/ui/help-tip';
-import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { PlatformSubmitButton, DisconnectButton } from '@/components/dashboard/platform-form-client';
 
 export const metadata: Metadata = { title: 'Bot Platforms', robots: { index: false } };
 
@@ -219,13 +219,22 @@ export default async function BotPlatformsPage({ params, searchParams }: {
   async function handleAddPlatform(formData: FormData) {
     'use server';
 
+    console.log('[Platform Connect] Starting connection...');
+
     const currentUser = await requireAuth();
+    console.log('[Platform Connect] User:', currentUser.id);
+
     const currentBot = await db.bot.findFirst({ where: { id, userId: currentUser.id } });
-    if (!currentBot) redirect('/dashboard/bots');
+    if (!currentBot) {
+      console.log('[Platform Connect] Bot not found or not owned by user');
+      redirect('/dashboard/bots');
+    }
 
     const platform = formData.get('platform') as string;
+    console.log('[Platform Connect] Platform:', platform);
     const config = platformConfigs[platform];
     if (!config) {
+      console.log('[Platform Connect] Invalid platform:', platform);
       redirect(`/dashboard/bots/${id}/platforms?error=Invalid platform`);
     }
 
@@ -245,10 +254,12 @@ export default async function BotPlatformsPage({ params, searchParams }: {
     }
 
     if (missingFields.length > 0) {
+      console.log('[Platform Connect] Missing required fields:', missingFields);
       redirect(`/dashboard/bots/${id}/platforms?error=${encodeURIComponent(`Missing required fields: ${missingFields.join(', ')}`)}`);
     }
 
     if (Object.keys(credentials).length === 0) {
+      console.log('[Platform Connect] No credentials provided');
       redirect(`/dashboard/bots/${id}/platforms?error=Please fill in at least one credential field`);
     }
 
@@ -279,12 +290,27 @@ export default async function BotPlatformsPage({ params, searchParams }: {
       }
     }
 
+    console.log('[Platform Connect] Credentials validated, encrypting...');
+
+    // Encrypt credentials - wrapped in try-catch to handle missing ENCRYPTION_KEY
     const encrypted: Record<string, string> = {};
-    for (const [key, value] of Object.entries(credentials)) {
-      encrypted[key] = encrypt(value);
+    let errorMessage: string | null = null;
+
+    try {
+      for (const [key, value] of Object.entries(credentials)) {
+        encrypted[key] = encrypt(value);
+      }
+    } catch (e) {
+      console.error('[Platform Connect] Encryption failed:', e instanceof Error ? e.message : e);
+      errorMessage = 'Encryption failed. Server configuration error — contact admin.';
     }
 
-    let errorMessage: string | null = null;
+    if (errorMessage) {
+      redirect(`/dashboard/bots/${id}/platforms?error=${encodeURIComponent(errorMessage)}`);
+    }
+
+    console.log('[Platform Connect] Encrypted, saving to database...');
+
     try {
       await db.platformConnection.upsert({
         where: { botId_platform: { botId: id, platform: platform as any } },
@@ -297,28 +323,43 @@ export default async function BotPlatformsPage({ params, searchParams }: {
         update: {
           encryptedCredentials: encrypted,
           status: 'CONNECTED',
+          lastError: null,
         },
       });
     } catch (e) {
-      errorMessage = e instanceof Error ? 'Failed to save connection. Please try again.' : 'Connection failed';
+      console.error('[Platform Connect] Database error:', e instanceof Error ? e.message : e);
+      errorMessage = 'Failed to save connection. Please try again.';
     }
 
     if (errorMessage) {
       redirect(`/dashboard/bots/${id}/platforms?error=${encodeURIComponent(errorMessage)}`);
     }
+
+    console.log('[Platform Connect] Success:', config.name);
     redirect(`/dashboard/bots/${id}/platforms?success=${encodeURIComponent(config.name + ' connected successfully')}`);
   }
 
   async function handleDisconnect(formData: FormData) {
     'use server';
 
+    console.log('[Platform Disconnect] Starting...');
+
     const currentUser = await requireAuth();
+    console.log('[Platform Disconnect] User:', currentUser.id);
+
     const currentBot = await db.bot.findFirst({ where: { id, userId: currentUser.id } });
-    if (!currentBot) redirect('/dashboard/bots');
+    if (!currentBot) {
+      console.log('[Platform Disconnect] Bot not found');
+      redirect('/dashboard/bots');
+    }
 
     const platform = formData.get('platform') as string;
+    console.log('[Platform Disconnect] Platform:', platform);
     const config = platformConfigs[platform];
-    if (!config) redirect(`/dashboard/bots/${id}/platforms?error=Invalid platform`);
+    if (!config) {
+      console.log('[Platform Disconnect] Invalid platform:', platform);
+      redirect(`/dashboard/bots/${id}/platforms?error=Invalid platform`);
+    }
 
     let errorMessage: string | null = null;
     try {
@@ -326,12 +367,14 @@ export default async function BotPlatformsPage({ params, searchParams }: {
         where: { botId_platform: { botId: id, platform: platform as any } },
       });
     } catch (e) {
+      console.error('[Platform Disconnect] Error:', e instanceof Error ? e.message : e);
       errorMessage = e instanceof Error ? 'Failed to disconnect. Please try again.' : 'Disconnect failed';
     }
 
     if (errorMessage) {
       redirect(`/dashboard/bots/${id}/platforms?error=${encodeURIComponent(errorMessage)}`);
     }
+    console.log('[Platform Disconnect] Success:', config.name);
     redirect(`/dashboard/bots/${id}/platforms?success=${encodeURIComponent(config.name + ' disconnected')}`);
   }
 
@@ -379,18 +422,10 @@ export default async function BotPlatformsPage({ params, searchParams }: {
                   <Badge variant={conn.status === 'CONNECTED' ? 'success' : conn.status === 'ERROR' ? 'destructive' : 'secondary'} className="text-xs ml-auto">
                     {conn.status}
                   </Badge>
-                  <ConfirmDialog
-                    title={`Disconnect ${platformConfigs[conn.platform]?.name || conn.platform}`}
-                    description="This will remove the platform connection and delete all stored credentials. You can reconnect later."
-                    confirmLabel="Disconnect"
-                    variant="destructive"
+                  <DisconnectButton
+                    platformName={platformConfigs[conn.platform]?.name || conn.platform}
+                    platform={conn.platform}
                     formAction={handleDisconnect}
-                    formFields={{ platform: conn.platform }}
-                    trigger={
-                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive">
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    }
                   />
                 </div>
               ))}
@@ -475,9 +510,9 @@ export default async function BotPlatformsPage({ params, searchParams }: {
                                   <ExternalLink className="h-3 w-3" /> How to get these credentials
                                 </a>
                               )}
-                              <Button type="submit" size="sm" variant="outline" className="w-full mt-1">
+                              <PlatformSubmitButton variant="outline" className="w-full mt-1">
                                 Save Manual Credentials
-                              </Button>
+                              </PlatformSubmitButton>
                             </form>
                           </details>
                         </div>
@@ -508,9 +543,9 @@ export default async function BotPlatformsPage({ params, searchParams }: {
                               <ExternalLink className="h-3 w-3" /> How to get these credentials
                             </a>
                           )}
-                          <Button type="submit" size="sm" variant={isConnected ? 'outline' : 'default'} className="w-full mt-1">
+                          <PlatformSubmitButton variant={isConnected ? 'outline' : 'default'} className="w-full mt-1">
                             {isConnected ? 'Update Credentials' : 'Connect'}
-                          </Button>
+                          </PlatformSubmitButton>
                         </form>
                       )}
                     </CardContent>
