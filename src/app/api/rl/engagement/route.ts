@@ -102,7 +102,8 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const botId = searchParams.get('botId');
   const platform = searchParams.get('platform');
-  const limit = Math.min(parseInt(searchParams.get('limit') ?? '50'), 200);
+  const limitRaw = parseInt(searchParams.get('limit') ?? '50');
+  const limit = isNaN(limitRaw) ? 50 : Math.min(Math.max(1, limitRaw), 200);
 
   if (!botId) {
     return NextResponse.json({ error: 'botId required' }, { status: 400 });

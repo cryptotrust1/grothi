@@ -77,6 +77,8 @@ export default async function NewBotPage({
         reactorState: {
           selfLearning: true,
           contentTypes: ['educational', 'engagement'],
+          toneStyles: ['professional', 'casual'],
+          hashtagPatterns: ['moderate'],
           maxPostsPerDay: 10,
           maxRepliesPerDay: 20,
         },

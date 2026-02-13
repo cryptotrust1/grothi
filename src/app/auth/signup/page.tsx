@@ -36,13 +36,16 @@ export default async function SignUpPage({
       redirect('/auth/signup?error=' + encodeURIComponent(result.error.errors[0].message));
     }
 
+    let errorMessage: string | null = null;
     try {
       await signUp(email, password, name);
     } catch (e) {
-      const message = e instanceof Error ? e.message : 'Sign up failed';
-      redirect('/auth/signup?error=' + encodeURIComponent(message));
+      errorMessage = e instanceof Error ? e.message : 'Sign up failed';
     }
 
+    if (errorMessage) {
+      redirect('/auth/signup?error=' + encodeURIComponent(errorMessage));
+    }
     redirect('/dashboard');
   }
 

@@ -9,9 +9,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Globe, Info, ExternalLink } from 'lucide-react';
+import { Globe, Info, ExternalLink, Trash2 } from 'lucide-react';
 import { BotNav } from '@/components/dashboard/bot-nav';
 import { HelpTip } from '@/components/ui/help-tip';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 export const metadata: Metadata = { title: 'Bot Platforms', robots: { index: false } };
 
@@ -228,14 +229,54 @@ export default async function BotPlatformsPage({ params, searchParams }: {
       redirect(`/dashboard/bots/${id}/platforms?error=Invalid platform`);
     }
 
+    // Validate each field - required fields must be non-empty after trimming
     const credentials: Record<string, string> = {};
+    const missingFields: string[] = [];
+
     for (const field of config.fields) {
-      const value = formData.get(field.key) as string;
-      if (value) credentials[field.key] = value;
+      const raw = formData.get(field.key) as string;
+      const value = raw?.trim() || '';
+
+      if (!field.optional && !value) {
+        missingFields.push(field.label);
+      } else if (value) {
+        credentials[field.key] = value;
+      }
+    }
+
+    if (missingFields.length > 0) {
+      redirect(`/dashboard/bots/${id}/platforms?error=${encodeURIComponent(`Missing required fields: ${missingFields.join(', ')}`)}`);
     }
 
     if (Object.keys(credentials).length === 0) {
-      redirect(`/dashboard/bots/${id}/platforms?error=Please fill in the credentials`);
+      redirect(`/dashboard/bots/${id}/platforms?error=Please fill in at least one credential field`);
+    }
+
+    // Format validation for specific field types
+    for (const field of config.fields) {
+      const value = credentials[field.key];
+      if (!value) continue;
+
+      if (field.key === 'instanceUrl' && !/^https?:\/\/.+\..+/.test(value)) {
+        redirect(`/dashboard/bots/${id}/platforms?error=${encodeURIComponent(`${field.label} must be a valid URL (e.g. https://mastodon.social)`)}`);
+      }
+      if (field.key === 'channelId' && platform === 'DISCORD' && !/^\d{15,21}$/.test(value)) {
+        redirect(`/dashboard/bots/${id}/platforms?error=${encodeURIComponent('Discord Channel ID must be a numeric ID (15-21 digits). Enable Developer Mode to copy it.')}`);
+      }
+      if (field.key === 'botToken' && platform === 'TELEGRAM' && !/^\d+:.+$/.test(value)) {
+        redirect(`/dashboard/bots/${id}/platforms?error=${encodeURIComponent('Telegram Bot Token format is invalid. It should look like 123456:ABC-DEF...')}`);
+      }
+      if (field.key === 'relays' && platform === 'NOSTR') {
+        const relays = value.split(',').map(r => r.trim()).filter(Boolean);
+        const invalid = relays.find(r => !/^wss?:\/\/.+/.test(r));
+        if (invalid) {
+          redirect(`/dashboard/bots/${id}/platforms?error=${encodeURIComponent(`Invalid relay URL: ${invalid}. Relays must start with wss://`)}`);
+        }
+      }
+      // General minimum length check for tokens/keys (skip short fields like handles/usernames)
+      if (['accessToken', 'apiKey', 'apiSecret', 'accessSecret', 'clientSecret', 'integrationToken', 'refreshToken', 'appPassword', 'privateKey', 'botToken'].includes(field.key) && value.length < 10) {
+        redirect(`/dashboard/bots/${id}/platforms?error=${encodeURIComponent(`${field.label} appears too short. Please check your credential.`)}`);
+      }
     }
 
     const encrypted: Record<string, string> = {};
@@ -243,6 +284,7 @@ export default async function BotPlatformsPage({ params, searchParams }: {
       encrypted[key] = encrypt(value);
     }
 
+    let errorMessage: string | null = null;
     try {
       await db.platformConnection.upsert({
         where: { botId_platform: { botId: id, platform: platform as any } },
@@ -258,11 +300,39 @@ export default async function BotPlatformsPage({ params, searchParams }: {
         },
       });
     } catch (e) {
-      const message = e instanceof Error ? e.message : 'Connection failed';
-      redirect(`/dashboard/bots/${id}/platforms?error=${encodeURIComponent(message)}`);
+      errorMessage = e instanceof Error ? 'Failed to save connection. Please try again.' : 'Connection failed';
     }
 
-    redirect(`/dashboard/bots/${id}/platforms?success=${config.name} connected`);
+    if (errorMessage) {
+      redirect(`/dashboard/bots/${id}/platforms?error=${encodeURIComponent(errorMessage)}`);
+    }
+    redirect(`/dashboard/bots/${id}/platforms?success=${encodeURIComponent(config.name + ' connected successfully')}`);
+  }
+
+  async function handleDisconnect(formData: FormData) {
+    'use server';
+
+    const currentUser = await requireAuth();
+    const currentBot = await db.bot.findFirst({ where: { id, userId: currentUser.id } });
+    if (!currentBot) redirect('/dashboard/bots');
+
+    const platform = formData.get('platform') as string;
+    const config = platformConfigs[platform];
+    if (!config) redirect(`/dashboard/bots/${id}/platforms?error=Invalid platform`);
+
+    let errorMessage: string | null = null;
+    try {
+      await db.platformConnection.delete({
+        where: { botId_platform: { botId: id, platform: platform as any } },
+      });
+    } catch (e) {
+      errorMessage = e instanceof Error ? 'Failed to disconnect. Please try again.' : 'Disconnect failed';
+    }
+
+    if (errorMessage) {
+      redirect(`/dashboard/bots/${id}/platforms?error=${encodeURIComponent(errorMessage)}`);
+    }
+    redirect(`/dashboard/bots/${id}/platforms?success=${encodeURIComponent(config.name + ' disconnected')}`);
   }
 
   const connectedPlatforms = new Set(bot.platformConns.map((p) => p.platform));
@@ -309,6 +379,19 @@ export default async function BotPlatformsPage({ params, searchParams }: {
                   <Badge variant={conn.status === 'CONNECTED' ? 'success' : conn.status === 'ERROR' ? 'destructive' : 'secondary'} className="text-xs ml-auto">
                     {conn.status}
                   </Badge>
+                  <ConfirmDialog
+                    title={`Disconnect ${platformConfigs[conn.platform]?.name || conn.platform}`}
+                    description="This will remove the platform connection and delete all stored credentials. You can reconnect later."
+                    confirmLabel="Disconnect"
+                    variant="destructive"
+                    formAction={handleDisconnect}
+                    formFields={{ platform: conn.platform }}
+                    trigger={
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    }
+                  />
                 </div>
               ))}
             </div>
@@ -381,6 +464,8 @@ export default async function BotPlatformsPage({ params, searchParams }: {
                                     name={field.key}
                                     type="password"
                                     placeholder={field.placeholder}
+                                    required={!field.optional}
+                                    minLength={field.optional ? undefined : 3}
                                     className="text-sm h-8"
                                   />
                                 </div>
@@ -412,6 +497,8 @@ export default async function BotPlatformsPage({ params, searchParams }: {
                                 name={field.key}
                                 type="password"
                                 placeholder={field.placeholder}
+                                required={!field.optional}
+                                minLength={field.optional ? undefined : 3}
                                 className="text-sm h-8"
                               />
                             </div>

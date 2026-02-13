@@ -35,13 +35,16 @@ export default async function SignInPage({
       redirect('/auth/signin?error=' + encodeURIComponent(result.error.errors[0].message));
     }
 
+    let errorMessage: string | null = null;
     try {
       await signIn(email, password);
     } catch (e) {
-      const message = e instanceof Error ? e.message : 'Sign in failed';
-      redirect('/auth/signin?error=' + encodeURIComponent(message));
+      errorMessage = e instanceof Error ? e.message : 'Sign in failed';
     }
 
+    if (errorMessage) {
+      redirect('/auth/signin?error=' + encodeURIComponent(errorMessage));
+    }
     redirect('/dashboard');
   }
 
