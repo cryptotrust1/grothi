@@ -20,6 +20,11 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
+  // 2FA fields
+  twoFactorEnabled       Boolean  @default(false)
+  twoFactorSecret        String?
+  twoFactorRecoveryCodes Json?
+
   bots             Bot[]
   creditBalance    CreditBalance?
   creditTxns       CreditTransaction[]
@@ -553,6 +558,16 @@ model PlatformContentPlan {
 
   @@unique([botId, platform])
   @@index([botId])
+}
+
+// ============ SYSTEM SETTINGS ============
+
+model SystemSetting {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String @db.Text
+
+  updatedAt DateTime @updatedAt
 }
 
 // ============ CONTACT ============
