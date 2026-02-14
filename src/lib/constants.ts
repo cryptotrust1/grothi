@@ -56,6 +56,7 @@ export const GOAL_LABELS: Record<string, string> = {
 // ============ BOT NAVIGATION TABS ============
 export const BOT_NAV_TABS = [
   { key: 'overview', label: 'Overview', path: '' },
+  { key: 'post', label: 'New Post', path: '/post' },
   { key: 'activity', label: 'Activity', path: '/activity' },
   { key: 'platforms', label: 'Platforms', path: '/platforms' },
   { key: 'strategy', label: 'Content Strategy', path: '/strategy' },
