@@ -133,8 +133,61 @@ export async function signIn(email: string, password: string) {
     throw new Error('Invalid email or password');
   }
 
+  // If 2FA is enabled, return a short-lived pending token instead of full session
+  if (user.twoFactorEnabled) {
+    const pendingToken = await new SignJWT({ userId: user.id, pending2fa: true })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setExpirationTime('5m')
+      .setIssuedAt()
+      .sign(getJwtSecret());
+
+    return { requires2FA: true as const, pendingToken, user: null };
+  }
+
   await createSession(user.id);
 
+  return { requires2FA: false as const, pendingToken: null, user };
+}
+
+export async function verify2FAAndCreateSession(pendingToken: string, totpCode: string) {
+  const { payload } = await jwtVerify(pendingToken, getJwtSecret());
+  if (!payload.pending2fa) {
+    throw new Error('Invalid pending token');
+  }
+
+  const userId = payload.userId as string;
+  const user = await db.user.findUnique({ where: { id: userId } });
+  if (!user || !user.twoFactorEnabled || !user.twoFactorSecret) {
+    throw new Error('Invalid state');
+  }
+
+  const { verifyTotpToken, decryptTotpSecret, verifyRecoveryCode } = await import('./totp');
+  const secret = decryptTotpSecret(user.twoFactorSecret);
+
+  // Try as 6-digit TOTP code
+  if (/^\d{6}$/.test(totpCode)) {
+    const isValid = verifyTotpToken(totpCode, secret, user.email);
+    if (!isValid) {
+      throw new Error('Invalid verification code');
+    }
+  } else {
+    // Try as recovery code (XXXX-XXXX format)
+    const storedHashes = (user.twoFactorRecoveryCodes as string[]) || [];
+    const matchIndex = await verifyRecoveryCode(totpCode, storedHashes);
+    if (matchIndex === -1) {
+      throw new Error('Invalid verification code');
+    }
+
+    // Remove used recovery code
+    const updatedHashes = [...storedHashes];
+    updatedHashes.splice(matchIndex, 1);
+    await db.user.update({
+      where: { id: userId },
+      data: { twoFactorRecoveryCodes: updatedHashes },
+    });
+  }
+
+  await createSession(userId);
   return user;
 }
 

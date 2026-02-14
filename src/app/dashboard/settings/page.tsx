@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { TwoFactorSetup } from '@/components/dashboard/two-factor-setup';
 
 export const metadata: Metadata = { title: 'Account Settings', robots: { index: false } };
 
@@ -125,6 +126,9 @@ export default async function SettingsPage({
           </CardContent>
         </form>
       </Card>
+
+      {/* Two-Factor Authentication */}
+      <TwoFactorSetup enabled={user.twoFactorEnabled} />
 
       {/* Danger Zone */}
       <Card className="border-destructive/50">

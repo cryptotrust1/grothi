@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { deductCredits } from '@/lib/credits';
-import { getReplicate, MODELS, GENERATION_COSTS } from '@/lib/replicate';
+import { GENERATION_COSTS } from '@/lib/replicate';
+import { generateVideo } from '@/lib/video-provider';
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, resolve } from 'path';
@@ -20,7 +21,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { botId, platform, prompt, length, style } = body;
+    const { botId, platform, prompt, style } = body;
 
     if (!botId) {
       return NextResponse.json({ error: 'Bot ID required' }, { status: 400 });
@@ -60,22 +61,11 @@ export async function POST(request: NextRequest) {
       'High quality, professional, suitable for social media.',
     ].filter(Boolean).join('. ');
 
-    // Generate video via Replicate
-    const replicate = getReplicate();
-    const output = await replicate.run(MODELS.VIDEO, {
-      input: {
-        prompt: fullPrompt,
-      },
-    });
-
-    // Get the video URL from output
-    const videoUrl = Array.isArray(output) ? output[0] : output;
-    if (!videoUrl || typeof videoUrl !== 'string') {
-      return NextResponse.json({ error: 'Video generation failed — no output from AI' }, { status: 500 });
-    }
+    // Generate video via active provider (Replicate or Runway)
+    const result = await generateVideo(fullPrompt);
 
     // Download the generated video
-    const videoResponse = await fetch(videoUrl);
+    const videoResponse = await fetch(result.videoUrl);
     if (!videoResponse.ok) {
       return NextResponse.json({ error: 'Failed to download generated video' }, { status: 500 });
     }
@@ -114,7 +104,7 @@ export async function POST(request: NextRequest) {
         botId,
         platform: (platform as any) || 'TIKTOK',
         action: 'GENERATE_VIDEO',
-        content: fullPrompt.slice(0, 500),
+        content: `[${result.provider}] ${fullPrompt.slice(0, 480)}`,
         success: true,
         creditsUsed: GENERATION_COSTS.GENERATE_VIDEO,
       },
@@ -127,13 +117,14 @@ export async function POST(request: NextRequest) {
       fileSize: media.fileSize,
       url: `/api/media/${media.id}`,
       prompt: fullPrompt,
+      provider: result.provider,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Video generation error:', message);
 
-    if (message.includes('REPLICATE_API_TOKEN')) {
-      return NextResponse.json({ error: 'AI video generation is not configured yet. Contact support.' }, { status: 503 });
+    if (message.includes('API_TOKEN') || message.includes('API_SECRET') || message.includes('not configured')) {
+      return NextResponse.json({ error: 'AI video generation is not configured yet. Check Admin → Settings.' }, { status: 503 });
     }
 
     return NextResponse.json({ error: 'Video generation failed. Please try again.' }, { status: 500 });

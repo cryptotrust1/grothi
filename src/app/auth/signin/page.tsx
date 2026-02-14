@@ -17,12 +17,17 @@ export const metadata: Metadata = {
 export default async function SignInPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; registered?: string }>;
+  searchParams: Promise<{ error?: string; registered?: string; pending2fa?: string }>;
 }) {
   const user = await getCurrentUser();
   if (user) redirect('/dashboard');
 
   const params = await searchParams;
+
+  // If we have a pending 2FA token, show the 2FA verification form
+  if (params.pending2fa) {
+    return <TwoFactorForm pendingToken={params.pending2fa} error={params.error} />;
+  }
 
   async function handleSignIn(formData: FormData) {
     'use server';
@@ -37,7 +42,12 @@ export default async function SignInPage({
 
     let errorMessage: string | null = null;
     try {
-      await signIn(email, password);
+      const signInResult = await signIn(email, password);
+
+      if (signInResult.requires2FA) {
+        // Redirect to 2FA step with pending token
+        redirect('/auth/signin?pending2fa=' + encodeURIComponent(signInResult.pendingToken));
+      }
     } catch (e) {
       errorMessage = e instanceof Error ? e.message : 'Sign in failed';
     }
@@ -93,6 +103,80 @@ export default async function SignInPage({
                 Sign up
               </Link>
             </p>
+          </CardFooter>
+        </form>
+      </Card>
+    </div>
+  );
+}
+
+// ============ 2FA VERIFICATION FORM ============
+
+function TwoFactorForm({ pendingToken, error }: { pendingToken: string; error?: string }) {
+  async function handleVerify2FA(formData: FormData) {
+    'use server';
+
+    const code = formData.get('code') as string;
+    const token = formData.get('pendingToken') as string;
+
+    if (!code || !token) {
+      redirect('/auth/signin?pending2fa=' + encodeURIComponent(token) + '&error=' + encodeURIComponent('Please enter a code'));
+    }
+
+    try {
+      const { verify2FAAndCreateSession } = await import('@/lib/auth');
+      await verify2FAAndCreateSession(token, code.trim());
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Verification failed';
+      redirect('/auth/signin?pending2fa=' + encodeURIComponent(token) + '&error=' + encodeURIComponent(msg));
+    }
+
+    redirect('/dashboard');
+  }
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-muted/30 px-4">
+      <Card className="w-full max-w-md">
+        <CardHeader className="text-center">
+          <Link href="/" className="flex items-center justify-center space-x-2 mb-4">
+            <Bot className="h-8 w-8 text-primary" />
+            <span className="text-xl font-bold">Grothi</span>
+          </Link>
+          <CardTitle className="text-2xl">Two-Factor Authentication</CardTitle>
+          <CardDescription>
+            Enter the 6-digit code from your authenticator app, or a recovery code.
+          </CardDescription>
+        </CardHeader>
+        <form action={handleVerify2FA}>
+          <input type="hidden" name="pendingToken" value={pendingToken} />
+          <CardContent className="space-y-4">
+            {error && (
+              <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">
+                {error}
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="code">Verification Code</Label>
+              <Input
+                id="code"
+                name="code"
+                type="text"
+                autoComplete="one-time-code"
+                placeholder="123456 or XXXX-XXXX"
+                required
+                autoFocus
+                className="text-center text-lg tracking-widest"
+              />
+              <p className="text-xs text-muted-foreground">
+                Open Google Authenticator and enter the 6-digit code, or use a recovery code.
+              </p>
+            </div>
+          </CardContent>
+          <CardFooter className="flex flex-col space-y-4">
+            <Button type="submit" className="w-full">Verify</Button>
+            <Link href="/auth/signin" className="text-sm text-muted-foreground hover:text-foreground text-center">
+              Back to sign in
+            </Link>
           </CardFooter>
         </form>
       </Card>
