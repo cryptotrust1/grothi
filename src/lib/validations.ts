@@ -43,8 +43,55 @@ export const platformConnectionSchema = z.object({
   config: z.record(z.any()).optional(),
 });
 
+// ============ EMAIL MARKETING ============
+
+export const emailAccountSchema = z.object({
+  provider: z.enum(['GOOGLE', 'MICROSOFT', 'SENDGRID', 'MAILGUN', 'AMAZON_SES', 'POSTMARK', 'CUSTOM']),
+  email: z.string().email('Invalid email address'),
+  fromName: z.string().max(100).optional(),
+  smtpHost: z.string().min(1, 'SMTP host is required').max(255),
+  smtpPort: z.coerce.number().int().min(1).max(65535).default(587),
+  smtpUser: z.string().min(1, 'SMTP username is required').max(255),
+  smtpPass: z.string().min(1, 'SMTP password is required'),
+  smtpSecure: z.boolean().default(false),
+  dailyLimit: z.coerce.number().int().min(1).max(100000).default(2000),
+});
+
+export const emailListSchema = z.object({
+  name: z.string().min(1, 'List name is required').max(100),
+  description: z.string().max(500).optional(),
+});
+
+export const emailContactSchema = z.object({
+  email: z.string().email('Invalid email address'),
+  firstName: z.string().max(100).optional(),
+  lastName: z.string().max(100).optional(),
+  tags: z.array(z.string().max(50)).max(20).optional(),
+});
+
+export const emailContactImportSchema = z.object({
+  contacts: z.array(emailContactSchema).min(1, 'At least one contact required').max(10000),
+  consentSource: z.string().min(1, 'Consent source is required').max(100),
+});
+
+export const emailCampaignSchema = z.object({
+  name: z.string().min(1, 'Campaign name is required').max(200),
+  subject: z.string().min(1, 'Subject line is required').max(200),
+  preheader: z.string().max(200).optional(),
+  fromName: z.string().max(100).optional(),
+  listId: z.string().min(1, 'Select a contact list'),
+  htmlContent: z.string().min(1, 'Email content is required'),
+  textContent: z.string().optional(),
+  scheduledAt: z.string().datetime().optional(),
+});
+
 export type SignUpInput = z.infer<typeof signUpSchema>;
 export type SignInInput = z.infer<typeof signInSchema>;
 export type CreateBotInput = z.infer<typeof createBotSchema>;
 export type UpdateBotInput = z.infer<typeof updateBotSchema>;
 export type PlatformConnectionInput = z.infer<typeof platformConnectionSchema>;
+export type EmailAccountInput = z.infer<typeof emailAccountSchema>;
+export type EmailListInput = z.infer<typeof emailListSchema>;
+export type EmailContactInput = z.infer<typeof emailContactSchema>;
+export type EmailContactImportInput = z.infer<typeof emailContactImportSchema>;
+export type EmailCampaignInput = z.infer<typeof emailCampaignSchema>;

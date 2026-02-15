@@ -79,8 +79,8 @@ describe('Constants', () => {
   });
 
   describe('BOT_NAV_TABS', () => {
-    it('has 10 tabs', () => {
-      expect(BOT_NAV_TABS).toHaveLength(10);
+    it('has 11 tabs', () => {
+      expect(BOT_NAV_TABS).toHaveLength(11);
     });
 
     it('first tab is overview with empty path', () => {
