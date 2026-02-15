@@ -59,6 +59,7 @@ export const BOT_NAV_TABS = [
   { key: 'post', label: 'New Post', path: '/post' },
   { key: 'activity', label: 'Activity', path: '/activity' },
   { key: 'platforms', label: 'Platforms', path: '/platforms' },
+  { key: 'email', label: 'Email Marketing', path: '/email' },
   { key: 'strategy', label: 'Content Strategy', path: '/strategy' },
   { key: 'media', label: 'Media', path: '/media' },
   { key: 'scheduler', label: 'Scheduler', path: '/scheduler' },
@@ -180,3 +181,46 @@ export const ACTION_TYPES = [
   'COLLECT_METRICS', 'GENERATE_CONTENT', 'GENERATE_IMAGE', 'GENERATE_VIDEO',
   'SAFETY_BLOCK', 'BAN_DETECTED',
 ] as const;
+
+// ============ EMAIL MARKETING ============
+
+export const EMAIL_PROVIDERS = [
+  { value: 'GOOGLE', label: 'Google Workspace / Gmail', host: 'smtp.gmail.com', port: 587, secure: false, dailyLimit: 2000 },
+  { value: 'MICROSOFT', label: 'Microsoft 365 / Outlook', host: 'smtp.office365.com', port: 587, secure: false, dailyLimit: 10000 },
+  { value: 'SENDGRID', label: 'SendGrid', host: 'smtp.sendgrid.net', port: 587, secure: false, dailyLimit: 50000 },
+  { value: 'MAILGUN', label: 'Mailgun', host: 'smtp.mailgun.org', port: 587, secure: false, dailyLimit: 50000 },
+  { value: 'AMAZON_SES', label: 'Amazon SES', host: '', port: 587, secure: false, dailyLimit: 50000 },
+  { value: 'POSTMARK', label: 'Postmark', host: 'smtp.postmarkapp.com', port: 587, secure: false, dailyLimit: 10000 },
+  { value: 'CUSTOM', label: 'Custom SMTP Server', host: '', port: 587, secure: false, dailyLimit: 500 },
+] as const;
+
+export const CAMPAIGN_STATUS_CONFIG: Record<string, {
+  variant: 'success' | 'warning' | 'destructive' | 'secondary' | 'default';
+  label: string;
+}> = {
+  DRAFT: { variant: 'secondary', label: 'Draft' },
+  SCHEDULED: { variant: 'default', label: 'Scheduled' },
+  SENDING: { variant: 'warning', label: 'Sending' },
+  SENT: { variant: 'success', label: 'Sent' },
+  PAUSED: { variant: 'secondary', label: 'Paused' },
+  CANCELLED: { variant: 'secondary', label: 'Cancelled' },
+  FAILED: { variant: 'destructive', label: 'Failed' },
+};
+
+export const CONTACT_STATUS_CONFIG: Record<string, {
+  variant: 'success' | 'warning' | 'destructive' | 'secondary';
+  label: string;
+}> = {
+  ACTIVE: { variant: 'success', label: 'Active' },
+  UNSUBSCRIBED: { variant: 'secondary', label: 'Unsubscribed' },
+  BOUNCED: { variant: 'destructive', label: 'Bounced' },
+  COMPLAINED: { variant: 'destructive', label: 'Complained' },
+};
+
+export const EMAIL_DELIVERABILITY_THRESHOLDS = {
+  deliverabilityRate: { good: 95, warning: 90 },
+  openRate: { good: 15, warning: 10 },
+  clickRate: { good: 2, warning: 1 },
+  bounceRate: { bad: 5, warning: 3 },
+  spamRate: { bad: 0.1, warning: 0.05 },
+} as const;

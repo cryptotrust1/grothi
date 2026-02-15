@@ -101,6 +101,9 @@ model Bot {
   rlArmStates     RLArmState[]
   rlConfigs       RLConfig[]
   contentPlans    PlatformContentPlan[]
+  emailAccount    EmailAccount?
+  emailLists      EmailList[]
+  emailCampaigns  EmailCampaign[]
 
   @@index([userId])
   @@index([status])
@@ -581,4 +584,231 @@ model ContactMessage {
   createdAt DateTime @default(now())
 
   @@index([read])
+}
+
+// ============ EMAIL MARKETING ============
+
+model EmailAccount {
+  id         String        @id @default(cuid())
+  botId      String        @unique
+  provider   EmailProvider @default(CUSTOM)
+  email      String
+  fromName   String?
+
+  // SMTP credentials (password encrypted with AES-256-GCM)
+  smtpHost   String
+  smtpPort   Int           @default(587)
+  smtpUser   String
+  smtpPass   String        // encrypted
+  smtpSecure Boolean       @default(false)
+
+  // Sending limits
+  dailyLimit  Int      @default(2000)
+  sentToday   Int      @default(0)
+  lastResetAt DateTime @default(now())
+
+  // Status
+  isVerified Boolean @default(false)
+  lastError  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bot       Bot             @relation(fields: [botId], references: [id], onDelete: Cascade)
+  campaigns EmailCampaign[]
+
+  @@index([botId])
+}
+
+enum EmailProvider {
+  GOOGLE
+  MICROSOFT
+  SENDGRID
+  MAILGUN
+  AMAZON_SES
+  POSTMARK
+  CUSTOM
+}
+
+model EmailList {
+  id           String  @id @default(cuid())
+  botId        String
+  name         String
+  description  String?
+  contactCount Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bot       Bot              @relation(fields: [botId], references: [id], onDelete: Cascade)
+  contacts  EmailContact[]
+  campaigns EmailCampaign[]
+
+  @@index([botId])
+}
+
+model EmailContact {
+  id           String        @id @default(cuid())
+  listId       String
+  email        String
+  firstName    String?
+  lastName     String?
+  tags         Json?
+  customFields Json?
+
+  // GDPR consent tracking
+  consentedAt   DateTime?
+  consentSource String?
+
+  // Status
+  status ContactStatus @default(ACTIVE)
+
+  // Engagement metrics
+  lastOpenAt  DateTime?
+  lastClickAt DateTime?
+  openCount   Int @default(0)
+  clickCount  Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  list   EmailList    @relation(fields: [listId], references: [id], onDelete: Cascade)
+  sends  EmailSend[]
+  events EmailEvent[]
+
+  @@unique([listId, email])
+  @@index([listId])
+  @@index([email])
+  @@index([status])
+}
+
+enum ContactStatus {
+  ACTIVE
+  UNSUBSCRIBED
+  BOUNCED
+  COMPLAINED
+}
+
+model EmailCampaign {
+  id        String @id @default(cuid())
+  botId     String
+  accountId String
+  listId    String
+
+  name      String
+  subject   String
+  preheader String?
+  fromName  String?
+
+  // Content
+  htmlContent String  @db.Text
+  textContent String? @db.Text
+
+  // Status
+  status CampaignStatus @default(DRAFT)
+
+  // Scheduling
+  scheduledAt DateTime?
+  sentAt      DateTime?
+  completedAt DateTime?
+
+  // Aggregated stats
+  totalSent         Int @default(0)
+  totalOpened       Int @default(0)
+  totalClicked      Int @default(0)
+  totalBounced      Int @default(0)
+  totalComplaints   Int @default(0)
+  totalUnsubscribed Int @default(0)
+
+  creditsUsed Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bot     Bot          @relation(fields: [botId], references: [id], onDelete: Cascade)
+  account EmailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  list    EmailList    @relation(fields: [listId], references: [id], onDelete: Cascade)
+  sends   EmailSend[]
+
+  @@index([botId])
+  @@index([status])
+  @@index([scheduledAt])
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  SENT
+  PAUSED
+  CANCELLED
+  FAILED
+}
+
+model EmailSend {
+  id         String     @id @default(cuid())
+  campaignId String
+  contactId  String
+
+  status    SendStatus @default(QUEUED)
+  messageId String?
+
+  openedAt  DateTime?
+  clickedAt DateTime?
+  bouncedAt DateTime?
+  error     String?
+
+  sentAt    DateTime?
+  createdAt DateTime @default(now())
+
+  campaign EmailCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact  EmailContact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  events   EmailEvent[]
+
+  @@unique([campaignId, contactId])
+  @@index([campaignId])
+  @@index([contactId])
+  @@index([status])
+}
+
+enum SendStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  OPENED
+  CLICKED
+  BOUNCED
+  COMPLAINED
+  FAILED
+}
+
+model EmailEvent {
+  id        String         @id @default(cuid())
+  sendId    String
+  contactId String
+  type      EmailEventType
+  data      Json?
+
+  ip        String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  send    EmailSend    @relation(fields: [sendId], references: [id], onDelete: Cascade)
+  contact EmailContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([sendId])
+  @@index([contactId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+enum EmailEventType {
+  SENT
+  DELIVERED
+  OPENED
+  CLICKED
+  BOUNCED
+  COMPLAINED
+  UNSUBSCRIBED
 }
