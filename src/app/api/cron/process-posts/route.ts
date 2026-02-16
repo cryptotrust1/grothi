@@ -24,6 +24,19 @@ import {
   postWithImage,
   type FacebookPostResult,
 } from '@/lib/facebook';
+import {
+  decryptInstagramCredentials,
+  postImage as igPostImage,
+  postLocalImage as igPostLocalImage,
+  type InstagramPostResult,
+} from '@/lib/instagram';
+import {
+  decryptThreadsCredentials,
+  postText as threadsPostText,
+  postWithImage as threadsPostWithImage,
+  isTokenNearExpiry,
+  type ThreadsPostResult,
+} from '@/lib/threads';
 import type { PlatformType } from '@prisma/client';
 import path from 'path';
 
@@ -205,11 +218,11 @@ async function publishToPlatform(
     case 'FACEBOOK':
       return publishToFacebook(conn, content, mediaPath);
 
-    // Future platform handlers go here:
-    // case 'INSTAGRAM':
-    //   return publishToInstagram(conn, content, mediaPath);
-    // case 'TWITTER':
-    //   return publishToTwitter(conn, content, mediaPath);
+    case 'INSTAGRAM':
+      return publishToInstagram(conn, content, mediaPath);
+
+    case 'THREADS':
+      return publishToThreads(conn, content, mediaPath);
 
     default:
       return {
@@ -260,4 +273,170 @@ async function publishToFacebook(
     const msg = e instanceof Error ? e.message : 'Unknown error';
     return { success: false, error: msg };
   }
+}
+
+/**
+ * Publish content to Instagram.
+ *
+ * Instagram does NOT support text-only posts — media is required.
+ * Uses the 2-step Container API: create container → publish.
+ * Requires a publicly accessible image URL (uses /api/media/{id} endpoint).
+ */
+async function publishToInstagram(
+  conn: any,
+  content: string,
+  mediaPath: string | null
+): Promise<{ success: boolean; externalId?: string; error?: string }> {
+  try {
+    const creds = decryptInstagramCredentials(conn);
+
+    if (!mediaPath) {
+      return {
+        success: false,
+        error: 'Instagram requires an image or video. Text-only posts are not supported.',
+      };
+    }
+
+    // Check if mediaPath is already a URL
+    if (mediaPath.startsWith('http://') || mediaPath.startsWith('https://')) {
+      const result = await igPostImage(creds, content, mediaPath);
+      if (result.success) {
+        return { success: true, externalId: result.mediaId };
+      }
+      if (isInstagramTokenError(result.error)) {
+        await markConnectionError(conn.id, 'Token expired. Please reconnect Instagram.');
+      }
+      return { success: false, error: result.error };
+    }
+
+    // For local files, construct a public URL via the media serve endpoint
+    // The mediaPath format is: data/uploads/{botId}/{uuid}.{ext}
+    // We need the media ID from the database to construct the public URL
+    const baseUrl = process.env.NEXTAUTH_URL || 'https://grothi.com';
+
+    // Try to find the media record by file path
+    const media = await db.media.findFirst({
+      where: { filePath: mediaPath },
+      select: { id: true },
+    });
+
+    if (media) {
+      const publicUrl = `${baseUrl}/api/media/${encodeURIComponent(media.id)}`;
+      const result = await igPostImage(creds, content, publicUrl);
+
+      if (result.success) {
+        return { success: true, externalId: result.mediaId };
+      }
+      if (isInstagramTokenError(result.error)) {
+        await markConnectionError(conn.id, 'Token expired. Please reconnect Instagram.');
+      }
+      return { success: false, error: result.error };
+    }
+
+    return {
+      success: false,
+      error: 'Could not find media record for Instagram publishing. Instagram requires a publicly accessible URL.',
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    return { success: false, error: msg };
+  }
+}
+
+/**
+ * Publish content to Threads.
+ *
+ * Threads supports both text-only and image posts.
+ * Uses the 2-step Container API: create container → publish.
+ * For image posts, requires a publicly accessible image URL.
+ */
+async function publishToThreads(
+  conn: any,
+  content: string,
+  mediaPath: string | null
+): Promise<{ success: boolean; externalId?: string; error?: string }> {
+  try {
+    const creds = decryptThreadsCredentials(conn);
+    const config = (conn.config || {}) as Record<string, unknown>;
+
+    // Check if token is near expiry and log warning
+    if (isTokenNearExpiry(config)) {
+      console.warn(
+        `[process-posts] Threads token for connection ${conn.id} is near expiry. ` +
+        `Expires at: ${config.tokenExpiresAt}. Consider refreshing.`
+      );
+    }
+
+    let result: ThreadsPostResult;
+
+    if (mediaPath) {
+      let imageUrl: string;
+
+      if (mediaPath.startsWith('http://') || mediaPath.startsWith('https://')) {
+        imageUrl = mediaPath;
+      } else {
+        // Construct public URL from media record
+        const baseUrl = process.env.NEXTAUTH_URL || 'https://grothi.com';
+        const media = await db.media.findFirst({
+          where: { filePath: mediaPath },
+          select: { id: true },
+        });
+
+        if (!media) {
+          return {
+            success: false,
+            error: 'Could not find media record for Threads publishing. Threads requires a publicly accessible URL for images.',
+          };
+        }
+
+        imageUrl = `${baseUrl}/api/media/${encodeURIComponent(media.id)}`;
+      }
+
+      result = await threadsPostWithImage(creds, content, imageUrl);
+    } else {
+      // Text-only post
+      result = await threadsPostText(creds, content);
+    }
+
+    if (result.success) {
+      return { success: true, externalId: result.postId };
+    }
+
+    // Check for token errors
+    if (isThreadsTokenError(result.error)) {
+      await markConnectionError(conn.id, 'Token expired. Please reconnect Threads.');
+    }
+
+    return { success: false, error: result.error };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    return { success: false, error: msg };
+  }
+}
+
+// ── Helpers ────────────────────────────────────────────────────
+
+function isInstagramTokenError(error?: string): boolean {
+  if (!error) return false;
+  return (
+    error.includes('Invalid OAuth') ||
+    error.includes('Session has expired') ||
+    error.includes('Error validating access token')
+  );
+}
+
+function isThreadsTokenError(error?: string): boolean {
+  if (!error) return false;
+  return (
+    error.includes('Invalid OAuth') ||
+    error.includes('expired') ||
+    error.includes('Error validating access token')
+  );
+}
+
+async function markConnectionError(connectionId: string, message: string): Promise<void> {
+  await db.platformConnection.update({
+    where: { id: connectionId },
+    data: { status: 'ERROR', lastError: message },
+  });
 }
