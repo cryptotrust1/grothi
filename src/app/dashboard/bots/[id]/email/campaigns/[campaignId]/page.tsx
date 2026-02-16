@@ -2,7 +2,7 @@ import { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { sendEmail, checkDailyLimit, wrapLinksForTracking, getTrackingPixelUrl } from '@/lib/email';
+import { sendCampaignEmail, checkDailyLimit, wrapLinksForTracking, getTrackingPixelUrl } from '@/lib/email';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -57,7 +57,7 @@ async function sendTestEmail(formData: FormData) {
   html = html.replace(/\{\{brandName\}\}/g, campaign.bot.brandName);
 
   try {
-    const result = await sendEmail({
+    const result = await sendCampaignEmail({
       config: smtpConfig,
       from: campaign.account.email,
       fromName: campaign.fromName || campaign.account.fromName || undefined,
@@ -166,7 +166,7 @@ async function sendCampaign(formData: FormData) {
       text += `\n\nUnsubscribe: ${unsubscribeUrl}`;
     }
 
-    const result = await sendEmail({
+    const result = await sendCampaignEmail({
       config: smtpConfig,
       from: campaign.account.email,
       fromName: campaign.fromName || campaign.account.fromName || undefined,

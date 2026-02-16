@@ -4,6 +4,7 @@ import { SignJWT, jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { addCredits, WELCOME_BONUS_CREDITS } from './credits';
+import { randomBytes } from 'crypto';
 
 function getJwtSecret() {
   const secret = process.env.NEXTAUTH_SECRET;
@@ -119,7 +120,102 @@ export async function signUp(email: string, password: string, name: string) {
 
   await createSession(user.id);
 
+  // Send welcome email + verification email (non-blocking)
+  sendVerificationAndWelcomeEmails(user.id, email, name || 'there').catch((err) => {
+    console.error('Failed to send welcome/verification emails:', err);
+  });
+
   return user;
+}
+
+async function sendVerificationAndWelcomeEmails(userId: string, email: string, name: string) {
+  const { sendWelcomeEmail, sendEmailVerificationEmail } = await import('./email');
+
+  // Generate verification token
+  const token = randomBytes(32).toString('hex');
+  await db.emailVerificationToken.create({
+    data: {
+      userId,
+      token,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+    },
+  });
+
+  await sendWelcomeEmail(email, name);
+  await sendEmailVerificationEmail(email, name, token);
+}
+
+export async function createPasswordResetToken(email: string): Promise<boolean> {
+  const user = await db.user.findUnique({ where: { email }, select: { id: true, name: true } });
+  if (!user) return false;
+
+  // Invalidate existing tokens
+  await db.passwordResetToken.updateMany({
+    where: { userId: user.id, used: false },
+    data: { used: true },
+  });
+
+  const token = randomBytes(32).toString('hex');
+  await db.passwordResetToken.create({
+    data: {
+      userId: user.id,
+      token,
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
+    },
+  });
+
+  const { sendPasswordResetEmail } = await import('./email');
+  await sendPasswordResetEmail(email, user.name || 'there', token);
+  return true;
+}
+
+export async function resetPasswordWithToken(token: string, newPassword: string) {
+  const resetToken = await db.passwordResetToken.findUnique({
+    where: { token },
+    include: { user: true },
+  });
+
+  if (!resetToken || resetToken.used || resetToken.expiresAt < new Date()) {
+    throw new Error('Invalid or expired reset link. Please request a new one.');
+  }
+
+  const passwordHash = await hashPassword(newPassword);
+
+  await db.$transaction([
+    db.user.update({
+      where: { id: resetToken.userId },
+      data: { passwordHash },
+    }),
+    db.passwordResetToken.update({
+      where: { id: resetToken.id },
+      data: { used: true },
+    }),
+  ]);
+
+  return resetToken.user;
+}
+
+export async function verifyEmailToken(token: string) {
+  const verificationToken = await db.emailVerificationToken.findUnique({
+    where: { token },
+    include: { user: true },
+  });
+
+  if (!verificationToken || verificationToken.expiresAt < new Date()) {
+    throw new Error('Invalid or expired verification link.');
+  }
+
+  await db.$transaction([
+    db.user.update({
+      where: { id: verificationToken.userId },
+      data: { emailVerified: true },
+    }),
+    db.emailVerificationToken.delete({
+      where: { id: verificationToken.id },
+    }),
+  ]);
+
+  return verificationToken.user;
 }
 
 export async function signIn(email: string, password: string) {
