@@ -77,12 +77,29 @@ export const emailContactImportSchema = z.object({
 export const emailCampaignSchema = z.object({
   name: z.string().min(1, 'Campaign name is required').max(200),
   subject: z.string().min(1, 'Subject line is required').max(200),
+  subjectB: z.string().max(200).optional(),
+  abTestPercent: z.coerce.number().int().min(5).max(50).optional(),
   preheader: z.string().max(200).optional(),
   fromName: z.string().max(100).optional(),
   listId: z.string().min(1, 'Select a contact list'),
   htmlContent: z.string().min(1, 'Email content is required'),
   textContent: z.string().optional(),
   scheduledAt: z.string().datetime().optional(),
+});
+
+export const emailAutomationSchema = z.object({
+  name: z.string().min(1, 'Automation name is required').max(200),
+  type: z.enum(['WELCOME', 'RE_ENGAGEMENT', 'DRIP']),
+  triggerListId: z.string().optional(),
+  triggerConfig: z.record(z.any()).optional(),
+});
+
+export const emailAutomationStepSchema = z.object({
+  subject: z.string().min(1, 'Subject line is required').max(200),
+  htmlContent: z.string().min(1, 'Email content is required'),
+  textContent: z.string().optional(),
+  delayDays: z.coerce.number().int().min(0).max(365).default(0),
+  delayHours: z.coerce.number().int().min(0).max(23).default(0),
 });
 
 export type SignUpInput = z.infer<typeof signUpSchema>;
@@ -95,3 +112,5 @@ export type EmailListInput = z.infer<typeof emailListSchema>;
 export type EmailContactInput = z.infer<typeof emailContactSchema>;
 export type EmailContactImportInput = z.infer<typeof emailContactImportSchema>;
 export type EmailCampaignInput = z.infer<typeof emailCampaignSchema>;
+export type EmailAutomationInput = z.infer<typeof emailAutomationSchema>;
+export type EmailAutomationStepInput = z.infer<typeof emailAutomationStepSchema>;

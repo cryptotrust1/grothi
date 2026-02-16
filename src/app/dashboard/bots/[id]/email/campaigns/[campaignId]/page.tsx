@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation';
 import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { sendCampaignEmail, checkDailyLimit, wrapLinksForTracking, getTrackingPixelUrl } from '@/lib/email';
+import { hasEnoughCredits, deductCredits } from '@/lib/credits';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -108,6 +109,13 @@ async function sendCampaign(formData: FormData) {
     redirect(`/dashboard/bots/${botId}/email/campaigns/${campaignId}?error=${encodeURIComponent('No active contacts in list')}`);
   }
 
+  // Check credits (1 credit per email)
+  const creditsNeeded = contacts.length;
+  const hasCredits = await hasEnoughCredits(user.id, creditsNeeded);
+  if (!hasCredits) {
+    redirect(`/dashboard/bots/${botId}/email/campaigns/${campaignId}?error=${encodeURIComponent(`Not enough credits. Need ${creditsNeeded} credits to send to ${contacts.length} contacts.`)}`);
+  }
+
   const limitStatus = checkDailyLimit(
     campaign.account.sentToday,
     campaign.account.dailyLimit,
@@ -206,6 +214,16 @@ async function sendCampaign(formData: FormData) {
     },
   });
 
+  // Deduct credits for successfully sent emails
+  if (sent > 0) {
+    await deductCredits(
+      user.id,
+      sent,
+      `Email campaign: ${campaign.name} (${sent} emails)`,
+      botId,
+    );
+  }
+
   await db.emailCampaign.update({
     where: { id: campaignId },
     data: {
@@ -213,6 +231,7 @@ async function sendCampaign(formData: FormData) {
       completedAt: new Date(),
       totalSent: sent,
       totalBounced: failed,
+      creditsUsed: sent,
     },
   });
 
@@ -437,6 +456,36 @@ export default async function CampaignDetailPage({
             <div className="mt-3 text-sm">
               <p className="text-muted-foreground">Preheader</p>
               <p>{campaign.preheader}</p>
+            </div>
+          )}
+          {campaign.subjectB && (
+            <div className="mt-4 border-t pt-4">
+              <h4 className="font-medium text-sm mb-2">A/B Test</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className={`rounded-lg p-3 ${campaign.abWinner === 'A' ? 'bg-green-50 border border-green-200' : 'bg-muted/30'}`}>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium">Variant A</p>
+                    {campaign.abWinner === 'A' && (
+                      <Badge variant="success">Winner</Badge>
+                    )}
+                  </div>
+                  <p className="text-sm mt-1">{campaign.subject}</p>
+                </div>
+                <div className={`rounded-lg p-3 ${campaign.abWinner === 'B' ? 'bg-green-50 border border-green-200' : 'bg-muted/30'}`}>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium">Variant B</p>
+                    {campaign.abWinner === 'B' && (
+                      <Badge variant="success">Winner</Badge>
+                    )}
+                  </div>
+                  <p className="text-sm mt-1">{campaign.subjectB}</p>
+                </div>
+              </div>
+              {campaign.abTestPercent && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Test sample: {campaign.abTestPercent}% of contacts ({campaign.abTestPercent / 2}% per variant)
+                </p>
+              )}
             </div>
           )}
         </CardContent>

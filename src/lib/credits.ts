@@ -13,6 +13,8 @@ const DEFAULT_ACTION_COSTS: Record<string, number> = {
   GENERATE_VIDEO: 8,
   SAFETY_BLOCK: 0,
   BAN_DETECTED: 0,
+  SEND_EMAIL: 1,
+  GENERATE_EMAIL: 3,
 };
 
 export async function getActionCost(actionType: ActionType): Promise<number> {
