@@ -45,9 +45,14 @@ async function createCampaign(formData: FormData) {
     }
   }
 
+  const subjectB = (formData.get('subjectB') as string || '').trim() || undefined;
+  const abTestPercent = subjectB ? parseInt(formData.get('abTestPercent') as string, 10) || 20 : undefined;
+
   const raw = {
     name: (formData.get('name') as string || '').trim(),
     subject: (formData.get('subject') as string || '').trim(),
+    subjectB,
+    abTestPercent,
     preheader: (formData.get('preheader') as string || '').trim() || undefined,
     fromName: (formData.get('fromName') as string || '').trim() || undefined,
     listId: formData.get('listId') as string,
@@ -77,6 +82,8 @@ async function createCampaign(formData: FormData) {
         listId: data.listId,
         name: data.name,
         subject: data.subject,
+        subjectB: data.subjectB || null,
+        abTestPercent: data.subjectB ? (data.abTestPercent || 20) : null,
         preheader: data.preheader || null,
         fromName: data.fromName || bot.emailAccount.fromName || null,
         htmlContent: data.htmlContent,
@@ -385,6 +392,45 @@ export default async function NewCampaignPage({
                     </option>
                   ))}
                 </select>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* A/B Testing */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">A/B Testing (optional)</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Test two subject lines to find which performs better. The test group receives
+              variant A or B randomly. After enough data, the winning subject is used for the rest.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="subjectB">Subject Line B (variant)</Label>
+                <Input
+                  name="subjectB"
+                  id="subjectB"
+                  placeholder="e.g. Don't miss our latest update!"
+                />
+              </div>
+              <div>
+                <Label htmlFor="abTestPercent">Test sample size (%)</Label>
+                <select
+                  name="abTestPercent"
+                  id="abTestPercent"
+                  className="w-full mt-1 rounded-md border bg-background px-3 py-2 text-sm"
+                >
+                  <option value="10">10% (5% per variant)</option>
+                  <option value="20" selected>20% (10% per variant)</option>
+                  <option value="30">30% (15% per variant)</option>
+                  <option value="50">50% (25% per variant)</option>
+                </select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Leave Subject B empty to skip A/B testing.
+                </p>
               </div>
             </div>
           </CardContent>

@@ -106,6 +106,7 @@ model Bot {
   emailAccount    EmailAccount?
   emailLists      EmailList[]
   emailCampaigns  EmailCampaign[]
+  emailAutomations EmailAutomation[]
 
   @@index([userId])
   @@index([status])
@@ -228,6 +229,8 @@ enum ActionType {
   GENERATE_VIDEO
   SAFETY_BLOCK
   BAN_DETECTED
+  SEND_EMAIL
+  GENERATE_EMAIL
 }
 
 // ============ DAILY STATS ============
@@ -735,6 +738,11 @@ model EmailCampaign {
   htmlContent String  @db.Text
   textContent String? @db.Text
 
+  // A/B Testing
+  subjectB      String?
+  abTestPercent Int?      @default(20)
+  abWinner      String?
+
   // Status
   status CampaignStatus @default(DRAFT)
 
@@ -842,4 +850,54 @@ enum EmailEventType {
   BOUNCED
   COMPLAINED
   UNSUBSCRIBED
+}
+
+// ============ EMAIL AUTOMATIONS ============
+
+model EmailAutomation {
+  id             String         @id @default(cuid())
+  botId          String
+  name           String
+  type           AutomationType
+  isActive       Boolean        @default(false)
+
+  // Trigger config
+  triggerListId  String?
+  triggerConfig  Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bot   Bot                   @relation(fields: [botId], references: [id], onDelete: Cascade)
+  steps EmailAutomationStep[]
+
+  @@index([botId])
+  @@index([type])
+}
+
+model EmailAutomationStep {
+  id           String @id @default(cuid())
+  automationId String
+  stepOrder    Int
+
+  subject     String
+  htmlContent String  @db.Text
+  textContent String? @db.Text
+
+  // Delay before sending
+  delayDays  Int @default(0)
+  delayHours Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  automation EmailAutomation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+
+  @@index([automationId])
+}
+
+enum AutomationType {
+  WELCOME
+  RE_ENGAGEMENT
+  DRIP
 }

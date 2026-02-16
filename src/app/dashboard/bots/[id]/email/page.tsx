@@ -13,7 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { BotNav } from '@/components/dashboard/bot-nav';
 import {
   Mail, Users, Send, BarChart3, Settings, Plus,
-  CheckCircle2, AlertCircle, ArrowRight, FileText,
+  CheckCircle2, AlertCircle, ArrowRight, FileText, Zap,
 } from 'lucide-react';
 import {
   EMAIL_PROVIDERS,
@@ -258,6 +258,12 @@ export default async function EmailMarketingPage({
             >
               Campaigns
             </Link>
+            <Link
+              href={`/dashboard/bots/${bot.id}/email/automations`}
+              className="px-3 py-1.5 text-sm rounded-md hover:bg-muted"
+            >
+              Automations
+            </Link>
           </>
         )}
       </div>
@@ -373,6 +379,18 @@ export default async function EmailMarketingPage({
                   <div>
                     <p className="font-medium">Analytics & Guide</p>
                     <p className="text-sm text-muted-foreground">Performance & deliverability</p>
+                  </div>
+                  <ArrowRight className="h-4 w-4 ml-auto" />
+                </CardContent>
+              </Card>
+            </Link>
+            <Link href={`/dashboard/bots/${bot.id}/email/automations`}>
+              <Card className="hover:border-primary/50 transition-colors cursor-pointer">
+                <CardContent className="pt-4 pb-4 flex items-center gap-3">
+                  <Zap className="h-5 w-5 text-primary" />
+                  <div>
+                    <p className="font-medium">Automations</p>
+                    <p className="text-sm text-muted-foreground">Welcome, drip, re-engagement</p>
                   </div>
                   <ArrowRight className="h-4 w-4 ml-auto" />
                 </CardContent>
