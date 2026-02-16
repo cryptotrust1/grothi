@@ -706,9 +706,10 @@ model EmailContact {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  list   EmailList    @relation(fields: [listId], references: [id], onDelete: Cascade)
-  sends  EmailSend[]
-  events EmailEvent[]
+  list        EmailList              @relation(fields: [listId], references: [id], onDelete: Cascade)
+  sends       EmailSend[]
+  events      EmailEvent[]
+  enrollments AutomationEnrollment[]
 
   @@unique([listId, email])
   @@index([listId])
@@ -791,6 +792,8 @@ model EmailSend {
 
   status    SendStatus @default(QUEUED)
   messageId String?
+  variant   String?    // A/B test variant: "A" or "B"
+  retries   Int        @default(0)
 
   openedAt  DateTime?
   clickedAt DateTime?
@@ -868,8 +871,9 @@ model EmailAutomation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  bot   Bot                   @relation(fields: [botId], references: [id], onDelete: Cascade)
-  steps EmailAutomationStep[]
+  bot         Bot                     @relation(fields: [botId], references: [id], onDelete: Cascade)
+  steps       EmailAutomationStep[]
+  enrollments AutomationEnrollment[]
 
   @@index([botId])
   @@index([type])
@@ -894,6 +898,29 @@ model EmailAutomationStep {
   automation EmailAutomation @relation(fields: [automationId], references: [id], onDelete: Cascade)
 
   @@index([automationId])
+}
+
+model AutomationEnrollment {
+  id           String  @id @default(cuid())
+  automationId String
+  contactId    String
+  currentStep  Int     @default(0) // 0 = not yet sent step 1
+  completed    Boolean @default(false)
+  cancelled    Boolean @default(false)
+
+  // When the next step should fire
+  nextStepAt   DateTime?
+  lastStepAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  automation EmailAutomation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  contact    EmailContact    @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([automationId, contactId])
+  @@index([automationId])
+  @@index([nextStepAt])
 }
 
 enum AutomationType {
