@@ -282,6 +282,7 @@ export default function FAQPage() {
               <ul className="space-y-2.5 text-sm text-muted-foreground">
                 <li><Link href="/about" className="hover:text-foreground transition-colors">About Us</Link></li>
                 <li><Link href="/contact" className="hover:text-foreground transition-colors">Contact</Link></li>
+                <li><a href="mailto:support@grothi.com" className="hover:text-foreground transition-colors">support@grothi.com</a></li>
               </ul>
             </div>
             <div>

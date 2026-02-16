@@ -43,6 +43,15 @@ export default async function ContactPage({
       await db.contactMessage.create({
         data: { name, email, message },
       });
+
+      // Send email notifications (non-blocking)
+      const { sendContactNotificationEmail, sendContactConfirmationEmail } = await import('@/lib/email');
+      sendContactNotificationEmail(name, email, message).catch((err) => {
+        console.error('Failed to send contact notification:', err);
+      });
+      sendContactConfirmationEmail(email, name).catch((err) => {
+        console.error('Failed to send contact confirmation:', err);
+      });
     } catch (error) {
       console.error('Contact form error:', error);
       redirect('/contact?error=' + encodeURIComponent('Failed to send message. Please try again.'));
@@ -131,7 +140,7 @@ export default async function ContactPage({
 
           <div className="mt-8 text-center">
             <p className="text-muted-foreground flex items-center justify-center gap-2">
-              <Mail className="h-4 w-4" /> contact@grothi.com
+              <Mail className="h-4 w-4" /> <a href="mailto:support@grothi.com" className="hover:text-foreground transition-colors">support@grothi.com</a>
             </p>
           </div>
         </div>
@@ -170,6 +179,7 @@ export default async function ContactPage({
               <ul className="space-y-2.5 text-sm text-muted-foreground">
                 <li><Link href="/about" className="hover:text-foreground transition-colors">About Us</Link></li>
                 <li><Link href="/contact" className="hover:text-foreground transition-colors">Contact</Link></li>
+                <li><a href="mailto:support@grothi.com" className="hover:text-foreground transition-colors">support@grothi.com</a></li>
               </ul>
             </div>
             <div>

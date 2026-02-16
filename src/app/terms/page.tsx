@@ -60,7 +60,7 @@ export default function TermsPage() {
 
           <h2 className="text-xl font-semibold mt-8 mb-4">7. Contact</h2>
           <p className="text-muted-foreground mb-4">
-            For questions about these terms, contact us at contact@grothi.com.
+            For questions about these terms, contact us at <a href="mailto:support@grothi.com" className="text-primary hover:underline">support@grothi.com</a>.
           </p>
         </div>
       </main>

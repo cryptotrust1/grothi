@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { sendEmail, checkDailyLimit, wrapLinksForTracking, getTrackingPixelUrl } from '@/lib/email';
+import { sendCampaignEmail, checkDailyLimit, wrapLinksForTracking, getTrackingPixelUrl } from '@/lib/email';
 
 /**
  * POST /api/email/campaigns
@@ -126,7 +126,7 @@ export async function POST(request: NextRequest) {
           smtpSecure: campaign.account.smtpSecure,
         };
 
-        const result = await sendEmail({
+        const result = await sendCampaignEmail({
           config: smtpConfig,
           from: campaign.account.email,
           fromName: campaign.fromName || campaign.account.fromName || undefined,
