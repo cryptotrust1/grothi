@@ -4,9 +4,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
   Bot,
-  Shield,
-  Zap,
-  TrendingUp,
   Globe,
   Brain,
   ArrowRight,
@@ -19,6 +16,13 @@ import {
   Megaphone,
   ChevronDown,
   X,
+  Image,
+  Film,
+  Calendar,
+  Mail,
+  Palette,
+  MessageSquare,
+  Pen,
 } from 'lucide-react';
 
 const PLATFORMS = [
@@ -146,17 +150,19 @@ export default function LandingPage() {
                 Trusted by 10,000+ marketers worldwide
               </Badge>
               <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight leading-[1.1]">
-                Your AI Marketing Bot{' '}
+                AI Marketing Bot{' '}
                 <span className="bg-gradient-to-r from-primary to-indigo-400 bg-clip-text text-transparent">
-                  That Works 24/7
+                  Indistinguishable From a Human
                 </span>
               </h1>
-              <p className="mt-2 text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight leading-[1.1] text-muted-foreground/80">
-                Get 10X Better Results in 10X Less Time
+              <p className="mt-2 text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight leading-[1.1] text-muted-foreground/80">
+                Writes, designs, films, schedules, and engages &mdash; around the clock.
               </p>
               <p className="mt-6 text-lg md:text-xl text-muted-foreground leading-relaxed max-w-xl">
-                Self-learning AI trained on 17 platform algorithms. Post, engage, and grow
-                while you sleep. Replace your $3,000/month agency with an AI that never sleeps.
+                Grothi creates texts, images, and videos that sound and look like you made them.
+                It plans your content strategy, schedules posts, replies to comments, runs email
+                campaigns, and learns from analytics to improve every day. Fully automatic or
+                under your complete control &mdash; across 17 platforms.
               </p>
 
               <div className="mt-8 flex flex-col sm:flex-row gap-4">
@@ -347,45 +353,68 @@ export default function LandingPage() {
       <section id="features" className="py-20 md:py-24">
         <div className="container mx-auto px-4">
           <div className="text-center mb-14">
-            <Badge variant="secondary" className="mb-4">Features</Badge>
+            <Badge variant="secondary" className="mb-4">Everything Your Bot Can Do</Badge>
             <h2 className="text-3xl md:text-4xl font-bold">
-              Why Marketers Choose Grothi <span className="text-primary">Over Agencies</span>
+              A Complete Marketing Team <span className="text-primary">in One Bot</span>
             </h2>
             <p className="mt-4 text-muted-foreground max-w-2xl mx-auto text-lg">
-              Everything you need to dominate social media, powered by self-learning AI.
+              Not just a scheduler. Grothi handles every part of your social media
+              presence &mdash; from strategy to execution to optimization.
             </p>
           </div>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto">
             <FeatureCard
-              icon={<Brain className="h-8 w-8 text-primary" />}
-              title="Gets Smarter Every Day"
-              description="Trained on millions of successful posts. Learns from your engagement data. Knows what works on each platform's algorithm."
+              icon={<Pen className="h-8 w-8 text-primary" />}
+              title="AI Text Generation"
+              description="Writes posts, captions, and threads in your brand voice. Adapts tone and format per platform. People can't tell it's AI."
             />
             <FeatureCard
-              icon={<Zap className="h-8 w-8 text-amber-500" />}
-              title="Grow 10X Faster Than Competitors"
-              description="Algorithms love consistency. Our bot posts 24/7 at optimal times. Your competitors post 3X/week. You post 30X/week."
+              icon={<Image className="h-8 w-8 text-emerald-500" />}
+              title="AI Image Creation"
+              description="Generates on-brand visuals sized for each platform. Instagram squares, TikTok verticals, LinkedIn banners &mdash; all automatic."
             />
             <FeatureCard
-              icon={<TrendingUp className="h-8 w-8 text-secondary" />}
-              title="Replace Your $3K Agency"
-              description="Get better results for $79/month. That's $35,000 saved per year. Invest it in growth, not overhead."
+              icon={<Film className="h-8 w-8 text-violet-500" />}
+              title="AI Video Production"
+              description="Creates short-form marketing videos for Reels, TikTok, and Shorts. Multiple styles from quick tips to product demos."
             />
             <FeatureCard
-              icon={<Target className="h-8 w-8 text-violet-500" />}
-              title="Not Just Posts. Actual Sales."
-              description="Builds genuine relationships. Engages authentically. Generates qualified leads. Drives conversions. Measures ROI."
+              icon={<Brain className="h-8 w-8 text-amber-500" />}
+              title="Content Strategy"
+              description="Defines what to post, when, and where. Draws from your RSS feeds, goals, and audience data to plan content that performs."
             />
             <FeatureCard
-              icon={<Shield className="h-8 w-8 text-green-600" />}
-              title="Never Get Banned"
-              description="Constitutional AI ensures compliance with all platform rules. No spam, no fake engagement, no shadow bans. Ever."
+              icon={<Calendar className="h-8 w-8 text-rose-500" />}
+              title="Post Scheduler"
+              description="Calendar and list view with full control. Go fully automatic with AI-optimized timing, or schedule every post manually. Your choice."
+            />
+            <FeatureCard
+              icon={<Palette className="h-8 w-8 text-sky-500" />}
+              title="Media Library & Creative Style"
+              description="Upload your own photos and videos. Set your visual preferences once and every AI-generated asset stays on brand."
+            />
+            <FeatureCard
+              icon={<MessageSquare className="h-8 w-8 text-indigo-500" />}
+              title="Comment Replies & Engagement"
+              description="Responds to comments, likes relevant posts, and builds genuine relationships with your audience. All in your voice."
+            />
+            <FeatureCard
+              icon={<Mail className="h-8 w-8 text-teal-500" />}
+              title="Email Marketing"
+              description="Professional email campaigns powered by the same AI. Newsletters, drip sequences, and announcements &mdash; one platform for everything."
             />
             <FeatureCard
               icon={<BarChart3 className="h-8 w-8 text-blue-500" />}
-              title="See What's Working"
-              description="Track engagement across all 17 platforms. See what content performs. Measure actual ROI, not vanity metrics."
+              title="Analytics & Self-Learning"
+              description="Tracks engagement across all platforms. Your bot evaluates what works and automatically adapts future content for better results."
             />
+          </div>
+          <div className="text-center mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
+            <Link href="/features">
+              <Button variant="outline" size="lg">
+                See All Features in Detail <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            </Link>
           </div>
         </div>
       </section>
