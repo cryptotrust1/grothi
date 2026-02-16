@@ -2,6 +2,7 @@ import { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { deductCredits, getActionCost } from '@/lib/credits';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -118,6 +119,13 @@ async function generateWithAI(formData: FormData) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     redirect(`/dashboard/bots/${botId}/email/campaigns/new?error=${encodeURIComponent('AI generation not configured (ANTHROPIC_API_KEY missing)')}`);
+  }
+
+  // Deduct credits BEFORE calling the API
+  const cost = await getActionCost('GENERATE_CONTENT');
+  const deducted = await deductCredits(user.id, cost, 'AI email campaign generation', botId);
+  if (!deducted) {
+    redirect(`/dashboard/bots/${botId}/email/campaigns/new?error=${encodeURIComponent('Insufficient credits. You need ' + cost + ' credits for AI generation.')}`);
   }
 
   try {
