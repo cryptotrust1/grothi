@@ -14,7 +14,8 @@
     "db:seed": "tsx prisma/seed.ts",
     "test": "jest --forceExit",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage --forceExit"
+    "test:coverage": "jest --coverage --forceExit",
+    "email:jobs": "tsx scripts/email-jobs.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.7.0",

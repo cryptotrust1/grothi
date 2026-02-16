@@ -20,6 +20,50 @@ export const metadata: Metadata = {
   robots: { index: false },
 };
 
+// ============ HELPERS ============
+
+async function enrollInWelcomeAutomations(botId: string, listId: string, contactIds: string[]) {
+  try {
+    const automations = await db.emailAutomation.findMany({
+      where: {
+        botId,
+        isActive: true,
+        type: 'WELCOME',
+        OR: [
+          { triggerListId: listId },
+          { triggerListId: null },
+        ],
+      },
+      include: { steps: { orderBy: { stepOrder: 'asc' }, take: 1 } },
+    });
+
+    for (const automation of automations) {
+      if (automation.steps.length === 0) continue;
+
+      const firstStep = automation.steps[0];
+      const delayMs = (firstStep.delayDays * 86400 + firstStep.delayHours * 3600) * 1000;
+      const nextStepAt = delayMs === 0 ? new Date() : new Date(Date.now() + delayMs);
+
+      for (const contactId of contactIds) {
+        try {
+          await db.automationEnrollment.create({
+            data: {
+              automationId: automation.id,
+              contactId,
+              currentStep: 0,
+              nextStepAt,
+            },
+          });
+        } catch {
+          // Already enrolled — skip
+        }
+      }
+    }
+  } catch {
+    // Non-critical — don't block contact creation
+  }
+}
+
 // ============ SERVER ACTIONS ============
 
 async function addContact(formData: FormData) {
@@ -43,7 +87,7 @@ async function addContact(formData: FormData) {
   }
 
   try {
-    await db.emailContact.create({
+    const newContact = await db.emailContact.create({
       data: {
         listId,
         email: parsed.data.email,
@@ -60,6 +104,9 @@ async function addContact(formData: FormData) {
       where: { id: listId },
       data: { contactCount: count },
     });
+
+    // Auto-enroll in active WELCOME automations for this list
+    await enrollInWelcomeAutomations(botId, listId, [newContact.id]);
 
     redirect(`/dashboard/bots/${botId}/email/contacts/${listId}?success=Contact+added`);
   } catch (error) {
@@ -118,6 +165,7 @@ async function importContacts(formData: FormData) {
 
     let imported = 0;
     let skipped = 0;
+    const newContactIds: string[] = [];
 
     for (const line of dataLines) {
       const parts = line.split(',').map(p => p.trim().replace(/^["']|["']$/g, ''));
@@ -129,7 +177,7 @@ async function importContacts(formData: FormData) {
       }
 
       try {
-        await db.emailContact.create({
+        const newContact = await db.emailContact.create({
           data: {
             listId,
             email: email.toLowerCase(),
@@ -139,6 +187,7 @@ async function importContacts(formData: FormData) {
             consentSource: 'csv_import',
           },
         });
+        newContactIds.push(newContact.id);
         imported++;
       } catch {
         skipped++;
@@ -151,6 +200,11 @@ async function importContacts(formData: FormData) {
       where: { id: listId },
       data: { contactCount: count },
     });
+
+    // Auto-enroll in active WELCOME automations
+    if (newContactIds.length > 0) {
+      await enrollInWelcomeAutomations(botId, listId, newContactIds);
+    }
 
     redirect(`/dashboard/bots/${botId}/email/contacts/${listId}?success=${encodeURIComponent(`Imported ${imported} contacts, ${skipped} skipped`)}`);
   } catch (error) {

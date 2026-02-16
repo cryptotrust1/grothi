@@ -216,6 +216,9 @@ export default async function AutomationsPage({
       emailAutomations: {
         include: {
           steps: { orderBy: { stepOrder: 'asc' } },
+          enrollments: {
+            select: { id: true, completed: true, cancelled: true, currentStep: true },
+          },
         },
         orderBy: { createdAt: 'desc' },
       },
@@ -361,6 +364,11 @@ export default async function AutomationsPage({
                             </div>
                             <p className="text-xs text-muted-foreground mt-1">
                               {typeInfo?.label} - {auto.steps.length} step{auto.steps.length !== 1 ? 's' : ''}
+                              {auto.enrollments.length > 0 && (
+                                <span className="ml-2">
+                                  | {auto.enrollments.filter(e => e.completed).length} completed, {auto.enrollments.filter(e => !e.completed && !e.cancelled).length} active
+                                </span>
+                              )}
                             </p>
                           </div>
                         </div>

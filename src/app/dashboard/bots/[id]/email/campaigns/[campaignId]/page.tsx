@@ -146,9 +146,27 @@ async function sendCampaign(formData: FormData) {
     smtpSecure: campaign.account.smtpSecure,
   };
 
-  for (const contact of contactsToSend) {
+  // A/B Test: split contacts into variant groups
+  const hasAbTest = !!(campaign.subjectB && campaign.abTestPercent);
+  let variantAContacts: typeof contactsToSend = [];
+  let variantBContacts: typeof contactsToSend = [];
+
+  if (hasAbTest) {
+    // Shuffle contacts for random A/B split
+    const shuffled = [...contactsToSend].sort(() => Math.random() - 0.5);
+    const splitIndex = Math.ceil(shuffled.length / 2);
+    variantAContacts = shuffled.slice(0, splitIndex);
+    variantBContacts = shuffled.slice(splitIndex);
+  }
+
+  // Helper: send one email with variant tracking
+  async function sendOne(
+    contact: (typeof contactsToSend)[0],
+    subject: string,
+    variant: string | null,
+  ) {
     const emailSend = await db.emailSend.create({
-      data: { campaignId, contactId: contact.id, status: 'QUEUED' },
+      data: { campaignId, contactId: contact.id, status: 'QUEUED', variant },
     });
 
     let html = campaign.htmlContent;
@@ -179,7 +197,7 @@ async function sendCampaign(formData: FormData) {
       from: campaign.account.email,
       fromName: campaign.fromName || campaign.account.fromName || undefined,
       to: contact.email,
-      subject: campaign.subject,
+      subject,
       html,
       text: text || undefined,
       unsubscribeUrl,
@@ -204,6 +222,22 @@ async function sendCampaign(formData: FormData) {
     }
   }
 
+  if (hasAbTest) {
+    // Send variant A (original subject)
+    for (const contact of variantAContacts) {
+      await sendOne(contact, campaign.subject, 'A');
+    }
+    // Send variant B (alternate subject)
+    for (const contact of variantBContacts) {
+      await sendOne(contact, campaign.subjectB!, 'B');
+    }
+  } else {
+    // Normal send — no A/B test
+    for (const contact of contactsToSend) {
+      await sendOne(contact, campaign.subject, null);
+    }
+  }
+
   // Update daily counter
   const resetCheck = checkDailyLimit(campaign.account.sentToday, campaign.account.dailyLimit, campaign.account.lastResetAt);
   await db.emailAccount.update({
@@ -224,6 +258,24 @@ async function sendCampaign(formData: FormData) {
     );
   }
 
+  // Determine A/B test winner (initial — based on sent count, updated later by open tracking)
+  let abWinnerValue: string | null = null;
+  if (hasAbTest) {
+    // Count successful sends per variant
+    const variantStats = await db.emailSend.groupBy({
+      by: ['variant'],
+      where: { campaignId, status: 'SENT' },
+      _count: { id: true },
+    });
+    const sentA = variantStats.find(v => v.variant === 'A')?._count.id || 0;
+    const sentB = variantStats.find(v => v.variant === 'B')?._count.id || 0;
+    // Initial winner: set to null, will be determined by open rates later
+    // For now store "PENDING" — the analytics page or cron can compute once opens come in
+    abWinnerValue = 'PENDING';
+    if (sentA === 0 && sentB > 0) abWinnerValue = 'B';
+    if (sentB === 0 && sentA > 0) abWinnerValue = 'A';
+  }
+
   await db.emailCampaign.update({
     where: { id: campaignId },
     data: {
@@ -232,6 +284,7 @@ async function sendCampaign(formData: FormData) {
       totalSent: sent,
       totalBounced: failed,
       creditsUsed: sent,
+      ...(abWinnerValue ? { abWinner: abWinnerValue } : {}),
     },
   });
 
@@ -299,6 +352,40 @@ export default async function CampaignDetailPage({
   const unsubRate = campaign.totalSent > 0 ? ((campaign.totalUnsubscribed / campaign.totalSent) * 100).toFixed(1) : '0';
 
   const isDraft = campaign.status === 'DRAFT' || campaign.status === 'SCHEDULED';
+
+  // A/B test per-variant stats
+  let abStats: { variantA: { sent: number; opened: number; clicked: number }; variantB: { sent: number; opened: number; clicked: number }; winner: string | null } | null = null;
+  if (campaign.subjectB && campaign.totalSent > 0) {
+    const sends = campaign.sends;
+    const aSends = sends.filter(s => s.variant === 'A');
+    const bSends = sends.filter(s => s.variant === 'B');
+    const aSent = aSends.filter(s => s.status !== 'FAILED' && s.status !== 'QUEUED').length;
+    const bSent = bSends.filter(s => s.status !== 'FAILED' && s.status !== 'QUEUED').length;
+    const aOpened = aSends.filter(s => s.openedAt).length;
+    const bOpened = bSends.filter(s => s.openedAt).length;
+    const aClicked = aSends.filter(s => s.clickedAt).length;
+    const bClicked = bSends.filter(s => s.clickedAt).length;
+
+    const aOpenRate = aSent > 0 ? aOpened / aSent : 0;
+    const bOpenRate = bSent > 0 ? bOpened / bSent : 0;
+
+    // Determine winner by open rate (need at least 5 opens total)
+    let winner: string | null = null;
+    if (aOpened + bOpened >= 5) {
+      winner = aOpenRate >= bOpenRate ? 'A' : 'B';
+    }
+
+    // Update winner in DB if changed
+    if (winner && campaign.abWinner !== winner) {
+      await db.emailCampaign.update({ where: { id: campaignId }, data: { abWinner: winner } });
+    }
+
+    abStats = {
+      variantA: { sent: aSent, opened: aOpened, clicked: aClicked },
+      variantB: { sent: bSent, opened: bOpened, clicked: bClicked },
+      winner,
+    };
+  }
 
   return (
     <div className="space-y-6">
@@ -460,30 +547,62 @@ export default async function CampaignDetailPage({
           )}
           {campaign.subjectB && (
             <div className="mt-4 border-t pt-4">
-              <h4 className="font-medium text-sm mb-2">A/B Test</h4>
+              <h4 className="font-medium text-sm mb-2">A/B Test Results</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className={`rounded-lg p-3 ${campaign.abWinner === 'A' ? 'bg-green-50 border border-green-200' : 'bg-muted/30'}`}>
+                <div className={`rounded-lg p-3 ${abStats?.winner === 'A' ? 'bg-green-50 border border-green-200' : 'bg-muted/30'}`}>
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-medium">Variant A</p>
-                    {campaign.abWinner === 'A' && (
+                    {abStats?.winner === 'A' && (
                       <Badge variant="success">Winner</Badge>
                     )}
                   </div>
                   <p className="text-sm mt-1">{campaign.subject}</p>
+                  {abStats && (
+                    <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                      <div>
+                        <span className="text-muted-foreground">Sent</span>
+                        <p className="font-medium">{abStats.variantA.sent}</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Opened</span>
+                        <p className="font-medium">{abStats.variantA.opened} ({abStats.variantA.sent > 0 ? ((abStats.variantA.opened / abStats.variantA.sent) * 100).toFixed(1) : '0'}%)</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Clicked</span>
+                        <p className="font-medium">{abStats.variantA.clicked} ({abStats.variantA.sent > 0 ? ((abStats.variantA.clicked / abStats.variantA.sent) * 100).toFixed(1) : '0'}%)</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div className={`rounded-lg p-3 ${campaign.abWinner === 'B' ? 'bg-green-50 border border-green-200' : 'bg-muted/30'}`}>
+                <div className={`rounded-lg p-3 ${abStats?.winner === 'B' ? 'bg-green-50 border border-green-200' : 'bg-muted/30'}`}>
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-medium">Variant B</p>
-                    {campaign.abWinner === 'B' && (
+                    {abStats?.winner === 'B' && (
                       <Badge variant="success">Winner</Badge>
                     )}
                   </div>
                   <p className="text-sm mt-1">{campaign.subjectB}</p>
+                  {abStats && (
+                    <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                      <div>
+                        <span className="text-muted-foreground">Sent</span>
+                        <p className="font-medium">{abStats.variantB.sent}</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Opened</span>
+                        <p className="font-medium">{abStats.variantB.opened} ({abStats.variantB.sent > 0 ? ((abStats.variantB.opened / abStats.variantB.sent) * 100).toFixed(1) : '0'}%)</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Clicked</span>
+                        <p className="font-medium">{abStats.variantB.clicked} ({abStats.variantB.sent > 0 ? ((abStats.variantB.clicked / abStats.variantB.sent) * 100).toFixed(1) : '0'}%)</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
-              {campaign.abTestPercent && (
+              {!abStats?.winner && campaign.totalSent > 0 && (
                 <p className="text-xs text-muted-foreground mt-2">
-                  Test sample: {campaign.abTestPercent}% of contacts ({campaign.abTestPercent / 2}% per variant)
+                  Winner will be determined after at least 5 opens are tracked.
                 </p>
               )}
             </div>
@@ -546,6 +665,7 @@ export default async function CampaignDetailPage({
                   <tr className="border-b text-left">
                     <th className="pb-2 font-medium">Contact</th>
                     <th className="pb-2 font-medium">Status</th>
+                    {campaign.subjectB && <th className="pb-2 font-medium">Variant</th>}
                     <th className="pb-2 font-medium">Opened</th>
                     <th className="pb-2 font-medium">Clicked</th>
                     <th className="pb-2 font-medium">Sent At</th>
@@ -571,6 +691,15 @@ export default async function CampaignDetailPage({
                             {send.status}
                           </span>
                         </td>
+                        {campaign.subjectB && (
+                          <td className="py-2">
+                            {send.variant && (
+                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${send.variant === 'A' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'}`}>
+                                {send.variant}
+                              </span>
+                            )}
+                          </td>
+                        )}
                         <td className="py-2 text-muted-foreground">
                           {send.openedAt ? new Date(send.openedAt).toLocaleString() : '-'}
                         </td>
