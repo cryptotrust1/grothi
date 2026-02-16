@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { deductCredits, getActionCost } from '@/lib/credits';
 import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
@@ -134,6 +135,21 @@ Return ONLY valid JSON, no markdown code blocks.`;
     return NextResponse.json(
       { error: 'AI service not configured. Set ANTHROPIC_API_KEY in environment.' },
       { status: 503 }
+    );
+  }
+
+  // Deduct credits BEFORE calling the API
+  const cost = await getActionCost('GENERATE_CONTENT');
+  const deducted = await deductCredits(
+    user.id,
+    cost,
+    'AI caption generation',
+    media.bot.userId === user.id ? media.botId : undefined
+  );
+  if (!deducted) {
+    return NextResponse.json(
+      { error: 'Insufficient credits. You need ' + cost + ' credits for AI generation.' },
+      { status: 402 }
     );
   }
 
