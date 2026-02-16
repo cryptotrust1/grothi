@@ -74,7 +74,7 @@ export default function AboutPage() {
         <div className="container mx-auto flex h-16 items-center justify-between px-4">
           <Link href="/" className="flex items-center space-x-2">
             <Bot className="h-8 w-8 text-primary" />
-            <span className="text-xl font-bold">Grothi</span>
+            <span className="text-xl font-bold bg-gradient-to-r from-primary to-indigo-400 bg-clip-text text-transparent">Grothi</span>
           </Link>
           <nav className="hidden md:flex items-center space-x-6">
             <Link href="/features" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
@@ -98,7 +98,7 @@ export default function AboutPage() {
               <Button variant="ghost" size="sm">Sign In</Button>
             </Link>
             <Link href="/auth/signup">
-              <Button size="sm">Get Started</Button>
+              <Button size="sm" className="bg-secondary hover:bg-secondary/90 text-white">Start Free Trial <ArrowRight className="ml-1.5 h-4 w-4" /></Button>
             </Link>
           </div>
         </div>
@@ -233,7 +233,7 @@ export default function AboutPage() {
             </p>
             <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link href="/auth/signup">
-                <Button size="lg" className="text-lg px-8 h-12">
+                <Button size="lg" className="text-lg px-8 h-14 bg-secondary hover:bg-secondary/90 text-white">
                   Start Automating Free <ArrowRight className="ml-2 h-5 w-5" />
                 </Button>
               </Link>
@@ -244,53 +244,59 @@ export default function AboutPage() {
               </Link>
             </div>
             <div className="mt-6 flex flex-wrap justify-center gap-6 text-sm text-muted-foreground">
-              <span className="flex items-center gap-1.5"><Check className="h-4 w-4 text-primary" /> 100 free credits</span>
-              <span className="flex items-center gap-1.5"><Check className="h-4 w-4 text-primary" /> No credit card</span>
-              <span className="flex items-center gap-1.5"><Check className="h-4 w-4 text-primary" /> White-hat only</span>
+              <span className="flex items-center gap-1.5"><Check className="h-4 w-4 text-secondary" /> 100 free credits</span>
+              <span className="flex items-center gap-1.5"><Check className="h-4 w-4 text-secondary" /> No credit card</span>
+              <span className="flex items-center gap-1.5"><Check className="h-4 w-4 text-secondary" /> White-hat only</span>
             </div>
           </div>
         </section>
       </main>
 
       {/* Footer */}
-      <footer className="border-t py-12 bg-muted/30">
+      <footer className="border-t py-16 bg-background">
         <div className="container mx-auto px-4">
-          <div className="grid gap-8 sm:grid-cols-2 md:grid-cols-4">
-            <div>
+          <div className="grid gap-8 sm:grid-cols-2 md:grid-cols-5">
+            <div className="md:col-span-1">
               <div className="flex items-center space-x-2 mb-4">
-                <Bot className="h-6 w-6 text-primary" />
-                <span className="font-bold">Grothi</span>
+                <Bot className="h-7 w-7 text-primary" />
+                <span className="text-lg font-bold bg-gradient-to-r from-primary to-indigo-400 bg-clip-text text-transparent">Grothi</span>
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                AI marketing bots that generate content, post to 17 platforms, and learn from results.
+                AI marketing bot that generates content, posts to 17 platforms, and learns from results.
               </p>
             </div>
             <div>
-              <h4 className="font-semibold mb-3">Product</h4>
-              <ul className="space-y-2 text-sm text-muted-foreground">
+              <h4 className="font-semibold mb-4">Product</h4>
+              <ul className="space-y-2.5 text-sm text-muted-foreground">
                 <li><Link href="/features" className="hover:text-foreground transition-colors">Features</Link></li>
-                <li><Link href="/how-it-works" className="hover:text-foreground transition-colors">How It Works</Link></li>
                 <li><Link href="/pricing" className="hover:text-foreground transition-colors">Pricing</Link></li>
+                <li><Link href="/how-it-works" className="hover:text-foreground transition-colors">How It Works</Link></li>
                 <li><Link href="/use-cases" className="hover:text-foreground transition-colors">Use Cases</Link></li>
               </ul>
             </div>
             <div>
-              <h4 className="font-semibold mb-3">Company</h4>
-              <ul className="space-y-2 text-sm text-muted-foreground">
-                <li><Link href="/about" className="hover:text-foreground transition-colors">About</Link></li>
+              <h4 className="font-semibold mb-4">Resources</h4>
+              <ul className="space-y-2.5 text-sm text-muted-foreground">
                 <li><Link href="/faq" className="hover:text-foreground transition-colors">FAQ</Link></li>
+                <li><Link href="/contact" className="hover:text-foreground transition-colors">Help Center</Link></li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="font-semibold mb-4">Company</h4>
+              <ul className="space-y-2.5 text-sm text-muted-foreground">
+                <li><Link href="/about" className="hover:text-foreground transition-colors">About Us</Link></li>
                 <li><Link href="/contact" className="hover:text-foreground transition-colors">Contact</Link></li>
               </ul>
             </div>
             <div>
-              <h4 className="font-semibold mb-3">Legal</h4>
-              <ul className="space-y-2 text-sm text-muted-foreground">
+              <h4 className="font-semibold mb-4">Legal</h4>
+              <ul className="space-y-2.5 text-sm text-muted-foreground">
                 <li><Link href="/terms" className="hover:text-foreground transition-colors">Terms of Service</Link></li>
                 <li><Link href="/privacy" className="hover:text-foreground transition-colors">Privacy Policy</Link></li>
               </ul>
             </div>
           </div>
-          <div className="mt-8 border-t pt-8 text-center text-sm text-muted-foreground">
+          <div className="mt-12 border-t pt-8 text-center text-sm text-muted-foreground">
             &copy; {new Date().getFullYear()} Grothi. All rights reserved.
           </div>
         </div>
