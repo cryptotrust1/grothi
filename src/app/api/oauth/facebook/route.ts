@@ -43,14 +43,16 @@ export async function GET(request: NextRequest) {
     .setIssuedAt()
     .sign(JWT_SECRET);
 
-  // Required scopes for posting to Pages:
+  // Required scopes for posting to Pages and reading analytics:
   // - pages_show_list: list pages the user manages
   // - pages_read_engagement: read page engagement (required by pages_manage_posts)
   // - pages_manage_posts: create/edit/delete posts on pages
+  // - read_insights: read Page-level analytics (reach, impressions, etc.)
   const scopes = [
     'pages_show_list',
     'pages_read_engagement',
     'pages_manage_posts',
+    'read_insights',
   ].join(',');
 
   const authUrl = new URL(`https://www.facebook.com/${FB_GRAPH_VERSION}/dialog/oauth`);
