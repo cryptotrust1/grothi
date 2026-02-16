@@ -166,7 +166,7 @@ export default async function ContactListPage({
   searchParams,
 }: {
   params: Promise<{ id: string; listId: string }>;
-  searchParams: Promise<{ error?: string; success?: string; page?: string }>;
+  searchParams: Promise<{ error?: string; success?: string; page?: string; status?: string; engagement?: string }>;
 }) {
   const user = await requireAuth();
   const { id, listId } = await params;
@@ -183,14 +183,31 @@ export default async function ContactListPage({
   const page = Math.max(1, parseInt(sp.page || '1', 10) || 1);
   const pageSize = 50;
 
+  // Build filter where clause
+  const statusFilter = sp.status as string | undefined;
+  const engagementFilter = sp.engagement as string | undefined;
+
+  const whereClause: Record<string, unknown> = { listId };
+  if (statusFilter && ['ACTIVE', 'UNSUBSCRIBED', 'BOUNCED', 'COMPLAINED'].includes(statusFilter)) {
+    whereClause.status = statusFilter;
+  }
+  if (engagementFilter === 'opened') {
+    whereClause.openCount = { gt: 0 };
+  } else if (engagementFilter === 'clicked') {
+    whereClause.clickCount = { gt: 0 };
+  } else if (engagementFilter === 'inactive') {
+    whereClause.openCount = 0;
+    whereClause.clickCount = 0;
+  }
+
   const [contacts, totalCount] = await Promise.all([
     db.emailContact.findMany({
-      where: { listId },
+      where: whereClause,
       orderBy: { createdAt: 'desc' },
       take: pageSize,
       skip: (page - 1) * pageSize,
     }),
-    db.emailContact.count({ where: { listId } }),
+    db.emailContact.count({ where: whereClause }),
   ]);
 
   const totalPages = Math.ceil(totalCount / pageSize);
@@ -223,6 +240,67 @@ export default async function ContactListPage({
           {sp.success}
         </div>
       )}
+
+      {/* Filters + Export */}
+      <Card>
+        <CardContent className="py-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-sm font-medium text-muted-foreground">Filter:</span>
+            <div className="flex gap-1">
+              {[
+                { value: '', label: 'All' },
+                { value: 'ACTIVE', label: 'Active' },
+                { value: 'UNSUBSCRIBED', label: 'Unsubscribed' },
+                { value: 'BOUNCED', label: 'Bounced' },
+              ].map((f) => (
+                <Link
+                  key={f.value}
+                  href={`/dashboard/bots/${id}/email/contacts/${listId}?status=${f.value}&engagement=${engagementFilter || ''}`}
+                >
+                  <span className={`px-2 py-1 text-xs rounded cursor-pointer ${
+                    (statusFilter || '') === f.value ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'
+                  }`}>
+                    {f.label}
+                  </span>
+                </Link>
+              ))}
+            </div>
+
+            <span className="text-sm font-medium text-muted-foreground ml-2">Engagement:</span>
+            <div className="flex gap-1">
+              {[
+                { value: '', label: 'All' },
+                { value: 'opened', label: 'Opened' },
+                { value: 'clicked', label: 'Clicked' },
+                { value: 'inactive', label: 'Never engaged' },
+              ].map((f) => (
+                <Link
+                  key={f.value}
+                  href={`/dashboard/bots/${id}/email/contacts/${listId}?status=${statusFilter || ''}&engagement=${f.value}`}
+                >
+                  <span className={`px-2 py-1 text-xs rounded cursor-pointer ${
+                    (engagementFilter || '') === f.value ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'
+                  }`}>
+                    {f.label}
+                  </span>
+                </Link>
+              ))}
+            </div>
+
+            <div className="ml-auto">
+              <a
+                href={`/api/email/contacts/export?listId=${encodeURIComponent(listId)}&botId=${encodeURIComponent(id)}`}
+                download
+              >
+                <Button variant="outline" size="sm">
+                  <ArrowLeft className="h-3 w-3 mr-1 rotate-[270deg]" />
+                  Export CSV
+                </Button>
+              </a>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Add single contact */}
       <Card>
