@@ -52,21 +52,31 @@ export default async function VerifyEmailPage({
             </>
           )}
         </CardHeader>
-        <CardContent className="text-center">
+        <CardContent className="text-center space-y-4">
           {success ? (
             <p className="text-muted-foreground">
               Your email has been verified successfully. You can now enjoy all features of Grothi.
             </p>
           ) : (
-            <p className="text-muted-foreground">
-              {errorMessage} Please try again or contact <a href="mailto:support@grothi.com" className="text-primary hover:underline">support@grothi.com</a>.
-            </p>
+            <>
+              <p className="text-muted-foreground">
+                {errorMessage}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                The link may have expired. Sign in to your account and request a new verification email from the dashboard, or contact <a href="mailto:support@grothi.com" className="text-primary hover:underline">support@grothi.com</a>.
+              </p>
+            </>
           )}
         </CardContent>
-        <CardFooter className="flex justify-center">
-          <Link href={success ? '/dashboard' : '/auth/signin'}>
-            <Button>{success ? 'Go to Dashboard' : 'Back to Sign In'}</Button>
+        <CardFooter className="flex flex-col space-y-2">
+          <Link href={success ? '/dashboard' : '/auth/signin'} className="w-full">
+            <Button className="w-full">{success ? 'Go to Dashboard' : 'Sign In & Resend'}</Button>
           </Link>
+          {!success && (
+            <Link href="/auth/forgot-password" className="text-sm text-primary hover:underline">
+              Forgot your password?
+            </Link>
+          )}
         </CardFooter>
       </Card>
     </div>

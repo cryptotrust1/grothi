@@ -176,7 +176,12 @@ function getSystemTransporter() {
   const pass = process.env.SMTP_PASS;
 
   if (!host || !user || !pass) {
-    console.warn('SMTP not configured — emails will be logged to console only');
+    const missing = [!host && 'SMTP_HOST', !user && 'SMTP_USER', !pass && 'SMTP_PASS'].filter(Boolean);
+    if (process.env.NODE_ENV === 'production') {
+      console.error(`[EMAIL] CRITICAL: SMTP not configured in production. Missing: ${missing.join(', ')}. Transactional emails will NOT be sent.`);
+    } else {
+      console.warn(`[EMAIL] SMTP not configured (missing: ${missing.join(', ')}). Emails will be logged to console.`);
+    }
     return null;
   }
 

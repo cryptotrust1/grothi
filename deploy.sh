@@ -53,7 +53,7 @@ echo "[5/7] Running Prisma migrations..."
 # Step 5: Seed the database
 echo ""
 echo "[6/7] Seeding database..."
-npx tsx prisma/seed.ts 2>&1 || echo "WARN: Seed failed (may already be seeded)"
+./node_modules/.bin/tsx prisma/seed.ts 2>&1 || echo "WARN: Seed failed (may already be seeded)"
 
 # Step 6: Build Next.js (clean old chunks first to prevent ChunkLoadError)
 echo ""

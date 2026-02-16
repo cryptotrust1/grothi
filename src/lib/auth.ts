@@ -190,6 +190,10 @@ export async function resetPasswordWithToken(token: string, newPassword: string)
       where: { id: resetToken.id },
       data: { used: true },
     }),
+    // Revoke all existing sessions to prevent session hijacking
+    db.session.deleteMany({
+      where: { userId: resetToken.userId },
+    }),
   ]);
 
   return resetToken.user;
@@ -296,4 +300,62 @@ export async function signOut() {
   }
 
   cookieStore.delete('session-token');
+}
+
+/**
+ * Clean up expired tokens and sessions from the database.
+ * Should be called periodically (e.g., via cron or admin action).
+ */
+export async function cleanupExpiredTokens(): Promise<{
+  sessions: number;
+  verificationTokens: number;
+  resetTokens: number;
+}> {
+  const now = new Date();
+
+  const [sessions, verificationTokens, resetTokens] = await db.$transaction([
+    db.session.deleteMany({
+      where: { expiresAt: { lt: now } },
+    }),
+    db.emailVerificationToken.deleteMany({
+      where: { expiresAt: { lt: now } },
+    }),
+    db.passwordResetToken.deleteMany({
+      where: {
+        OR: [
+          { expiresAt: { lt: now } },
+          { used: true, createdAt: { lt: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+        ],
+      },
+    }),
+  ]);
+
+  return {
+    sessions: sessions.count,
+    verificationTokens: verificationTokens.count,
+    resetTokens: resetTokens.count,
+  };
+}
+
+/**
+ * Resend email verification for a given user.
+ * Invalidates existing tokens before creating a new one.
+ */
+export async function resendVerificationEmail(userId: string, email: string, name: string) {
+  // Delete existing verification tokens for this user
+  await db.emailVerificationToken.deleteMany({
+    where: { userId },
+  });
+
+  const token = randomBytes(32).toString('hex');
+  await db.emailVerificationToken.create({
+    data: {
+      userId,
+      token,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+    },
+  });
+
+  const { sendEmailVerificationEmail } = await import('./email');
+  await sendEmailVerificationEmail(email, name || 'there', token);
 }
