@@ -112,6 +112,7 @@ export async function GET(request: NextRequest) {
     const longLivedData = await longLivedRes.json();
 
     const accessToken = longLivedData.access_token || shortLivedToken;
+    const tokenExpiresIn = longLivedData.expires_in || 5184000; // Default 60 days
 
     // Step 3: Fetch Threads user profile
     let threadsUsername = 'Threads User';
@@ -140,6 +141,8 @@ export async function GET(request: NextRequest) {
           threadsUsername,
           threadsUserId: threadsUserId || '',
           connectedVia: 'oauth',
+          tokenRefreshedAt: new Date().toISOString(),
+          tokenExpiresAt: new Date(Date.now() + tokenExpiresIn * 1000).toISOString(),
         },
         status: 'CONNECTED',
       },
@@ -149,6 +152,8 @@ export async function GET(request: NextRequest) {
           threadsUsername,
           threadsUserId: threadsUserId || '',
           connectedVia: 'oauth',
+          tokenRefreshedAt: new Date().toISOString(),
+          tokenExpiresAt: new Date(Date.now() + tokenExpiresIn * 1000).toISOString(),
         },
         status: 'CONNECTED',
         lastError: null,
