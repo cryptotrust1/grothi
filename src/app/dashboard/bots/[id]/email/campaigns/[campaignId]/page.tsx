@@ -169,6 +169,7 @@ async function sendCampaign(formData: FormData) {
       data: { campaignId, contactId: contact.id, status: 'QUEUED', variant },
     });
 
+    if (!campaign) return;
     let html = campaign.htmlContent;
     html = html.replace(/\{\{firstName\}\}/g, contact.firstName || '');
     html = html.replace(/\{\{lastName\}\}/g, contact.lastName || '');

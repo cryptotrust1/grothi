@@ -32,7 +32,7 @@ function parseSendGrid(body: unknown): NormalizedEvent[] {
 
   return body
     .filter((e): e is Record<string, unknown> => typeof e === 'object' && e !== null)
-    .map((event) => {
+    .flatMap((event): NormalizedEvent[] => {
       const sgEvent = String(event.event || '');
       let eventType: NormalizedEvent['eventType'] | null = null;
       let bounceType: 'hard' | 'soft' | undefined;
@@ -46,18 +46,20 @@ function parseSendGrid(body: unknown): NormalizedEvent[] {
         eventType = 'delivered';
       }
 
-      if (!eventType) return null;
+      if (!eventType) return [];
 
-      return {
-        email: String(event.email || ''),
+      const email = String(event.email || '');
+      if (!email) return [];
+
+      return [{
+        email,
         eventType,
         messageId: event.sg_message_id ? String(event.sg_message_id).split('.')[0] : undefined,
         bounceType,
         timestamp: event.timestamp ? new Date(Number(event.timestamp) * 1000) : undefined,
         raw: event,
-      };
-    })
-    .filter((e): e is NormalizedEvent => e !== null && e.email.length > 0);
+      }];
+    });
 }
 
 function parsePostmark(body: unknown): NormalizedEvent[] {
