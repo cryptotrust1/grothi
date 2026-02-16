@@ -74,6 +74,16 @@ async function createCampaign(formData: FormData) {
     redirect(`/dashboard/bots/${botId}/email/campaigns/new?error=${encodeURIComponent('Invalid contact list')}`);
   }
 
+  // Scheduled sending
+  const scheduledAtRaw = (formData.get('scheduledAt') as string || '').trim();
+  let scheduledAt: Date | null = null;
+  if (scheduledAtRaw) {
+    scheduledAt = new Date(scheduledAtRaw);
+    if (isNaN(scheduledAt.getTime()) || scheduledAt <= new Date()) {
+      scheduledAt = null; // Invalid or in the past → save as draft
+    }
+  }
+
   try {
     const campaign = await db.emailCampaign.create({
       data: {
@@ -88,11 +98,15 @@ async function createCampaign(formData: FormData) {
         fromName: data.fromName || bot.emailAccount.fromName || null,
         htmlContent: data.htmlContent,
         textContent: data.textContent || null,
-        status: 'DRAFT',
+        status: scheduledAt ? 'SCHEDULED' : 'DRAFT',
+        scheduledAt,
       },
     });
 
-    redirect(`/dashboard/bots/${botId}/email/campaigns/${campaign.id}?success=${encodeURIComponent('Campaign created as draft. Send a test email before launching!')}`);
+    const successMsg = scheduledAt
+      ? `Campaign scheduled for ${scheduledAt.toLocaleString()}. The email jobs runner will send it automatically.`
+      : 'Campaign created as draft. Send a test email before launching!';
+    redirect(`/dashboard/bots/${botId}/email/campaigns/${campaign.id}?success=${encodeURIComponent(successMsg)}`);
   } catch (error) {
     if (error instanceof Error && error.message === 'NEXT_REDIRECT') throw error;
     redirect(`/dashboard/bots/${botId}/email/campaigns/new?error=${encodeURIComponent('Failed to create campaign')}`);
@@ -486,10 +500,34 @@ export default async function NewCampaignPage({
           </CardContent>
         </Card>
 
+        {/* Scheduling */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Schedule (optional)</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Set a date and time to automatically send this campaign. Leave empty to save as draft.
+            </p>
+            <div className="max-w-xs">
+              <Label htmlFor="scheduledAt">Send At</Label>
+              <Input
+                name="scheduledAt"
+                id="scheduledAt"
+                type="datetime-local"
+                min={new Date().toISOString().slice(0, 16)}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                The email jobs runner checks every minute for scheduled campaigns.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
         <div className="flex gap-3">
           <Button type="submit">
             <Send className="h-4 w-4 mr-1" />
-            Save as Draft
+            Save Campaign
           </Button>
           <Link href={`/dashboard/bots/${id}/email?tab=campaigns`}>
             <Button variant="outline" type="button">Cancel</Button>
