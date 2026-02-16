@@ -28,12 +28,11 @@ export default async function ForgotPasswordPage({
       redirect('/auth/forgot-password?error=Please enter a valid email address');
     }
 
-    // Send reset email if user exists (non-blocking to prevent timing attacks)
-    try {
-      await createPasswordResetToken(email);
-    } catch (error) {
+    // Fire-and-forget: do not await to prevent timing side-channel
+    // Response time is constant regardless of whether the email exists
+    createPasswordResetToken(email).catch((error) => {
       console.error('Password reset error:', error);
-    }
+    });
 
     // Always show success to prevent email enumeration
     redirect('/auth/forgot-password?sent=1');

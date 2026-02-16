@@ -1,6 +1,7 @@
 import { requireAuth } from '@/lib/auth';
 import { Sidebar } from '@/components/dashboard/sidebar';
 import { Topbar } from '@/components/dashboard/topbar';
+import { EmailVerificationBanner } from '@/components/dashboard/email-verification-banner';
 
 export default async function DashboardLayout({
   children,
@@ -17,6 +18,9 @@ export default async function DashboardLayout({
           userName={user.name || user.email}
           creditBalance={user.creditBalance?.balance ?? 0}
         />
+        {!user.emailVerified && (
+          <EmailVerificationBanner userId={user.id} email={user.email} name={user.name || 'there'} />
+        )}
         <main className="flex-1 p-4 md:p-6">
           {children}
         </main>
