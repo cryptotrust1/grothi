@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { SignJWT } from 'jose';
 
-const FB_GRAPH_VERSION = 'v21.0';
+const FB_GRAPH_VERSION = 'v22.0';
 const JWT_SECRET = new TextEncoder().encode(
   process.env.NEXTAUTH_SECRET!
 );
