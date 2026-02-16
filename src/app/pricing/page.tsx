@@ -70,7 +70,7 @@ export default function PricingPage() {
         <div className="container mx-auto flex h-16 items-center justify-between px-4">
           <Link href="/" className="flex items-center space-x-2">
             <Bot className="h-8 w-8 text-primary" />
-            <span className="text-xl font-bold">Grothi</span>
+            <span className="text-xl font-bold bg-gradient-to-r from-primary to-indigo-400 bg-clip-text text-transparent">Grothi</span>
           </Link>
           <nav className="hidden md:flex items-center space-x-6">
             <Link href="/features" className="text-sm text-muted-foreground hover:text-foreground">Features</Link>
@@ -81,7 +81,7 @@ export default function PricingPage() {
           </nav>
           <div className="flex items-center space-x-3">
             <Link href="/auth/signin"><Button variant="ghost" size="sm">Sign In</Button></Link>
-            <Link href="/auth/signup"><Button size="sm">Start Free</Button></Link>
+            <Link href="/auth/signup"><Button size="sm" className="bg-secondary hover:bg-secondary/90 text-white">Start Free Trial <ArrowRight className="ml-1.5 h-4 w-4" /></Button></Link>
           </div>
         </div>
       </header>
@@ -138,8 +138,8 @@ export default function PricingPage() {
                     ))}
                   </ul>
                   <Link href="/auth/signup">
-                    <Button variant={plan.popular ? 'default' : 'outline'} className="w-full">
-                      Get Started <ArrowRight className="ml-2 h-4 w-4" />
+                    <Button variant={plan.popular ? 'default' : 'outline'} className={`w-full ${plan.popular ? 'bg-secondary hover:bg-secondary/90 text-white' : ''}`}>
+                      Start Free Trial <ArrowRight className="ml-2 h-4 w-4" />
                     </Button>
                   </Link>
                 </CardContent>
@@ -271,24 +271,59 @@ export default function PricingPage() {
             See what your bot can do before spending anything.
           </p>
           <Link href="/auth/signup">
-            <Button size="lg" className="mt-6">
+            <Button size="lg" className="mt-6 bg-secondary hover:bg-secondary/90 text-white">
               Create Free Account <ArrowRight className="ml-2 h-5 w-5" />
             </Button>
           </Link>
         </section>
       </main>
 
-      <footer className="border-t py-8 text-center text-sm text-muted-foreground">
+      <footer className="border-t py-16 bg-background">
         <div className="container mx-auto px-4">
-          <div className="flex flex-wrap justify-center gap-6 mb-4">
-            <Link href="/features" className="hover:text-foreground">Features</Link>
-            <Link href="/how-it-works" className="hover:text-foreground">How It Works</Link>
-            <Link href="/use-cases" className="hover:text-foreground">Use Cases</Link>
-            <Link href="/faq" className="hover:text-foreground">FAQ</Link>
-            <Link href="/about" className="hover:text-foreground">About</Link>
-            <Link href="/contact" className="hover:text-foreground">Contact</Link>
+          <div className="grid gap-8 sm:grid-cols-2 md:grid-cols-5">
+            <div className="md:col-span-1">
+              <div className="flex items-center space-x-2 mb-4">
+                <Bot className="h-7 w-7 text-primary" />
+                <span className="text-lg font-bold bg-gradient-to-r from-primary to-indigo-400 bg-clip-text text-transparent">Grothi</span>
+              </div>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                AI marketing bot that generates content, posts to 17 platforms, and learns from results.
+              </p>
+            </div>
+            <div>
+              <h4 className="font-semibold mb-4">Product</h4>
+              <ul className="space-y-2.5 text-sm text-muted-foreground">
+                <li><Link href="/features" className="hover:text-foreground transition-colors">Features</Link></li>
+                <li><Link href="/pricing" className="hover:text-foreground transition-colors">Pricing</Link></li>
+                <li><Link href="/how-it-works" className="hover:text-foreground transition-colors">How It Works</Link></li>
+                <li><Link href="/use-cases" className="hover:text-foreground transition-colors">Use Cases</Link></li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="font-semibold mb-4">Resources</h4>
+              <ul className="space-y-2.5 text-sm text-muted-foreground">
+                <li><Link href="/faq" className="hover:text-foreground transition-colors">FAQ</Link></li>
+                <li><Link href="/contact" className="hover:text-foreground transition-colors">Help Center</Link></li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="font-semibold mb-4">Company</h4>
+              <ul className="space-y-2.5 text-sm text-muted-foreground">
+                <li><Link href="/about" className="hover:text-foreground transition-colors">About Us</Link></li>
+                <li><Link href="/contact" className="hover:text-foreground transition-colors">Contact</Link></li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="font-semibold mb-4">Legal</h4>
+              <ul className="space-y-2.5 text-sm text-muted-foreground">
+                <li><Link href="/terms" className="hover:text-foreground transition-colors">Terms of Service</Link></li>
+                <li><Link href="/privacy" className="hover:text-foreground transition-colors">Privacy Policy</Link></li>
+              </ul>
+            </div>
           </div>
-          &copy; {new Date().getFullYear()} Grothi. All rights reserved.
+          <div className="mt-12 border-t pt-8 text-center text-sm text-muted-foreground">
+            &copy; {new Date().getFullYear()} Grothi. All rights reserved.
+          </div>
         </div>
       </footer>
     </div>
