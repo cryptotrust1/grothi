@@ -341,7 +341,7 @@ export default async function EmailMarketingPage({
           </Card>
 
           {/* Quick actions */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <Link href={`/dashboard/bots/${bot.id}/email?tab=contacts`}>
               <Card className="hover:border-primary/50 transition-colors cursor-pointer">
                 <CardContent className="pt-4 pb-4 flex items-center gap-3">
@@ -361,6 +361,18 @@ export default async function EmailMarketingPage({
                   <div>
                     <p className="font-medium">Campaigns</p>
                     <p className="text-sm text-muted-foreground">{totalCampaigns} campaigns</p>
+                  </div>
+                  <ArrowRight className="h-4 w-4 ml-auto" />
+                </CardContent>
+              </Card>
+            </Link>
+            <Link href={`/dashboard/bots/${bot.id}/email/analytics`}>
+              <Card className="hover:border-primary/50 transition-colors cursor-pointer">
+                <CardContent className="pt-4 pb-4 flex items-center gap-3">
+                  <BarChart3 className="h-5 w-5 text-primary" />
+                  <div>
+                    <p className="font-medium">Analytics & Guide</p>
+                    <p className="text-sm text-muted-foreground">Performance & deliverability</p>
                   </div>
                   <ArrowRight className="h-4 w-4 ml-auto" />
                 </CardContent>
@@ -663,7 +675,8 @@ export default async function EmailMarketingPage({
                   : '0';
 
                 return (
-                  <Card key={campaign.id}>
+                  <Link key={campaign.id} href={`/dashboard/bots/${bot.id}/email/campaigns/${campaign.id}`}>
+                  <Card className="hover:border-primary/30 transition-colors cursor-pointer">
                     <CardContent className="py-4">
                       <div className="flex items-center justify-between">
                         <div>
@@ -693,6 +706,7 @@ export default async function EmailMarketingPage({
                       </div>
                     </CardContent>
                   </Card>
+                  </Link>
                 );
               })}
             </div>
