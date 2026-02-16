@@ -65,7 +65,7 @@ npm run build
 # Step 7: Restart PM2
 echo ""
 echo "Restarting PM2..."
-pm2 restart grothi 2>/dev/null || pm2 start npm --name grothi -- start
+pm2 restart grothi --update-env 2>/dev/null || pm2 start npm --name grothi -- start
 pm2 save
 
 echo ""
