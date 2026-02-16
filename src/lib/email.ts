@@ -169,11 +169,21 @@ export function checkDailyLimit(
 
 // ============ TRANSACTIONAL EMAIL (system SMTP via env vars) ============
 
-function getSystemTransporter() {
+// Cached transporter — created once, reused for all transactional emails.
+// Nodemailer handles connection pooling and reconnects internally.
+let cachedTransporter: Transporter | null = null;
+let smtpChecked = false;
+
+function getSystemTransporter(): Transporter | null {
+  if (cachedTransporter) return cachedTransporter;
+  if (smtpChecked) return null; // Already checked, SMTP not configured
+
   const host = process.env.SMTP_HOST;
   const port = parseInt(process.env.SMTP_PORT || '587', 10);
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
+
+  smtpChecked = true;
 
   if (!host || !user || !pass) {
     const missing = [!host && 'SMTP_HOST', !user && 'SMTP_USER', !pass && 'SMTP_PASS'].filter(Boolean);
@@ -185,45 +195,73 @@ function getSystemTransporter() {
     return null;
   }
 
-  return nodemailer.createTransport({
+  cachedTransporter = nodemailer.createTransport({
     host,
     port,
     secure: port === 465,
+    requireTLS: port !== 465, // Enforce STARTTLS on port 587
     auth: { user, pass },
+    pool: true,
+    maxConnections: 3,
+    maxMessages: 100,
   });
+
+  // Non-blocking: verify SMTP connection on first use
+  cachedTransporter.verify()
+    .then(() => console.log(`[EMAIL] SMTP connected: ${host}:${port} as ${user}`))
+    .catch((err) => {
+      console.error(`[EMAIL] SMTP verify failed: ${err instanceof Error ? err.message : err}`);
+      cachedTransporter = null;
+    });
+
+  return cachedTransporter;
 }
 
-const EMAIL_FROM = process.env.EMAIL_FROM || 'Grothi <noreply@grothi.com>';
-const APP_URL = process.env.NEXTAUTH_URL || 'https://grothi.com';
+function getEmailFrom(): string {
+  return process.env.EMAIL_FROM || 'Grothi <noreply@grothi.com>';
+}
+
+function getAppUrl(): string {
+  return process.env.NEXTAUTH_URL || 'https://grothi.com';
+}
 
 async function sendTransactionalEmail(to: string, subject: string, html: string, text?: string) {
   const transporter = getSystemTransporter();
 
   if (!transporter) {
-    console.log(`[EMAIL] To: ${to}`);
-    console.log(`[EMAIL] Subject: ${subject}`);
-    console.log(`[EMAIL] Body (text): ${text || '(html only)'}`);
+    console.log(`[EMAIL] (not sent — SMTP not configured) To: ${to} | Subject: ${subject}`);
     return { success: false, reason: 'SMTP not configured' };
   }
 
   try {
-    await transporter.sendMail({
-      from: EMAIL_FROM,
+    const result = await transporter.sendMail({
+      from: getEmailFrom(),
       to,
       subject,
       html,
       text: text || subject,
+      headers: {
+        'X-PM-Message-Stream': 'outbound', // Postmark: explicit transactional stream
+      },
     });
+    console.log(`[EMAIL] Sent: "${subject}" -> ${to} (${result.messageId})`);
     return { success: true };
   } catch (error) {
-    console.error('[EMAIL] Send failed:', error instanceof Error ? error.message : error);
-    return { success: false, reason: error instanceof Error ? error.message : 'Unknown error' };
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error(`[EMAIL] FAILED: "${subject}" -> ${to} | Error: ${msg}`);
+    // Reset cached transporter on auth/connection errors so next attempt reconnects
+    if (msg.includes('auth') || msg.includes('connect') || msg.includes('ECONNR')) {
+      cachedTransporter = null;
+      smtpChecked = false;
+    }
+    return { success: false, reason: msg };
   }
 }
 
 // ============ EMAIL TEMPLATES ============
 
 function baseLayout(content: string) {
+  const appUrl = getAppUrl();
   return `
 <!DOCTYPE html>
 <html>
@@ -245,14 +283,14 @@ function baseLayout(content: string) {
 <body>
   <div class="container">
     <div style="text-align: center; margin-bottom: 24px;">
-      <a href="${APP_URL}" class="logo">Grothi</a>
+      <a href="${appUrl}" class="logo">Grothi</a>
     </div>
     <div class="card">
       ${content}
     </div>
     <div class="footer">
       <p>&copy; ${new Date().getFullYear()} Grothi. All rights reserved.</p>
-      <p><a href="${APP_URL}" style="color: #a1a1aa;">grothi.com</a></p>
+      <p><a href="${appUrl}" style="color: #a1a1aa;">grothi.com</a></p>
     </div>
   </div>
 </body>
@@ -262,6 +300,7 @@ function baseLayout(content: string) {
 // ============ TRANSACTIONAL EMAIL FUNCTIONS ============
 
 export async function sendWelcomeEmail(to: string, name: string) {
+  const appUrl = getAppUrl();
   const html = baseLayout(`
     <h2>Welcome to Grothi, ${escapeHtml(name)}!</h2>
     <p>Your account has been created and you've received <strong>100 free credits</strong> to get started.</p>
@@ -272,17 +311,17 @@ export async function sendWelcomeEmail(to: string, name: string) {
       <li>Let your bot generate and post content automatically</li>
     </ul>
     <p style="text-align: center; margin-top: 24px;">
-      <a href="${APP_URL}/dashboard" class="btn">Go to Dashboard</a>
+      <a href="${appUrl}/dashboard" class="btn">Go to Dashboard</a>
     </p>
   `);
 
   return sendTransactionalEmail(to, 'Welcome to Grothi — Your AI Marketing Bot', html,
-    `Welcome to Grothi, ${name}! You've received 100 free credits. Get started at ${APP_URL}/dashboard`
+    `Welcome to Grothi, ${name}! You've received 100 free credits. Get started at ${appUrl}/dashboard`
   );
 }
 
 export async function sendEmailVerificationEmail(to: string, name: string, token: string) {
-  const verifyUrl = `${APP_URL}/auth/verify-email?token=${encodeURIComponent(token)}`;
+  const verifyUrl = `${getAppUrl()}/auth/verify-email?token=${encodeURIComponent(token)}`;
 
   const html = baseLayout(`
     <h2>Verify your email address</h2>
@@ -306,7 +345,7 @@ export async function sendEmailVerificationEmail(to: string, name: string, token
 }
 
 export async function sendPasswordResetEmail(to: string, name: string, token: string) {
-  const resetUrl = `${APP_URL}/auth/reset-password?token=${encodeURIComponent(token)}`;
+  const resetUrl = `${getAppUrl()}/auth/reset-password?token=${encodeURIComponent(token)}`;
 
   const html = baseLayout(`
     <h2>Reset your password</h2>
@@ -339,7 +378,7 @@ export async function sendContactNotificationEmail(name: string, email: string, 
       <p style="white-space: pre-wrap; margin: 0;">${escapeHtml(message)}</p>
     </div>
     <p style="font-size: 12px; color: #a1a1aa;">
-      You can also view this message in the <a href="${APP_URL}/admin/contacts" style="color: #6366f1;">admin panel</a>.
+      You can also view this message in the <a href="${getAppUrl()}/admin/contacts" style="color: #6366f1;">admin panel</a>.
     </p>
   `);
 
