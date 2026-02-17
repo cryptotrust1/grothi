@@ -379,8 +379,23 @@ async function finalizeVideo(
   fullPrompt: string,
   existingMediaId: string | null,
 ): Promise<NextResponse> {
-  // Download the generated video
-  const videoResponse = await fetch(videoUrl);
+  // Download the generated video (120s timeout — videos can be large)
+  const dlController = new AbortController();
+  const dlTimeout = setTimeout(() => dlController.abort(), 120000);
+  let videoResponse: Response;
+  try {
+    videoResponse = await fetch(videoUrl, { signal: dlController.signal });
+  } catch (dlErr) {
+    clearTimeout(dlTimeout);
+    if (existingMediaId) {
+      await db.media.update({ where: { id: existingMediaId }, data: { generationStatus: 'FAILED' } });
+    }
+    if (dlErr instanceof DOMException && dlErr.name === 'AbortError') {
+      return NextResponse.json({ status: 'failed', error: 'Video download timed out. Try generating again.' }, { status: 504 });
+    }
+    throw dlErr;
+  }
+  clearTimeout(dlTimeout);
   if (!videoResponse.ok) {
     if (existingMediaId) {
       await db.media.update({ where: { id: existingMediaId }, data: { generationStatus: 'FAILED' } });

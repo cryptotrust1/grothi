@@ -110,6 +110,15 @@ export async function POST(request: NextRequest) {
     }
 
     const mimeType = file.type;
+
+    // Block SVG uploads — SVGs can contain arbitrary JavaScript (XSS vector)
+    if (mimeType === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')) {
+      return NextResponse.json(
+        { error: 'SVG files are not allowed due to security concerns. Please use JPEG, PNG, WebP, GIF, or AVIF instead.' },
+        { status: 400 }
+      );
+    }
+
     const isImage = ALLOWED_IMAGE_TYPES.includes(mimeType);
     const isVideo = ALLOWED_VIDEO_TYPES.includes(mimeType);
 

@@ -78,9 +78,14 @@ export async function GET(request: NextRequest) {
   const redirectUri = `${origin}/api/oauth/threads/callback`;
 
   try {
+    // 30-second timeout for all OAuth API calls
+    const oauthController = new AbortController();
+    const oauthTimeout = setTimeout(() => oauthController.abort(), 30000);
+
     // Step 1: Exchange code for short-lived access token
     const tokenRes = await fetch('https://graph.threads.net/oauth/access_token', {
       method: 'POST',
+      signal: oauthController.signal,
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         client_id: appId,
@@ -110,7 +115,7 @@ export async function GET(request: NextRequest) {
     longLivedUrl.searchParams.set('client_secret', appSecret);
     longLivedUrl.searchParams.set('access_token', shortLivedToken);
 
-    const longLivedRes = await fetch(longLivedUrl.toString());
+    const longLivedRes = await fetch(longLivedUrl.toString(), { signal: oauthController.signal });
     const longLivedData = await longLivedRes.json();
 
     const accessToken = longLivedData.access_token || shortLivedToken;
@@ -121,8 +126,10 @@ export async function GET(request: NextRequest) {
     let threadsUserId = tokenUserId;
 
     const profileRes = await fetch(
-      `https://graph.threads.net/v1.0/me?fields=id,username,threads_profile_picture_url&access_token=${encodeURIComponent(accessToken)}`
+      `https://graph.threads.net/v1.0/me?fields=id,username,threads_profile_picture_url&access_token=${encodeURIComponent(accessToken)}`,
+      { signal: oauthController.signal }
     );
+    clearTimeout(oauthTimeout);
     if (profileRes.ok) {
       const profileData = await profileRes.json();
       threadsUsername = profileData.username || 'Threads User';
@@ -173,7 +180,10 @@ export async function GET(request: NextRequest) {
       )
     );
   } catch (e) {
-    const message = e instanceof Error ? e.message : 'Threads OAuth failed';
+    const isTimeout = e instanceof DOMException && e.name === 'AbortError';
+    const message = isTimeout
+      ? 'Threads OAuth timed out. Please try again.'
+      : e instanceof Error ? e.message : 'Threads OAuth failed';
     return NextResponse.redirect(
       new URL(
         `/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(message)}`,

@@ -230,7 +230,8 @@ export async function validateAndUpdateConnection(botId: string): Promise<boolea
  */
 export function isTokenNearExpiry(config: Record<string, unknown>): boolean {
   const expiresAt = config.tokenExpiresAt ? new Date(config.tokenExpiresAt as string) : null;
-  if (!expiresAt) return false;
+  // If no expiry data is available, assume the token needs refresh (safer default)
+  if (!expiresAt || isNaN(expiresAt.getTime())) return true;
 
   const warningThreshold = new Date(Date.now() + TOKEN_REFRESH_WARNING_DAYS * 24 * 60 * 60 * 1000);
   return expiresAt < warningThreshold;
@@ -248,10 +249,9 @@ export async function refreshToken(
   url.searchParams.set('access_token', currentToken);
 
   try {
-    const res = await fetch(url.toString());
-    const data = await res.json();
+    const { data } = await threadsFetch(url.toString());
 
-    if (data.error || !data.access_token) {
+    if (isApiError(data) || !data.access_token) {
       return null;
     }
 

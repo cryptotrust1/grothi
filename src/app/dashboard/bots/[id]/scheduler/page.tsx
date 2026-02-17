@@ -45,10 +45,13 @@ export default async function SchedulerPage({
   const view = sp.view || 'list';
   const statusFilter = sp.status || 'ALL';
 
-  // Get the month for calendar view
+  // Get the month for calendar view (validate to prevent NaN injection)
   const now = new Date();
-  const monthStr = sp.month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const [year, month] = monthStr.split('-').map(Number);
+  const rawMonthStr = sp.month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const [parsedYear, parsedMonth] = rawMonthStr.split('-').map(Number);
+  const year = (Number.isFinite(parsedYear) && parsedYear >= 2020 && parsedYear <= 2100) ? parsedYear : now.getFullYear();
+  const month = (Number.isFinite(parsedMonth) && parsedMonth >= 1 && parsedMonth <= 12) ? parsedMonth : (now.getMonth() + 1);
+  const monthStr = `${year}-${String(month).padStart(2, '0')}`;
 
   // Date range for queries
   const monthStart = new Date(year, month - 1, 1);
