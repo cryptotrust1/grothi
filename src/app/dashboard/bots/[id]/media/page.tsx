@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Image, Film, Upload, Trash2, Sparkles, ChevronLeft, ChevronRight, Wand2 } from 'lucide-react';
 import { MediaUploadForm } from '@/components/dashboard/media-upload-form';
 import { MediaGenerateForm } from '@/components/dashboard/media-generate-form';
+import { MediaCardActions } from '@/components/dashboard/media-card-actions';
 import { BotNav } from '@/components/dashboard/bot-nav';
 
 export const metadata: Metadata = { title: 'Media Library', robots: { index: false } };
@@ -182,11 +183,12 @@ export default async function BotMediaPage({
                   <p className="text-[10px] text-muted-foreground mt-1 line-clamp-2">{m.altText}</p>
                 )}
                 <div className="flex gap-1 mt-2">
-                  <Link href={`/dashboard/bots/${id}/scheduler?mediaId=${m.id}`} className="flex-1">
+                  <Link href={`/dashboard/bots/${id}/post?mediaId=${m.id}`} className="flex-1">
                     <Button variant="outline" size="sm" className="w-full text-xs h-7">
                       Create Post
                     </Button>
                   </Link>
+                  <MediaCardActions mediaId={m.id} filename={m.filename} />
                 </div>
               </CardContent>
             </Card>

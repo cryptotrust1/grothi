@@ -46,11 +46,14 @@ export async function GET(
   const isVideo = media.mimeType.startsWith('video/');
   const safeFilename = media.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
 
+  // Force download when ?download=true is passed
+  const forceDownload = request.nextUrl.searchParams.get('download') === 'true';
+
   // Serve images and videos inline (for preview/playback), others as attachment
-  const disposition = (isImage || isVideo) ? 'inline' : 'attachment';
+  const disposition = forceDownload ? 'attachment' : (isImage || isVideo) ? 'inline' : 'attachment';
 
   // Support Range requests for video streaming (required for HTML5 <video>)
-  if (isVideo) {
+  if (isVideo && !forceDownload) {
     const rangeHeader = request.headers.get('range');
     const { stat } = await import('fs/promises');
     const fileStat = await stat(filePath);

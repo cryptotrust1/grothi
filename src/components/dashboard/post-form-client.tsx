@@ -10,7 +10,7 @@ import {
   Send, Save, Clock, Image as ImageIcon, Film,
   Zap, Globe, AlertTriangle, CheckCircle2,
   Sparkles, Loader2, X, AlertCircle, Camera,
-  FileVideo, Info, ChevronDown, ChevronUp,
+  FileVideo, Info, ChevronDown, ChevronUp, Download,
 } from 'lucide-react';
 import { HelpTip } from '@/components/ui/help-tip';
 import type { PlatformRequirement } from '@/lib/constants';
@@ -707,13 +707,23 @@ export function PostFormClient({
                             )}
                           </div>
 
-                          <button
-                            type="button"
-                            onClick={() => setSelectedMediaId('')}
-                            className="shrink-0 text-muted-foreground hover:text-foreground"
-                          >
-                            <X className="h-4 w-4" />
-                          </button>
+                          <div className="shrink-0 flex items-center gap-1">
+                            <a
+                              href={`/api/media/${selectedMedia.id}?download=true`}
+                              download={selectedMedia.filename}
+                              className="text-muted-foreground hover:text-foreground"
+                              title="Download"
+                            >
+                              <Download className="h-4 w-4" />
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedMediaId('')}
+                              className="text-muted-foreground hover:text-foreground"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
                         </div>
 
                         {/* Platform compatibility for this media */}

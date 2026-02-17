@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
   Calendar, Clock, Plus, Send, Trash2,
-  ChevronLeft, ChevronRight, Film,
+  ChevronLeft, ChevronRight, Film, Download,
 } from 'lucide-react';
 import { BotNav } from '@/components/dashboard/bot-nav';
 import { HelpTip } from '@/components/ui/help-tip';
@@ -407,7 +407,7 @@ export default async function SchedulerPage({
                     <div className="flex gap-4">
                       {/* Media thumbnail */}
                       {post.media && (
-                        <div className="shrink-0">
+                        <div className="shrink-0 relative group/media">
                           {post.media.type === 'VIDEO' ? (
                             <div className="relative h-16 w-16 rounded overflow-hidden bg-muted">
                               {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
@@ -431,6 +431,14 @@ export default async function SchedulerPage({
                               className="h-16 w-16 rounded object-cover"
                             />
                           )}
+                          <a
+                            href={`/api/media/${post.media.id}?download=true`}
+                            download={post.media.filename}
+                            className="absolute -bottom-1 -right-1 h-6 w-6 rounded-full bg-background border shadow-sm flex items-center justify-center opacity-0 group-hover/media:opacity-100 transition-opacity"
+                            title={`Download ${post.media.filename}`}
+                          >
+                            <Download className="h-3 w-3" />
+                          </a>
                         </div>
                       )}
 
