@@ -1,22 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { encrypt } from '@/lib/encryption';
+import { verifyOAuthState } from '@/lib/oauth';
 
 /**
  * Google OAuth2 callback handler.
  * Google redirects here after user grants consent.
- * Exchanges auth code for access + refresh tokens, saves to EmailAccount.
+ * Verifies state JWT, exchanges auth code for tokens, saves to EmailAccount.
  */
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get('code');
-  const state = request.nextUrl.searchParams.get('state'); // botId
+  const state = request.nextUrl.searchParams.get('state');
   const error = request.nextUrl.searchParams.get('error');
 
   const baseUrl = process.env.NEXTAUTH_URL || 'https://grothi.com';
 
   if (error || !code || !state) {
     return NextResponse.redirect(
-      `${baseUrl}/dashboard/bots/${state || ''}/email?error=${encodeURIComponent(error || 'OAuth authorization failed')}`
+      `${baseUrl}/dashboard?error=${encodeURIComponent(error || 'OAuth authorization failed')}`
+    );
+  }
+
+  // Verify signed state token (CSRF protection)
+  let botId: string;
+  try {
+    const statePayload = await verifyOAuthState(state);
+    botId = statePayload.botId;
+  } catch {
+    return NextResponse.redirect(
+      `${baseUrl}/dashboard?error=${encodeURIComponent('Invalid or expired OAuth state. Please try again.')}`
     );
   }
 
@@ -25,7 +37,7 @@ export async function GET(request: NextRequest) {
 
   if (!clientId || !clientSecret) {
     return NextResponse.redirect(
-      `${baseUrl}/dashboard/bots/${state}/email?error=${encodeURIComponent('Google OAuth not configured')}`
+      `${baseUrl}/dashboard/bots/${encodeURIComponent(botId)}/email?error=${encodeURIComponent('Google OAuth not configured')}`
     );
   }
 
@@ -47,7 +59,7 @@ export async function GET(request: NextRequest) {
       const errBody = await tokenResponse.text();
       console.error('[OAUTH] Google token exchange failed:', errBody);
       return NextResponse.redirect(
-        `${baseUrl}/dashboard/bots/${state}/email?error=${encodeURIComponent('Failed to exchange authorization code')}`
+        `${baseUrl}/dashboard/bots/${encodeURIComponent(botId)}/email?error=${encodeURIComponent('Failed to exchange authorization code')}`
       );
     }
 
@@ -56,7 +68,7 @@ export async function GET(request: NextRequest) {
 
     if (!access_token) {
       return NextResponse.redirect(
-        `${baseUrl}/dashboard/bots/${state}/email?error=${encodeURIComponent('No access token received')}`
+        `${baseUrl}/dashboard/bots/${encodeURIComponent(botId)}/email?error=${encodeURIComponent('No access token received')}`
       );
     }
 
@@ -71,9 +83,9 @@ export async function GET(request: NextRequest) {
     const tokenExpiry = new Date(Date.now() + (expires_in || 3600) * 1000);
 
     await db.emailAccount.upsert({
-      where: { botId: state },
+      where: { botId },
       create: {
-        botId: state,
+        botId,
         provider: 'GOOGLE',
         authMethod: 'OAUTH2',
         email: userEmail,
@@ -106,13 +118,13 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.redirect(
-      `${baseUrl}/dashboard/bots/${state}/email?success=${encodeURIComponent('Google account connected via OAuth2!')}`
+      `${baseUrl}/dashboard/bots/${encodeURIComponent(botId)}/email?success=${encodeURIComponent('Google account connected via OAuth2!')}`
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
     console.error('[OAUTH] Google callback error:', msg);
     return NextResponse.redirect(
-      `${baseUrl}/dashboard/bots/${state}/email?error=${encodeURIComponent('OAuth error: ' + msg)}`
+      `${baseUrl}/dashboard/bots/${encodeURIComponent(botId)}/email?error=${encodeURIComponent('OAuth error: ' + msg)}`
     );
   }
 }

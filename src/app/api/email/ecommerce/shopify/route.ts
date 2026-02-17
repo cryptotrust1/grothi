@@ -6,11 +6,15 @@ import crypto from 'crypto';
 /**
  * Shopify abandoned checkout webhook handler.
  *
- * Shopify sends a POST to this endpoint when a checkout is abandoned.
+ * Shopify sends a POST to this endpoint when a checkout is created/updated.
  * We verify the HMAC signature, find the matching EcommerceConnection,
  * and upsert an AbandonedCart record for downstream recovery automation.
  *
- * Webhook topic: checkouts/create (abandoned checkouts)
+ * Webhook topics: checkouts/create, checkouts/update
+ *
+ * Important: Always return 200 for unrecoverable conditions (unknown shop,
+ * invalid signature) to prevent Shopify from retrying indefinitely and
+ * eventually removing the webhook subscription after 19 consecutive failures.
  */
 
 interface ShopifyLineItem {
@@ -42,15 +46,14 @@ function verifyShopifyHmac(rawBody: string, secret: string, headerHmac: string):
     .update(rawBody, 'utf8')
     .digest('base64');
 
-  // Use timingSafeEqual to prevent timing attacks
-  try {
-    return crypto.timingSafeEqual(
-      Buffer.from(computed, 'utf8'),
-      Buffer.from(headerHmac, 'utf8')
-    );
-  } catch {
-    return false;
-  }
+  // Decode both from base64 to binary before comparison
+  const computedBuf = Buffer.from(computed, 'base64');
+  const headerBuf = Buffer.from(headerHmac, 'base64');
+
+  // timingSafeEqual requires equal-length buffers
+  if (computedBuf.length !== headerBuf.length) return false;
+
+  return crypto.timingSafeEqual(computedBuf, headerBuf);
 }
 
 export async function POST(req: NextRequest) {
@@ -61,10 +64,9 @@ export async function POST(req: NextRequest) {
   const shopDomain = req.headers.get('x-shopify-shop-domain');
 
   if (!hmacHeader || !shopDomain) {
-    return NextResponse.json(
-      { error: 'Missing required Shopify headers' },
-      { status: 400 }
-    );
+    // Return 200 to prevent Shopify retries on permanently invalid requests
+    console.error('[Shopify Webhook] Missing required Shopify headers');
+    return NextResponse.json({ ok: true, skipped: 'missing headers' });
   }
 
   // Find the EcommerceConnection by shopDomain
@@ -77,20 +79,15 @@ export async function POST(req: NextRequest) {
   });
 
   if (!connection) {
+    // Return 200 — unknown shop is unrecoverable, retries won't help
     console.error(`[Shopify Webhook] No active connection found for shop: ${shopDomain}`);
-    return NextResponse.json(
-      { error: 'Unknown shop domain' },
-      { status: 404 }
-    );
+    return NextResponse.json({ ok: true, skipped: 'unknown shop' });
   }
 
   // Verify webhook signature
   if (!connection.webhookSecret) {
     console.error(`[Shopify Webhook] No webhook secret configured for connection: ${connection.id}`);
-    return NextResponse.json(
-      { error: 'Webhook secret not configured' },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: true, skipped: 'no webhook secret' });
   }
 
   let decryptedSecret: string;
@@ -99,18 +96,13 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     console.error(`[Shopify Webhook] Failed to decrypt webhook secret: ${message}`);
-    return NextResponse.json(
-      { error: 'Internal configuration error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: true, skipped: 'decrypt error' });
   }
 
   if (!verifyShopifyHmac(rawBody, decryptedSecret, hmacHeader)) {
+    // Return 200 — invalid signature is unrecoverable
     console.error(`[Shopify Webhook] HMAC verification failed for shop: ${shopDomain}`);
-    return NextResponse.json(
-      { error: 'Invalid signature' },
-      { status: 401 }
-    );
+    return NextResponse.json({ ok: true, skipped: 'invalid signature' });
   }
 
   // Parse the checkout payload
@@ -118,18 +110,13 @@ export async function POST(req: NextRequest) {
   try {
     payload = JSON.parse(rawBody) as ShopifyCheckoutPayload;
   } catch {
-    return NextResponse.json(
-      { error: 'Invalid JSON payload' },
-      { status: 400 }
-    );
+    return NextResponse.json({ ok: true, skipped: 'invalid json' });
   }
 
   if (!payload.id || !payload.email) {
-    console.error('[Shopify Webhook] Missing required fields: id or email');
-    return NextResponse.json(
-      { error: 'Missing required fields' },
-      { status: 400 }
-    );
+    // No email means we can't send recovery — skip silently
+    console.log('[Shopify Webhook] Skipping checkout without email (guest checkout in progress)');
+    return NextResponse.json({ ok: true, skipped: 'no email' });
   }
 
   // Map line items to our cart items format
@@ -188,6 +175,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     console.error(`[Shopify Webhook] Failed to upsert abandoned cart: ${message}`);
+    // Return 500 for transient DB errors so Shopify retries
     return NextResponse.json(
       { error: 'Failed to process webhook' },
       { status: 500 }
