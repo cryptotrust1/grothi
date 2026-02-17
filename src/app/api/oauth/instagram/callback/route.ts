@@ -33,9 +33,11 @@ interface IGAccount {
  * - Get IG account from Page: https://developers.facebook.com/docs/instagram-api/reference/page
  */
 export async function GET(request: NextRequest) {
+  const origin = process.env.NEXTAUTH_URL || request.nextUrl.origin;
+
   const user = await getCurrentUser();
   if (!user) {
-    return NextResponse.redirect(new URL('/auth/signin', request.nextUrl.origin));
+    return NextResponse.redirect(new URL('/auth/signin', origin));
   }
 
   const code = request.nextUrl.searchParams.get('code');
@@ -45,13 +47,13 @@ export async function GET(request: NextRequest) {
   if (errorParam) {
     const errorDesc = request.nextUrl.searchParams.get('error_description') || 'Instagram authorization was denied';
     return NextResponse.redirect(
-      new URL(`/dashboard?error=${encodeURIComponent(errorDesc)}`, request.nextUrl.origin)
+      new URL(`/dashboard?error=${encodeURIComponent(errorDesc)}`, origin)
     );
   }
 
   if (!code || !state) {
     return NextResponse.redirect(
-      new URL('/dashboard?error=' + encodeURIComponent('Missing authorization code'), request.nextUrl.origin)
+      new URL('/dashboard?error=' + encodeURIComponent('Missing authorization code'), origin)
     );
   }
 
@@ -64,12 +66,12 @@ export async function GET(request: NextRequest) {
 
     if (stateUserId !== user.id) {
       return NextResponse.redirect(
-        new URL('/dashboard?error=' + encodeURIComponent('Session mismatch'), request.nextUrl.origin)
+        new URL('/dashboard?error=' + encodeURIComponent('Session mismatch'), origin)
       );
     }
   } catch {
     return NextResponse.redirect(
-      new URL('/dashboard?error=' + encodeURIComponent('Invalid or expired state token. Please try again.'), request.nextUrl.origin)
+      new URL('/dashboard?error=' + encodeURIComponent('Invalid or expired state token. Please try again.'), origin)
     );
   }
 
@@ -77,7 +79,7 @@ export async function GET(request: NextRequest) {
   const bot = await db.bot.findFirst({ where: { id: botId, userId: user.id } });
   if (!bot) {
     return NextResponse.redirect(
-      new URL('/dashboard?error=' + encodeURIComponent('Bot not found'), request.nextUrl.origin)
+      new URL('/dashboard?error=' + encodeURIComponent('Bot not found'), origin)
     );
   }
 
@@ -85,12 +87,11 @@ export async function GET(request: NextRequest) {
   const appSecret = process.env.FACEBOOK_APP_SECRET;
   if (!appId || !appSecret) {
     return NextResponse.redirect(
-      new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent('Instagram OAuth not configured on server')}`, request.nextUrl.origin)
+      new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent('Instagram OAuth not configured on server')}`, origin)
     );
   }
 
-  const baseUrl = process.env.NEXTAUTH_URL || request.nextUrl.origin;
-  const redirectUri = `${baseUrl}/api/oauth/instagram/callback`;
+  const redirectUri = `${origin}/api/oauth/instagram/callback`;
 
   try {
     // Step 1: Exchange authorization code for short-lived user access token
@@ -106,7 +107,7 @@ export async function GET(request: NextRequest) {
     if (tokenData.error) {
       const msg = tokenData.error.message || 'Failed to get access token';
       return NextResponse.redirect(
-        new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(msg)}`, request.nextUrl.origin)
+        new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(msg)}`, origin)
       );
     }
 
@@ -123,7 +124,7 @@ export async function GET(request: NextRequest) {
     if (longLivedData.error) {
       const msg = longLivedData.error.message || 'Failed to get long-lived token';
       return NextResponse.redirect(
-        new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(msg)}`, request.nextUrl.origin)
+        new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(msg)}`, origin)
       );
     }
 
@@ -140,7 +141,7 @@ export async function GET(request: NextRequest) {
     if (pagesData.error) {
       const msg = pagesData.error.message || 'Failed to fetch pages';
       return NextResponse.redirect(
-        new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(msg)}`, request.nextUrl.origin)
+        new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(msg)}`, origin)
       );
     }
 
@@ -149,7 +150,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(
         new URL(
           `/dashboard/bots/${botId}/platforms?error=${encodeURIComponent('No Facebook Pages found. Instagram Business accounts must be linked to a Facebook Page.')}`,
-          request.nextUrl.origin
+          origin
         )
       );
     }
@@ -180,7 +181,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(
         new URL(
           `/dashboard/bots/${botId}/platforms?error=${encodeURIComponent('No Instagram Business accounts found linked to your Facebook Pages. Make sure your Instagram account is a Business or Creator account and is linked to a Facebook Page.')}`,
-          request.nextUrl.origin
+          origin
         )
       );
     }
@@ -193,7 +194,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(
         new URL(
           `/dashboard/bots/${botId}/platforms?success=${encodeURIComponent(`Instagram @${acct.igUsername} connected successfully`)}`,
-          request.nextUrl.origin
+          origin
         )
       );
     }
@@ -216,7 +217,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(
       new URL(
         `/dashboard/bots/${botId}/platforms/instagram-select?token=${encodeURIComponent(pickerToken)}`,
-        request.nextUrl.origin
+        origin
       )
     );
   } catch (e) {
@@ -224,7 +225,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(
       new URL(
         `/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(message)}`,
-        request.nextUrl.origin
+        origin
       )
     );
   }

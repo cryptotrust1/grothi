@@ -22,9 +22,11 @@ const JWT_SECRET = new TextEncoder().encode(
  * - User lookup: https://developer.twitter.com/en/docs/twitter-api/users/lookup/api-reference/get-users-me
  */
 export async function GET(request: NextRequest) {
+  const origin = process.env.NEXTAUTH_URL || request.nextUrl.origin;
+
   const user = await getCurrentUser();
   if (!user) {
-    return NextResponse.redirect(new URL('/auth/signin', request.nextUrl.origin));
+    return NextResponse.redirect(new URL('/auth/signin', origin));
   }
 
   const code = request.nextUrl.searchParams.get('code');
@@ -34,13 +36,13 @@ export async function GET(request: NextRequest) {
   if (errorParam) {
     const errorDesc = request.nextUrl.searchParams.get('error_description') || 'Twitter authorization was denied';
     return NextResponse.redirect(
-      new URL(`/dashboard?error=${encodeURIComponent(errorDesc)}`, request.nextUrl.origin)
+      new URL(`/dashboard?error=${encodeURIComponent(errorDesc)}`, origin)
     );
   }
 
   if (!code || !state) {
     return NextResponse.redirect(
-      new URL('/dashboard?error=' + encodeURIComponent('Missing authorization code'), request.nextUrl.origin)
+      new URL('/dashboard?error=' + encodeURIComponent('Missing authorization code'), origin)
     );
   }
 
@@ -55,12 +57,12 @@ export async function GET(request: NextRequest) {
 
     if (stateUserId !== user.id) {
       return NextResponse.redirect(
-        new URL('/dashboard?error=' + encodeURIComponent('Session mismatch'), request.nextUrl.origin)
+        new URL('/dashboard?error=' + encodeURIComponent('Session mismatch'), origin)
       );
     }
   } catch {
     return NextResponse.redirect(
-      new URL('/dashboard?error=' + encodeURIComponent('Invalid or expired state token. Please try again.'), request.nextUrl.origin)
+      new URL('/dashboard?error=' + encodeURIComponent('Invalid or expired state token. Please try again.'), origin)
     );
   }
 
@@ -68,7 +70,7 @@ export async function GET(request: NextRequest) {
   const bot = await db.bot.findFirst({ where: { id: botId, userId: user.id } });
   if (!bot) {
     return NextResponse.redirect(
-      new URL('/dashboard?error=' + encodeURIComponent('Bot not found'), request.nextUrl.origin)
+      new URL('/dashboard?error=' + encodeURIComponent('Bot not found'), origin)
     );
   }
 
@@ -76,12 +78,11 @@ export async function GET(request: NextRequest) {
   const clientSecret = process.env.TWITTER_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
     return NextResponse.redirect(
-      new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent('Twitter OAuth not configured on server')}`, request.nextUrl.origin)
+      new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent('Twitter OAuth not configured on server')}`, origin)
     );
   }
 
-  const baseUrl = process.env.NEXTAUTH_URL || request.nextUrl.origin;
-  const redirectUri = `${baseUrl}/api/oauth/twitter/callback`;
+  const redirectUri = `${origin}/api/oauth/twitter/callback`;
 
   try {
     // Step 1: Exchange authorization code for access + refresh tokens
@@ -105,7 +106,7 @@ export async function GET(request: NextRequest) {
     if (tokenData.error) {
       const msg = tokenData.error_description || tokenData.error || 'Failed to get access token';
       return NextResponse.redirect(
-        new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(msg)}`, request.nextUrl.origin)
+        new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(msg)}`, origin)
       );
     }
 
@@ -149,7 +150,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(
       new URL(
         `/dashboard/bots/${botId}/platforms?success=${encodeURIComponent(`X (@${username}) connected successfully`)}`,
-        request.nextUrl.origin
+        origin
       )
     );
   } catch (e) {
@@ -157,7 +158,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(
       new URL(
         `/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(message)}`,
-        request.nextUrl.origin
+        origin
       )
     );
   }

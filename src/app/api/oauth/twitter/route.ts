@@ -26,13 +26,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Missing botId' }, { status: 400 });
   }
 
+  const baseUrl = process.env.NEXTAUTH_URL || request.nextUrl.origin;
+
   const clientId = process.env.TWITTER_CLIENT_ID;
   if (!clientId) {
     const errorMsg = encodeURIComponent('Twitter OAuth is not yet configured. Please use manual credentials for now, or contact support.');
-    return NextResponse.redirect(new URL(botId ? `/dashboard/bots/${botId}/platforms?error=${errorMsg}` : `/dashboard?error=${errorMsg}`, request.nextUrl.origin));
+    return NextResponse.redirect(new URL(botId ? `/dashboard/bots/${botId}/platforms?error=${errorMsg}` : `/dashboard?error=${errorMsg}`, baseUrl));
   }
-
-  const baseUrl = process.env.NEXTAUTH_URL || request.nextUrl.origin;
   const redirectUri = `${baseUrl}/api/oauth/twitter/callback`;
 
   // PKCE: Generate code_verifier (43-128 chars, URL-safe random string)
