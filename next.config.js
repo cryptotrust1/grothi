@@ -1,5 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Support building to a temp directory for zero-downtime deploys
+  distDir: process.env.NEXT_BUILD_DIR || '.next',
   poweredByHeader: false,
   reactStrictMode: true,
   experimental: {

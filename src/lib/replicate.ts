@@ -16,15 +16,42 @@ export function getReplicate(): Replicate {
   return replicateInstance;
 }
 
-// Model identifiers — can be swapped without code changes
+// Model identifiers — per official Replicate documentation
+// https://replicate.com/black-forest-labs/flux-1.1-pro
+// https://replicate.com/minimax/video-01
+// https://replicate.com/minimax/video-01-live
 export const MODELS = {
-  // Image generation: Flux 1.1 Pro (best quality/speed balance)
+  // Text-to-image: Flux 1.1 Pro (best quality/speed balance)
   IMAGE: 'black-forest-labs/flux-1.1-pro' as const,
-  // Video generation: Minimax video-01 (text-to-video, image optional)
+  // Text-to-video: Minimax video-01
   VIDEO: 'minimax/video-01' as const,
+  // Image-to-video: Minimax video-01-live (supports first_frame_image)
+  VIDEO_I2V: 'minimax/video-01-live' as const,
 };
 
-// Platform-specific image dimensions
+// Flux 1.1 Pro valid aspect_ratio values (from Replicate API schema)
+// https://replicate.com/black-forest-labs/flux-1.1-pro/api/schema
+// Valid: "1:1", "16:9", "2:3", "3:2", "4:5", "5:4", "9:16", "3:4", "4:3"
+export const PLATFORM_ASPECT_RATIOS: Record<string, string> = {
+  INSTAGRAM: '1:1',
+  FACEBOOK: '16:9',
+  TWITTER: '16:9',
+  LINKEDIN: '16:9',
+  TIKTOK: '9:16',
+  YOUTUBE: '16:9',
+  PINTEREST: '2:3',
+  THREADS: '1:1',
+  REDDIT: '16:9',
+  TELEGRAM: '16:9',
+  DISCORD: '16:9',
+  MEDIUM: '16:9',
+  DEVTO: '16:9',
+  MASTODON: '16:9',
+  BLUESKY: '16:9',
+  NOSTR: '16:9',
+};
+
+// Platform-specific image dimensions (for DB record + display info)
 export const PLATFORM_IMAGE_DIMENSIONS: Record<string, { width: number; height: number }> = {
   FACEBOOK: { width: 1200, height: 630 },
   INSTAGRAM: { width: 1080, height: 1080 },

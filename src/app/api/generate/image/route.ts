@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { deductCredits } from '@/lib/credits';
-import { MODELS, PLATFORM_IMAGE_DIMENSIONS, GENERATION_COSTS } from '@/lib/replicate';
+import { MODELS, PLATFORM_ASPECT_RATIOS, PLATFORM_IMAGE_DIMENSIONS, GENERATION_COSTS } from '@/lib/replicate';
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, resolve } from 'path';
@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { botId, platform, prompt } = body;
+    const { botId, platform, prompt, referenceImage } = body;
 
     if (!botId) {
       return NextResponse.json({ error: 'Bot ID required' }, { status: 400 });
@@ -32,8 +32,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Bot not found' }, { status: 404 });
     }
 
-    // ── CHECK CONFIG BEFORE DEDUCTING CREDITS ──────────────────
-    // Check Replicate API token BEFORE deducting credits
+    // Check Replicate API token
     const replicateToken = process.env.REPLICATE_API_TOKEN;
     if (!replicateToken) {
       return NextResponse.json({
@@ -41,7 +40,7 @@ export async function POST(request: NextRequest) {
       }, { status: 503 });
     }
 
-    // Check credits are sufficient BEFORE calling API (deduct after success)
+    // Check credits
     const balance = await db.creditBalance.findUnique({ where: { userId: user.id } });
     if (!balance || balance.balance < GENERATION_COSTS.GENERATE_IMAGE) {
       return NextResponse.json({
@@ -49,46 +48,66 @@ export async function POST(request: NextRequest) {
       }, { status: 402 });
     }
 
-    // Build prompt from bot preferences
+    // Build prompt: user's prompt takes priority, preferences only as fallback
     const prefs = (bot.creativePreferences || bot.imagePreferences) as Record<string, unknown> | null;
     const brandName = bot.brandName;
-    const subjects = (prefs?.subjects as string) || '';
-    const avoidTopics = (prefs?.avoidTopics as string) || '';
-    const visualStyles = (prefs?.visualStyles as string[]) || ['minimalist'];
-    const customInstructions = (prefs?.customInstructions as string) || '';
+    let fullPrompt: string;
 
-    const fullPrompt = [
-      prompt || `Professional marketing image for ${brandName}`,
-      subjects ? `Subjects: ${subjects}` : '',
-      `Style: ${visualStyles.join(', ')}`,
-      customInstructions ? `Instructions: ${customInstructions}` : '',
-      avoidTopics ? `Avoid: ${avoidTopics}` : '',
-      'High quality, professional, suitable for social media marketing.',
-    ].filter(Boolean).join('. ');
+    if (prompt && prompt.trim()) {
+      // User provided explicit prompt — use it exactly as written
+      fullPrompt = prompt.trim();
+    } else {
+      // No user prompt — build from bot preferences
+      const subjects = (prefs?.subjects as string) || '';
+      const visualStyles = (prefs?.visualStyles as string[]) || ['minimalist'];
+      const customInstructions = (prefs?.customInstructions as string) || '';
+      const avoidTopics = (prefs?.avoidTopics as string) || '';
 
-    // Get platform-specific dimensions
+      fullPrompt = [
+        `Professional marketing image for ${brandName}`,
+        subjects ? `Subjects: ${subjects}` : '',
+        `Style: ${visualStyles.join(', ')}`,
+        customInstructions || '',
+        avoidTopics ? `Avoid: ${avoidTopics}` : '',
+        'High quality, professional, suitable for social media marketing.',
+      ].filter(Boolean).join('. ');
+    }
+
+    // Get platform-specific aspect ratio (Flux 1.1 Pro uses aspect_ratio, NOT width/height)
+    // https://replicate.com/black-forest-labs/flux-1.1-pro/api/schema
+    const aspectRatio = PLATFORM_ASPECT_RATIOS[platform || 'INSTAGRAM'] || '1:1';
     const dims = PLATFORM_IMAGE_DIMENSIONS[platform || 'INSTAGRAM'] || { width: 1080, height: 1080 };
 
     // Generate image via Replicate
     const Replicate = (await import('replicate')).default;
     const replicate = new Replicate({ auth: replicateToken });
 
+    // Build Replicate input — Flux 1.1 Pro API schema:
+    // Required: prompt (string)
+    // Optional: aspect_ratio, output_format, output_quality, safety_tolerance, prompt_upsampling
+    // NOTE: width/height and num_outputs are NOT valid params for Flux 1.1 Pro
+    const replicateInput: Record<string, unknown> = {
+      prompt: fullPrompt,
+      aspect_ratio: aspectRatio,
+      output_format: 'png',
+      prompt_upsampling: true,
+    };
+
+    // If reference image provided, use it as image_prompt (style reference)
+    // This passes the reference to the model for visual guidance
+    if (referenceImage && typeof referenceImage === 'string' && referenceImage.startsWith('data:')) {
+      replicateInput.image_prompt = referenceImage;
+    }
+
     let output: unknown;
     try {
       output = await replicate.run(MODELS.IMAGE, {
-        input: {
-          prompt: fullPrompt,
-          width: dims.width,
-          height: dims.height,
-          num_outputs: 1,
-          output_format: 'png',
-        },
+        input: replicateInput,
       });
     } catch (apiError) {
       const apiMsg = apiError instanceof Error ? apiError.message : String(apiError);
       console.error('Replicate API error:', apiMsg);
 
-      // Check for common Replicate errors
       if (apiMsg.includes('Invalid token') || apiMsg.includes('Unauthenticated') || apiMsg.includes('401')) {
         return NextResponse.json({
           error: `Replicate API authentication failed. Your REPLICATE_API_TOKEN may be invalid or expired. Check your token at https://replicate.com/account/api-tokens. Error: ${apiMsg}`,
@@ -117,9 +136,8 @@ export async function POST(request: NextRequest) {
     if (typeof rawOutput === 'string') {
       imageUrl = rawOutput;
     } else if (rawOutput && typeof rawOutput === 'object') {
-      // FileOutput has .url() method and toString()
-      if (typeof (rawOutput as any).url === 'function') {
-        const urlResult = (rawOutput as any).url();
+      if (typeof (rawOutput as Record<string, unknown>).url === 'function') {
+        const urlResult = (rawOutput as { url: () => unknown }).url();
         imageUrl = urlResult instanceof URL ? urlResult.toString() : String(urlResult);
       } else {
         imageUrl = String(rawOutput);
@@ -134,7 +152,7 @@ export async function POST(request: NextRequest) {
     if (!imageUrl || !imageUrl.startsWith('http')) {
       console.error('Replicate returned invalid URL:', imageUrl);
       return NextResponse.json({
-        error: `Image generation returned invalid URL. This may be a temporary issue — try again.`,
+        error: 'Image generation returned invalid URL. This may be a temporary issue — try again.',
       }, { status: 500 });
     }
 
@@ -161,7 +179,7 @@ export async function POST(request: NextRequest) {
     const filePath = join(botDir, filename);
     await writeFile(filePath, imageBuffer);
 
-    // Deduct credits AFTER successful generation (so user doesn't lose credits on failure)
+    // Deduct credits AFTER successful generation
     const deducted = await deductCredits(
       user.id,
       GENERATION_COSTS.GENERATE_IMAGE,
@@ -186,6 +204,7 @@ export async function POST(request: NextRequest) {
         width: dims.width,
         height: dims.height,
         aiDescription: fullPrompt,
+        generationStatus: 'SUCCEEDED',
       },
     });
 
@@ -215,7 +234,6 @@ export async function POST(request: NextRequest) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Image generation error:', message);
 
-    // Always show the real error to help debug
     return NextResponse.json({
       error: `Image generation failed: ${message}`,
     }, { status: 500 });
