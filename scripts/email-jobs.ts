@@ -16,8 +16,7 @@ import { PrismaClient } from '@prisma/client';
 import {
   createTransporter,
   sendCampaignEmail,
-  wrapLinksForTracking,
-  getTrackingPixelUrl,
+  prepareCampaignHtml,
   checkDailyLimit,
 } from '../src/lib/email';
 import { deductCredits, getActionCost, hasEnoughCredits } from '../src/lib/credits';
@@ -221,28 +220,16 @@ async function sendOneEmail(
     data: { campaignId: campaign.id, contactId: contact.id, status: 'QUEUED', variant },
   });
 
-  let html = campaign.htmlContent;
-  html = html.replace(/\{\{firstName\}\}/g, contact.firstName || '');
-  html = html.replace(/\{\{lastName\}\}/g, contact.lastName || '');
-  html = html.replace(/\{\{email\}\}/g, contact.email);
-  html = html.replace(/\{\{brandName\}\}/g, brandName);
-
-  const trackingPixelUrl = getTrackingPixelUrl(emailSend.id, BASE_URL);
-  html = wrapLinksForTracking(html, emailSend.id, BASE_URL);
-
-  const unsubscribeUrl = `${BASE_URL}/api/email/unsubscribe?cid=${encodeURIComponent(contact.id)}&lid=${encodeURIComponent(campaign.listId)}`;
-  html += `<div style="margin-top:20px;padding-top:15px;border-top:1px solid #eee;font-size:12px;color:#999;text-align:center;">`;
-  html += `<p>You received this because you subscribed to ${brandName}.</p>`;
-  html += `<p><a href="${unsubscribeUrl}" style="color:#999;">Unsubscribe</a></p>`;
-  html += `</div>`;
-
-  let text = campaign.textContent || '';
-  if (text) {
-    text = text.replace(/\{\{firstName\}\}/g, contact.firstName || '');
-    text = text.replace(/\{\{lastName\}\}/g, contact.lastName || '');
-    text = text.replace(/\{\{email\}\}/g, contact.email);
-    text += `\n\nUnsubscribe: ${unsubscribeUrl}`;
-  }
+  // Prepare email using shared helper (personalization, tracking, unsubscribe)
+  const prepared = prepareCampaignHtml({
+    html: campaign.htmlContent,
+    text: campaign.textContent,
+    contact,
+    sendId: emailSend.id,
+    listId: campaign.listId,
+    brandName,
+    baseUrl: BASE_URL,
+  });
 
   const result = await sendCampaignEmail({
     config: smtpConfig,
@@ -250,10 +237,10 @@ async function sendOneEmail(
     fromName: campaign.fromName || campaign.account?.fromName || undefined,
     to: contact.email,
     subject,
-    html,
-    text: text || undefined,
-    unsubscribeUrl,
-    trackingPixelUrl,
+    html: prepared.html,
+    text: prepared.text,
+    unsubscribeUrl: prepared.unsubscribeUrl,
+    trackingPixelUrl: prepared.trackingPixelUrl,
   });
 
   if (result.success) {
@@ -464,13 +451,7 @@ async function processAutomationSteps() {
       continue;
     }
 
-    // Personalize and send
-    let html = step.htmlContent;
-    html = html.replace(/\{\{firstName\}\}/g, contact.firstName || '');
-    html = html.replace(/\{\{lastName\}\}/g, contact.lastName || '');
-    html = html.replace(/\{\{email\}\}/g, contact.email);
-    html = html.replace(/\{\{brandName\}\}/g, automation.bot.brandName);
-
+    // Prepare email using shared helper
     const smtpConfig = {
       smtpHost: account.smtpHost,
       smtpPort: account.smtpPort,
@@ -479,10 +460,15 @@ async function processAutomationSteps() {
       smtpSecure: account.smtpSecure,
     };
 
-    const unsubscribeUrl = `${BASE_URL}/api/email/unsubscribe?cid=${encodeURIComponent(contact.id)}&lid=${encodeURIComponent(contact.listId)}`;
-    html += `<div style="margin-top:20px;padding-top:15px;border-top:1px solid #eee;font-size:12px;color:#999;text-align:center;">`;
-    html += `<p><a href="${unsubscribeUrl}" style="color:#999;">Unsubscribe</a></p>`;
-    html += `</div>`;
+    const prepared = prepareCampaignHtml({
+      html: step.htmlContent,
+      text: step.textContent,
+      contact: { ...contact, id: contact.id },
+      sendId: `auto-${enrollment.id}-${stepIndex}`,
+      listId: contact.listId,
+      brandName: automation.bot.brandName,
+      baseUrl: BASE_URL,
+    });
 
     try {
       const result = await sendCampaignEmail({
@@ -491,9 +477,9 @@ async function processAutomationSteps() {
         fromName: account.fromName || undefined,
         to: contact.email,
         subject: step.subject,
-        html,
-        text: step.textContent || undefined,
-        unsubscribeUrl,
+        html: prepared.html,
+        text: prepared.text,
+        unsubscribeUrl: prepared.unsubscribeUrl,
       });
 
       if (result.success) {
@@ -607,19 +593,16 @@ async function retryFailedSends() {
 
     const brandName = campaign.bot?.brandName || 'Newsletter';
 
-    let html = campaign.htmlContent;
-    html = html.replace(/\{\{firstName\}\}/g, contact.firstName || '');
-    html = html.replace(/\{\{lastName\}\}/g, contact.lastName || '');
-    html = html.replace(/\{\{email\}\}/g, contact.email);
-    html = html.replace(/\{\{brandName\}\}/g, brandName);
-
-    const trackingPixelUrl = getTrackingPixelUrl(send.id, BASE_URL);
-    html = wrapLinksForTracking(html, send.id, BASE_URL);
-
-    const unsubscribeUrl = `${BASE_URL}/api/email/unsubscribe?cid=${encodeURIComponent(contact.id)}&lid=${encodeURIComponent(campaign.listId)}`;
-    html += `<div style="margin-top:20px;padding-top:15px;border-top:1px solid #eee;font-size:12px;color:#999;text-align:center;">`;
-    html += `<p><a href="${unsubscribeUrl}" style="color:#999;">Unsubscribe</a></p>`;
-    html += `</div>`;
+    // Prepare email using shared helper (personalization, tracking, unsubscribe)
+    const prepared = prepareCampaignHtml({
+      html: campaign.htmlContent,
+      text: campaign.textContent,
+      contact,
+      sendId: send.id,
+      listId: campaign.listId,
+      brandName,
+      baseUrl: BASE_URL,
+    });
 
     // Determine subject (A/B test variant)
     let subject = campaign.subject;
@@ -633,9 +616,10 @@ async function retryFailedSends() {
       fromName: campaign.fromName || account.fromName || undefined,
       to: contact.email,
       subject,
-      html,
-      unsubscribeUrl,
-      trackingPixelUrl,
+      html: prepared.html,
+      text: prepared.text,
+      unsubscribeUrl: prepared.unsubscribeUrl,
+      trackingPixelUrl: prepared.trackingPixelUrl,
     });
 
     if (result.success) {
