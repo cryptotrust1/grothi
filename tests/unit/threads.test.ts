@@ -44,6 +44,14 @@ function mockFetchError(errorMessage: string, code = 100) {
   });
 }
 
+/** Parse form-urlencoded body into a plain object. */
+function parseFormBody(body: string): Record<string, string> {
+  const params = new URLSearchParams(body);
+  const obj: Record<string, string> = {};
+  params.forEach((v, k) => { obj[k] = v; });
+  return obj;
+}
+
 // ── Setup ──────────────────────────────────────────────────────
 
 beforeAll(() => {
@@ -152,7 +160,7 @@ describe('postText', () => {
     const [url, options] = (global.fetch as jest.Mock).mock.calls[0];
     expect(url).toContain('graph.threads.net/v1.0/12345678/threads');
     expect(options.method).toBe('POST');
-    const body = JSON.parse(options.body);
+    const body = parseFormBody(options.body);
     expect(body.media_type).toBe('TEXT');
     expect(body.text).toBe('My thread');
     expect(body.access_token).toBe('THREADS_test_token_abc123');
@@ -168,7 +176,7 @@ describe('postText', () => {
     // Verify publish call (3rd fetch call)
     const [url, options] = (global.fetch as jest.Mock).mock.calls[2];
     expect(url).toContain('graph.threads.net/v1.0/12345678/threads_publish');
-    const body = JSON.parse(options.body);
+    const body = parseFormBody(options.body);
     expect(body.creation_id).toBe('container_42');
   });
 
@@ -226,7 +234,7 @@ describe('postWithImage', () => {
     expect(result).toEqual({ success: true, postId: 'img_post_1' });
 
     // Verify IMAGE media_type
-    const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
+    const body = parseFormBody((global.fetch as jest.Mock).mock.calls[0][1].body);
     expect(body.media_type).toBe('IMAGE');
     expect(body.image_url).toBe('https://example.com/photo.jpg');
     expect(body.text).toBe('Image post!');
@@ -253,7 +261,7 @@ describe('postWithVideo', () => {
 
     expect(result).toEqual({ success: true, postId: 'vid_post_1' });
 
-    const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
+    const body = parseFormBody((global.fetch as jest.Mock).mock.calls[0][1].body);
     expect(body.media_type).toBe('VIDEO');
     expect(body.video_url).toBe('https://example.com/video.mp4');
   });
@@ -296,14 +304,14 @@ describe('postCarousel', () => {
     expect(result).toEqual({ success: true, postId: 'carousel_post_1' });
 
     // Verify child container has is_carousel_item
-    const childBody = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
-    expect(childBody.is_carousel_item).toBe(true);
+    const childBody = parseFormBody((global.fetch as jest.Mock).mock.calls[0][1].body);
+    expect(childBody.is_carousel_item).toBe('true');
     expect(childBody.media_type).toBe('IMAGE');
 
-    // Verify carousel container has children
-    const carouselBody = JSON.parse((global.fetch as jest.Mock).mock.calls[4][1].body);
+    // Verify carousel container has children (comma-separated in form-urlencoded)
+    const carouselBody = parseFormBody((global.fetch as jest.Mock).mock.calls[4][1].body);
     expect(carouselBody.media_type).toBe('CAROUSEL');
-    expect(carouselBody.children).toEqual(['child_1', 'child_2']);
+    expect(carouselBody.children).toBe('child_1,child_2');
   });
 });
 

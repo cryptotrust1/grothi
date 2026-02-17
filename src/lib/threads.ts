@@ -285,16 +285,17 @@ export async function postText(
 
   try {
     // Step 1: Create text container
+    // Use form-urlencoded (official Threads API format per Meta docs)
     const containerUrl = `${THREADS_BASE}/${encodeURIComponent(creds.userId)}/threads`;
 
     const { data: containerData } = await threadsFetch(containerUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
         media_type: 'TEXT',
         text,
         access_token: creds.accessToken,
-      }),
+      }).toString(),
     });
 
     if (isApiError(containerData)) {
@@ -317,11 +318,11 @@ export async function postText(
 
     const { data: publishData } = await threadsFetch(publishUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
         creation_id: containerId,
         access_token: creds.accessToken,
-      }),
+      }).toString(),
     });
 
     if (isApiError(publishData)) {
@@ -355,18 +356,18 @@ export async function postWithImage(
   }
 
   try {
-    // Step 1: Create image container
+    // Step 1: Create image container (form-urlencoded per Meta docs)
     const containerUrl = `${THREADS_BASE}/${encodeURIComponent(creds.userId)}/threads`;
 
     const { data: containerData } = await threadsFetch(containerUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
         media_type: 'IMAGE',
         image_url: imageUrl,
         text,
         access_token: creds.accessToken,
-      }),
+      }).toString(),
     });
 
     if (isApiError(containerData)) {
@@ -389,11 +390,11 @@ export async function postWithImage(
 
     const { data: publishData } = await threadsFetch(publishUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
         creation_id: containerId,
         access_token: creds.accessToken,
-      }),
+      }).toString(),
     });
 
     if (isApiError(publishData)) {
@@ -426,13 +427,13 @@ export async function postWithVideo(
 
     const { data: containerData } = await threadsFetch(containerUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
         media_type: 'VIDEO',
         video_url: videoUrl,
         text,
         access_token: creds.accessToken,
-      }),
+      }).toString(),
     });
 
     if (isApiError(containerData)) {
@@ -453,11 +454,11 @@ export async function postWithVideo(
 
     const { data: publishData } = await threadsFetch(publishUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
         creation_id: containerId,
         access_token: creds.accessToken,
-      }),
+      }).toString(),
     });
 
     if (isApiError(publishData)) {
@@ -505,13 +506,13 @@ export async function postCarousel(
 
       const { data: containerData } = await threadsFetch(containerUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
           media_type: 'IMAGE',
           image_url: imageUrl,
-          is_carousel_item: true,
+          is_carousel_item: 'true',
           access_token: creds.accessToken,
-        }),
+        }).toString(),
       });
 
       if (isApiError(containerData)) {
@@ -534,13 +535,13 @@ export async function postCarousel(
 
     const { data: carouselData } = await threadsFetch(carouselUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
         media_type: 'CAROUSEL',
-        children: childContainerIds,
+        children: childContainerIds.join(','),
         text,
         access_token: creds.accessToken,
-      }),
+      }).toString(),
     });
 
     if (isApiError(carouselData)) {
@@ -558,11 +559,11 @@ export async function postCarousel(
 
     const { data: publishData } = await threadsFetch(publishUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
         creation_id: carouselData.id,
         access_token: creds.accessToken,
-      }),
+      }).toString(),
     });
 
     if (isApiError(publishData)) {
