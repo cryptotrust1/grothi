@@ -51,6 +51,20 @@ const nextConfig = {
           { key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate' },
         ],
       },
+      // Public pages: short cache to prevent stale HTML after deploy
+      {
+        source: '/:path((?!_next|dashboard|auth|api|admin).*)',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=300, s-maxage=300, stale-while-revalidate=60' },
+        ],
+      },
+      // Admin pages: never cache
+      {
+        source: '/admin/(.*)',
+        headers: [
+          { key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate' },
+        ],
+      },
     ];
   },
 };

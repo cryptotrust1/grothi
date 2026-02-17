@@ -114,7 +114,16 @@ export async function POST(request: NextRequest) {
       }, { status: 502 });
     }
 
-    // Deduct credits AFTER successful generation (so user doesn't lose credits on failure)
+    // Download the generated video
+    const videoResponse = await fetch(videoUrl);
+    if (!videoResponse.ok) {
+      return NextResponse.json({
+        error: `Failed to download generated video from ${usedProvider} (HTTP ${videoResponse.status}). The video URL may have expired. Try generating again.`,
+      }, { status: 500 });
+    }
+    const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
+
+    // Deduct credits AFTER successful generation + download
     const deducted = await deductCredits(
       user.id,
       GENERATION_COSTS.GENERATE_VIDEO,
@@ -126,15 +135,6 @@ export async function POST(request: NextRequest) {
         error: `Insufficient credits. You need ${GENERATION_COSTS.GENERATE_VIDEO} credits.`,
       }, { status: 402 });
     }
-
-    // Download the generated video
-    const videoResponse = await fetch(videoUrl);
-    if (!videoResponse.ok) {
-      return NextResponse.json({
-        error: `Failed to download generated video from ${usedProvider} (HTTP ${videoResponse.status}). The video URL may have expired. Try generating again.`,
-      }, { status: 500 });
-    }
-    const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
 
     // Save to filesystem
     const botDir = resolve(join(UPLOAD_DIR, botId));

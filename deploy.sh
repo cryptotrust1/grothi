@@ -34,7 +34,11 @@ bash server/backup-env.sh 2>/dev/null || echo "WARN: .env backup skipped (file m
 # Step 2: Pull latest code
 echo ""
 echo "[2/8] Pulling latest code..."
-git pull origin main || { echo "WARN: git pull failed, continuing with current code"; }
+git fetch origin main
+git reset --hard origin/main || {
+  echo "ERROR: git reset failed. Fix manually: git status"
+  exit 1
+}
 
 # Step 2: Install deps (in case package.json changed)
 echo ""
@@ -50,9 +54,8 @@ sudo -u postgres psql -c "ALTER USER grothi CREATEDB;" 2>&1 || echo "WARN: Could
 echo ""
 echo "[5/8] Running Prisma migrations..."
 ./node_modules/.bin/prisma generate
-./node_modules/.bin/prisma migrate dev --name init 2>&1 || {
-  echo "migrate dev failed, trying migrate deploy..."
-  ./node_modules/.bin/prisma migrate deploy 2>&1
+./node_modules/.bin/prisma migrate deploy 2>&1 || {
+  echo "WARN: migrate deploy had issues (may already be in sync)"
 }
 
 # Step 5: Seed the database
