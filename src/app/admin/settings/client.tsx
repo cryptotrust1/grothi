@@ -146,7 +146,7 @@ export function AdminSettingsClient({
                   {provider === 'replicate' && <Badge>Active</Badge>}
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground">Minimax video-01-live</p>
+              <p className="text-xs text-muted-foreground">Minimax video-01</p>
               <p className="text-xs text-muted-foreground mt-1">~$0.50/video, 6 sec, 720p</p>
             </button>
 
@@ -261,7 +261,7 @@ export function AdminSettingsClient({
               <tbody className="text-muted-foreground">
                 <tr className="border-b">
                   <td className="py-2">Replicate</td>
-                  <td className="py-2">Minimax video-01-live</td>
+                  <td className="py-2">Minimax video-01</td>
                   <td className="py-2">~$0.50</td>
                   <td className="py-2">6 sec</td>
                   <td className="py-2">720p</td>

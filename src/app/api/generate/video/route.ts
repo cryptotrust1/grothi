@@ -121,7 +121,7 @@ export async function POST(request: NextRequest) {
       const replicate = new Replicate({ auth: apiKey });
 
       const prediction = await replicate.predictions.create({
-        model: 'minimax/video-01-live',
+        model: 'minimax/video-01',
         input: { prompt: fullPrompt },
       });
 

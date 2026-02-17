@@ -20,8 +20,8 @@ export function getReplicate(): Replicate {
 export const MODELS = {
   // Image generation: Flux 1.1 Pro (best quality/speed balance)
   IMAGE: 'black-forest-labs/flux-1.1-pro' as const,
-  // Video generation: Minimax video-01-live (best for short social videos)
-  VIDEO: 'minimax/video-01-live' as const,
+  // Video generation: Minimax video-01 (text-to-video, image optional)
+  VIDEO: 'minimax/video-01' as const,
 };
 
 // Platform-specific image dimensions
