@@ -2,8 +2,8 @@ import { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { sendCampaignEmail, checkDailyLimit, wrapLinksForTracking, getTrackingPixelUrl } from '@/lib/email';
-import { hasEnoughCredits, deductCredits } from '@/lib/credits';
+import { sendCampaignEmail, checkDailyLimit, prepareCampaignHtml } from '@/lib/email';
+import { hasEnoughCredits, deductCredits, getActionCost } from '@/lib/credits';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -109,8 +109,9 @@ async function sendCampaign(formData: FormData) {
     redirect(`/dashboard/bots/${botId}/email/campaigns/${campaignId}?error=${encodeURIComponent('No active contacts in list')}`);
   }
 
-  // Check credits (1 credit per email)
-  const creditsNeeded = contacts.length;
+  // Check credits using configured action cost (matches job runner)
+  const emailCost = await getActionCost('SEND_EMAIL');
+  const creditsNeeded = contacts.length * emailCost;
   const hasCredits = await hasEnoughCredits(user.id, creditsNeeded);
   if (!hasCredits) {
     redirect(`/dashboard/bots/${botId}/email/campaigns/${campaignId}?error=${encodeURIComponent(`Not enough credits. Need ${creditsNeeded} credits to send to ${contacts.length} contacts.`)}`);
@@ -169,28 +170,18 @@ async function sendCampaign(formData: FormData) {
       data: { campaignId, contactId: contact.id, status: 'QUEUED', variant },
     });
 
-    let html = campaign.htmlContent;
-    html = html.replace(/\{\{firstName\}\}/g, contact.firstName || '');
-    html = html.replace(/\{\{lastName\}\}/g, contact.lastName || '');
-    html = html.replace(/\{\{email\}\}/g, contact.email);
-    html = html.replace(/\{\{brandName\}\}/g, campaign.bot.brandName);
+    if (!campaign) return;
 
-    const trackingPixelUrl = getTrackingPixelUrl(emailSend.id, baseUrl);
-    html = wrapLinksForTracking(html, emailSend.id, baseUrl);
-
-    const unsubscribeUrl = `${baseUrl}/api/email/unsubscribe?cid=${encodeURIComponent(contact.id)}&lid=${encodeURIComponent(campaign.listId)}`;
-    html += `<div style="margin-top:20px;padding-top:15px;border-top:1px solid #eee;font-size:12px;color:#999;text-align:center;">`;
-    html += `<p>You received this because you subscribed to ${campaign.bot.brandName}.</p>`;
-    html += `<p><a href="${unsubscribeUrl}" style="color:#999;">Unsubscribe</a></p>`;
-    html += `</div>`;
-
-    let text = campaign.textContent || '';
-    if (text) {
-      text = text.replace(/\{\{firstName\}\}/g, contact.firstName || '');
-      text = text.replace(/\{\{lastName\}\}/g, contact.lastName || '');
-      text = text.replace(/\{\{email\}\}/g, contact.email);
-      text += `\n\nUnsubscribe: ${unsubscribeUrl}`;
-    }
+    // Prepare email using shared helper (personalization, tracking, unsubscribe)
+    const prepared = prepareCampaignHtml({
+      html: campaign.htmlContent,
+      text: campaign.textContent,
+      contact,
+      sendId: emailSend.id,
+      listId: campaign.listId,
+      brandName: campaign.bot.brandName,
+      baseUrl,
+    });
 
     const result = await sendCampaignEmail({
       config: smtpConfig,
@@ -198,10 +189,10 @@ async function sendCampaign(formData: FormData) {
       fromName: campaign.fromName || campaign.account.fromName || undefined,
       to: contact.email,
       subject,
-      html,
-      text: text || undefined,
-      unsubscribeUrl,
-      trackingPixelUrl,
+      html: prepared.html,
+      text: prepared.text,
+      unsubscribeUrl: prepared.unsubscribeUrl,
+      trackingPixelUrl: prepared.trackingPixelUrl,
     });
 
     if (result.success) {
@@ -252,7 +243,7 @@ async function sendCampaign(formData: FormData) {
   if (sent > 0) {
     await deductCredits(
       user.id,
-      sent,
+      sent * emailCost,
       `Email campaign: ${campaign.name} (${sent} emails)`,
       botId,
     );
@@ -283,7 +274,7 @@ async function sendCampaign(formData: FormData) {
       completedAt: new Date(),
       totalSent: sent,
       totalBounced: failed,
-      creditsUsed: sent,
+      creditsUsed: sent * emailCost,
       ...(abWinnerValue ? { abWinner: abWinnerValue } : {}),
     },
   });

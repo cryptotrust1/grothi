@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { SignJWT } from 'jose';
 
-const FB_GRAPH_VERSION = 'v21.0';
+const FB_GRAPH_VERSION = 'v24.0';
 const JWT_SECRET = new TextEncoder().encode(
   process.env.NEXTAUTH_SECRET!
 );
@@ -26,14 +26,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Missing botId' }, { status: 400 });
   }
 
+  // Use NEXTAUTH_URL for all redirects — behind Nginx reverse proxy,
+  // request.nextUrl.origin resolves to localhost:3000 instead of grothi.com
+  const baseUrl = process.env.NEXTAUTH_URL || request.nextUrl.origin;
+
   const appId = process.env.FACEBOOK_APP_ID;
   if (!appId) {
     const errorMsg = encodeURIComponent('Facebook OAuth is not yet configured. Please use manual credentials for now, or contact support.');
-    return NextResponse.redirect(new URL(botId ? `/dashboard/bots/${botId}/platforms?error=${errorMsg}` : `/dashboard?error=${errorMsg}`, request.nextUrl.origin));
+    return NextResponse.redirect(new URL(botId ? `/dashboard/bots/${botId}/platforms?error=${errorMsg}` : `/dashboard?error=${errorMsg}`, baseUrl));
   }
-
-  // Build the callback URL
-  const baseUrl = process.env.NEXTAUTH_URL || request.nextUrl.origin;
   const redirectUri = `${baseUrl}/api/oauth/facebook/callback`;
 
   // Create a signed state token with botId + userId for CSRF protection
@@ -43,14 +44,16 @@ export async function GET(request: NextRequest) {
     .setIssuedAt()
     .sign(JWT_SECRET);
 
-  // Required scopes for posting to Pages:
+  // Required scopes for posting to Pages and reading analytics:
   // - pages_show_list: list pages the user manages
   // - pages_read_engagement: read page engagement (required by pages_manage_posts)
   // - pages_manage_posts: create/edit/delete posts on pages
+  // - read_insights: read Page-level analytics (reach, impressions, etc.)
   const scopes = [
     'pages_show_list',
     'pages_read_engagement',
     'pages_manage_posts',
+    'read_insights',
   ].join(',');
 
   const authUrl = new URL(`https://www.facebook.com/${FB_GRAPH_VERSION}/dialog/oauth`);

@@ -169,6 +169,13 @@ cd "$GROTHI_DIR"
 pm2 start npm --name grothi -- start
 pm2 save
 
+# ============================================
+# Cron Jobs Setup
+# ============================================
+echo ""
+echo "Setting up cron jobs..."
+bash "$GROTHI_DIR/server/setup-cron.sh" 2>&1 || echo "WARN: Cron setup failed. Run manually: bash server/setup-cron.sh"
+
 echo ""
 echo "========================================="
 echo "  SETUP COMPLETE!"

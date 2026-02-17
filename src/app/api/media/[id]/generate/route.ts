@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { deductCredits, getActionCost } from '@/lib/credits';
 import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
@@ -137,6 +138,16 @@ Return ONLY valid JSON, no markdown code blocks.`;
     );
   }
 
+  // Check credits are sufficient BEFORE calling API (deduct after success)
+  const cost = await getActionCost('GENERATE_CONTENT');
+  const balance = await db.creditBalance.findUnique({ where: { userId: user.id } });
+  if (!balance || balance.balance < cost) {
+    return NextResponse.json(
+      { error: 'Insufficient credits. You need ' + cost + ' credits for AI generation.' },
+      { status: 402 }
+    );
+  }
+
   try {
     const mediaType = media.mimeType === 'image/gif' ? 'image/gif' :
                        media.mimeType === 'image/webp' ? 'image/webp' :
@@ -198,6 +209,20 @@ Return ONLY valid JSON, no markdown code blocks.`;
       return NextResponse.json(
         { error: 'Failed to parse AI response. Please try again.' },
         { status: 500 }
+      );
+    }
+
+    // Deduct credits AFTER successful generation
+    const deducted = await deductCredits(
+      user.id,
+      cost,
+      'AI caption generation',
+      media.bot.userId === user.id ? media.botId : undefined
+    );
+    if (!deducted) {
+      return NextResponse.json(
+        { error: 'Insufficient credits.' },
+        { status: 402 }
       );
     }
 

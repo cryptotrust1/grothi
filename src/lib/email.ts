@@ -22,9 +22,13 @@ export function createTransporter(config: SmtpConfig): Transporter {
     host: config.smtpHost,
     port: config.smtpPort,
     secure: config.smtpSecure,
+    requireTLS: !config.smtpSecure, // Enforce STARTTLS when not using implicit TLS
     auth: {
       user: config.smtpUser,
       pass: decrypt(config.smtpPass),
+    },
+    tls: {
+      minVersion: 'TLSv1.2',
     },
     connectionTimeout: 10000,
     greetingTimeout: 10000,
@@ -114,6 +118,58 @@ export async function sendCampaignEmail(options: SendCampaignEmailOptions) {
       error: error instanceof Error ? error.message : 'Send failed',
     };
   }
+}
+
+/**
+ * Prepare a campaign email for sending.
+ * Handles personalization (merge tags), click tracking, open tracking pixel,
+ * and CAN-SPAM unsubscribe footer. This is the single source of truth for
+ * email preparation — used by the API route, server actions, and job runner.
+ */
+export function prepareCampaignHtml(options: {
+  html: string;
+  text?: string | null;
+  contact: { id: string; email: string; firstName?: string | null; lastName?: string | null };
+  sendId: string;
+  listId: string;
+  brandName: string;
+  baseUrl: string;
+  physicalAddress?: string | null;
+}): { html: string; text: string | undefined; unsubscribeUrl: string; trackingPixelUrl: string } {
+  const { contact, sendId, listId, brandName, baseUrl } = options;
+
+  // Personalize HTML
+  let html = options.html;
+  html = html.replace(/\{\{firstName\}\}/g, contact.firstName || '');
+  html = html.replace(/\{\{lastName\}\}/g, contact.lastName || '');
+  html = html.replace(/\{\{email\}\}/g, contact.email);
+  html = html.replace(/\{\{brandName\}\}/g, brandName);
+
+  // Tracking
+  const trackingPixelUrl = getTrackingPixelUrl(sendId, baseUrl);
+  html = wrapLinksForTracking(html, sendId, baseUrl);
+
+  // CAN-SPAM compliant footer with HMAC-signed unsubscribe URL
+  const unsubscribeUrl = getSignedUnsubscribeUrl(contact.id, listId, baseUrl);
+  html += `<div style="margin-top:20px;padding-top:15px;border-top:1px solid #eee;font-size:12px;color:#999;text-align:center;">`;
+  html += `<p>You received this because you subscribed to ${brandName}.</p>`;
+  if (options.physicalAddress) {
+    html += `<p>${options.physicalAddress.replace(/\n/g, '<br>')}</p>`;
+  }
+  html += `<p><a href="${unsubscribeUrl}" style="color:#999;">Unsubscribe</a></p>`;
+  html += `</div>`;
+
+  // Personalize text version
+  let text: string | undefined;
+  if (options.text) {
+    text = options.text;
+    text = text.replace(/\{\{firstName\}\}/g, contact.firstName || '');
+    text = text.replace(/\{\{lastName\}\}/g, contact.lastName || '');
+    text = text.replace(/\{\{email\}\}/g, contact.email);
+    text += `\n\nUnsubscribe: ${unsubscribeUrl}`;
+  }
+
+  return { html, text, unsubscribeUrl, trackingPixelUrl };
 }
 
 /**
@@ -250,6 +306,9 @@ function getSystemTransporter(): Transporter | null {
     secure: port === 465,
     requireTLS: port !== 465, // Enforce STARTTLS on port 587
     auth: { user, pass },
+    tls: {
+      minVersion: 'TLSv1.2',
+    },
     pool: true,
     maxConnections: 3,
     maxMessages: 100,
@@ -259,8 +318,9 @@ function getSystemTransporter(): Transporter | null {
   cachedTransporter.verify()
     .then(() => console.log(`[EMAIL] SMTP connected: ${host}:${port} as ${user}`))
     .catch((err) => {
-      console.error(`[EMAIL] SMTP verify failed: ${err instanceof Error ? err.message : err}`);
+      console.error(`[EMAIL] SMTP verify failed: ${err instanceof Error ? err.message : err}. Will retry on next email send.`);
       cachedTransporter = null;
+      smtpChecked = false; // Allow retry on next send attempt
     });
 
   return cachedTransporter;
@@ -278,7 +338,7 @@ async function sendTransactionalEmail(to: string, subject: string, html: string,
   const transporter = getSystemTransporter();
 
   if (!transporter) {
-    console.log(`[EMAIL] (not sent — SMTP not configured) To: ${to} | Subject: ${subject}`);
+    console.error(`[EMAIL] NOT SENT (SMTP not configured) To: ${to} | Subject: ${subject} — Check SMTP_HOST, SMTP_USER, SMTP_PASS env vars`);
     return { success: false, reason: 'SMTP not configured' };
   }
 

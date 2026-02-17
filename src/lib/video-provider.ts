@@ -74,9 +74,24 @@ async function generateWithReplicate(prompt: string, apiKey: string): Promise<Vi
     input: { prompt },
   });
 
-  const videoUrl = Array.isArray(output) ? output[0] : output;
-  if (!videoUrl || typeof videoUrl !== 'string') {
+  // Replicate v1.4+ returns FileOutput objects, not strings
+  const rawOutput = Array.isArray(output) ? output[0] : output;
+  let videoUrl: string;
+  if (typeof rawOutput === 'string') {
+    videoUrl = rawOutput;
+  } else if (rawOutput && typeof rawOutput === 'object') {
+    if (typeof (rawOutput as any).url === 'function') {
+      const urlResult = (rawOutput as any).url();
+      videoUrl = urlResult instanceof URL ? urlResult.toString() : String(urlResult);
+    } else {
+      videoUrl = String(rawOutput);
+    }
+  } else {
     throw new Error('Replicate: No video URL in output');
+  }
+
+  if (!videoUrl || !videoUrl.startsWith('http')) {
+    throw new Error(`Replicate: Invalid video URL: ${videoUrl}`);
   }
 
   return { videoUrl, provider: 'replicate' };

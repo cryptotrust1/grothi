@@ -21,9 +21,11 @@ const JWT_SECRET = new TextEncoder().encode(
  * Official docs: https://developers.facebook.com/docs/threads/
  */
 export async function GET(request: NextRequest) {
+  const origin = process.env.NEXTAUTH_URL || request.nextUrl.origin;
+
   const user = await getCurrentUser();
   if (!user) {
-    return NextResponse.redirect(new URL('/auth/signin', request.nextUrl.origin));
+    return NextResponse.redirect(new URL('/auth/signin', origin));
   }
 
   const code = request.nextUrl.searchParams.get('code');
@@ -33,13 +35,13 @@ export async function GET(request: NextRequest) {
   if (errorParam) {
     const errorDesc = request.nextUrl.searchParams.get('error_description') || 'Threads authorization was denied';
     return NextResponse.redirect(
-      new URL(`/dashboard?error=${encodeURIComponent(errorDesc)}`, request.nextUrl.origin)
+      new URL(`/dashboard?error=${encodeURIComponent(errorDesc)}`, origin)
     );
   }
 
   if (!code || !state) {
     return NextResponse.redirect(
-      new URL('/dashboard?error=' + encodeURIComponent('Missing authorization code'), request.nextUrl.origin)
+      new URL('/dashboard?error=' + encodeURIComponent('Missing authorization code'), origin)
     );
   }
 
@@ -49,19 +51,19 @@ export async function GET(request: NextRequest) {
     botId = payload.botId as string;
     if (payload.userId !== user.id) {
       return NextResponse.redirect(
-        new URL('/dashboard?error=' + encodeURIComponent('Session mismatch'), request.nextUrl.origin)
+        new URL('/dashboard?error=' + encodeURIComponent('Session mismatch'), origin)
       );
     }
   } catch {
     return NextResponse.redirect(
-      new URL('/dashboard?error=' + encodeURIComponent('Invalid or expired state token. Please try again.'), request.nextUrl.origin)
+      new URL('/dashboard?error=' + encodeURIComponent('Invalid or expired state token. Please try again.'), origin)
     );
   }
 
   const bot = await db.bot.findFirst({ where: { id: botId, userId: user.id } });
   if (!bot) {
     return NextResponse.redirect(
-      new URL('/dashboard?error=' + encodeURIComponent('Bot not found'), request.nextUrl.origin)
+      new URL('/dashboard?error=' + encodeURIComponent('Bot not found'), origin)
     );
   }
 
@@ -69,12 +71,11 @@ export async function GET(request: NextRequest) {
   const appSecret = process.env.THREADS_APP_SECRET;
   if (!appId || !appSecret) {
     return NextResponse.redirect(
-      new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent('Threads OAuth not configured on server')}`, request.nextUrl.origin)
+      new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent('Threads OAuth not configured on server')}`, origin)
     );
   }
 
-  const baseUrl = process.env.NEXTAUTH_URL || request.nextUrl.origin;
-  const redirectUri = `${baseUrl}/api/oauth/threads/callback`;
+  const redirectUri = `${origin}/api/oauth/threads/callback`;
 
   try {
     // Step 1: Exchange code for short-lived access token
@@ -95,12 +96,13 @@ export async function GET(request: NextRequest) {
     if (tokenData.error || !tokenData.access_token) {
       const msg = tokenData.error_message || tokenData.error?.message || 'Failed to get access token';
       return NextResponse.redirect(
-        new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(msg)}`, request.nextUrl.origin)
+        new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(msg)}`, origin)
       );
     }
 
     const shortLivedToken = tokenData.access_token as string;
-    const threadsUserId = tokenData.user_id as string | undefined;
+    // user_id from token exchange may be a number - ensure string conversion
+    const tokenUserId = tokenData.user_id != null ? String(tokenData.user_id) : '';
 
     // Step 2: Exchange for long-lived token (60 days)
     const longLivedUrl = new URL('https://graph.threads.net/access_token');
@@ -112,16 +114,21 @@ export async function GET(request: NextRequest) {
     const longLivedData = await longLivedRes.json();
 
     const accessToken = longLivedData.access_token || shortLivedToken;
+    const tokenExpiresIn = longLivedData.expires_in || 5184000; // Default 60 days
 
-    // Step 3: Fetch Threads user profile
+    // Step 3: Fetch Threads user profile using 'me' endpoint (most reliable)
     let threadsUsername = 'Threads User';
-    if (threadsUserId) {
-      const profileRes = await fetch(
-        `https://graph.threads.net/v1.0/${threadsUserId}?fields=username,threads_profile_picture_url&access_token=${encodeURIComponent(accessToken)}`
-      );
-      if (profileRes.ok) {
-        const profileData = await profileRes.json();
-        threadsUsername = profileData.username || 'Threads User';
+    let threadsUserId = tokenUserId;
+
+    const profileRes = await fetch(
+      `https://graph.threads.net/v1.0/me?fields=id,username,threads_profile_picture_url&access_token=${encodeURIComponent(accessToken)}`
+    );
+    if (profileRes.ok) {
+      const profileData = await profileRes.json();
+      threadsUsername = profileData.username || 'Threads User';
+      // Use the ID from profile response as the definitive user ID
+      if (profileData.id) {
+        threadsUserId = String(profileData.id);
       }
     }
 
@@ -138,8 +145,10 @@ export async function GET(request: NextRequest) {
         encryptedCredentials,
         config: {
           threadsUsername,
-          threadsUserId: threadsUserId || '',
+          threadsUserId,
           connectedVia: 'oauth',
+          tokenRefreshedAt: new Date().toISOString(),
+          tokenExpiresAt: new Date(Date.now() + tokenExpiresIn * 1000).toISOString(),
         },
         status: 'CONNECTED',
       },
@@ -147,8 +156,10 @@ export async function GET(request: NextRequest) {
         encryptedCredentials,
         config: {
           threadsUsername,
-          threadsUserId: threadsUserId || '',
+          threadsUserId,
           connectedVia: 'oauth',
+          tokenRefreshedAt: new Date().toISOString(),
+          tokenExpiresAt: new Date(Date.now() + tokenExpiresIn * 1000).toISOString(),
         },
         status: 'CONNECTED',
         lastError: null,
@@ -158,7 +169,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(
       new URL(
         `/dashboard/bots/${botId}/platforms?success=${encodeURIComponent(`Threads (@${threadsUsername}) connected successfully`)}`,
-        request.nextUrl.origin
+        origin
       )
     );
   } catch (e) {
@@ -166,7 +177,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(
       new URL(
         `/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(message)}`,
-        request.nextUrl.origin
+        origin
       )
     );
   }

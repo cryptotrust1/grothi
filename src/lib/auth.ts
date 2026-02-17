@@ -81,6 +81,7 @@ export async function getCurrentUser() {
     });
 
     if (!session) return null;
+    if (session.user.isBlocked) return null;
     return session.user;
   } catch {
     return null;
@@ -226,6 +227,10 @@ export async function signIn(email: string, password: string) {
   const user = await db.user.findUnique({ where: { email } });
   if (!user) {
     throw new Error('Invalid email or password');
+  }
+
+  if (user.isBlocked) {
+    throw new Error('Your account has been suspended. Contact support for assistance.');
   }
 
   const valid = await verifyPassword(password, user.passwordHash);

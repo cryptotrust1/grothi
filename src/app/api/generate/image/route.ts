@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { deductCredits } from '@/lib/credits';
-import { getReplicate, MODELS, PLATFORM_IMAGE_DIMENSIONS, GENERATION_COSTS } from '@/lib/replicate';
+import { MODELS, PLATFORM_IMAGE_DIMENSIONS, GENERATION_COSTS } from '@/lib/replicate';
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, resolve } from 'path';
@@ -32,15 +32,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Bot not found' }, { status: 404 });
     }
 
-    // Deduct credits
-    const deducted = await deductCredits(
-      user.id,
-      GENERATION_COSTS.GENERATE_IMAGE,
-      `AI image generation for ${platform || 'general'}`,
-      botId
-    );
-    if (!deducted) {
-      return NextResponse.json({ error: 'Insufficient credits. You need 3 credits to generate an image.' }, { status: 402 });
+    // ── CHECK CONFIG BEFORE DEDUCTING CREDITS ──────────────────
+    // Check Replicate API token BEFORE deducting credits
+    const replicateToken = process.env.REPLICATE_API_TOKEN;
+    if (!replicateToken) {
+      return NextResponse.json({
+        error: 'Image generation not configured. REPLICATE_API_TOKEN is missing from environment variables. Add it to your .env file and restart the server. Get a token at https://replicate.com/account/api-tokens',
+      }, { status: 503 });
+    }
+
+    // Check credits are sufficient BEFORE calling API (deduct after success)
+    const balance = await db.creditBalance.findUnique({ where: { userId: user.id } });
+    if (!balance || balance.balance < GENERATION_COSTS.GENERATE_IMAGE) {
+      return NextResponse.json({
+        error: `Insufficient credits. You need ${GENERATION_COSTS.GENERATE_IMAGE} credits to generate an image. Buy more credits in the Credits page.`,
+      }, { status: 402 });
     }
 
     // Build prompt from bot preferences
@@ -64,27 +70,80 @@ export async function POST(request: NextRequest) {
     const dims = PLATFORM_IMAGE_DIMENSIONS[platform || 'INSTAGRAM'] || { width: 1080, height: 1080 };
 
     // Generate image via Replicate
-    const replicate = getReplicate();
-    const output = await replicate.run(MODELS.IMAGE, {
-      input: {
-        prompt: fullPrompt,
-        width: dims.width,
-        height: dims.height,
-        num_outputs: 1,
-        output_format: 'png',
-      },
-    });
+    const Replicate = (await import('replicate')).default;
+    const replicate = new Replicate({ auth: replicateToken });
+
+    let output: unknown;
+    try {
+      output = await replicate.run(MODELS.IMAGE, {
+        input: {
+          prompt: fullPrompt,
+          width: dims.width,
+          height: dims.height,
+          num_outputs: 1,
+          output_format: 'png',
+        },
+      });
+    } catch (apiError) {
+      const apiMsg = apiError instanceof Error ? apiError.message : String(apiError);
+      console.error('Replicate API error:', apiMsg);
+
+      // Check for common Replicate errors
+      if (apiMsg.includes('Invalid token') || apiMsg.includes('Unauthenticated') || apiMsg.includes('401')) {
+        return NextResponse.json({
+          error: `Replicate API authentication failed. Your REPLICATE_API_TOKEN may be invalid or expired. Check your token at https://replicate.com/account/api-tokens. Error: ${apiMsg}`,
+        }, { status: 502 });
+      }
+      if (apiMsg.includes('rate limit') || apiMsg.includes('429')) {
+        return NextResponse.json({
+          error: `Replicate rate limit reached. Wait a moment and try again. Error: ${apiMsg}`,
+        }, { status: 429 });
+      }
+      if (apiMsg.includes('billing') || apiMsg.includes('payment')) {
+        return NextResponse.json({
+          error: `Replicate billing issue. Check your Replicate account billing at https://replicate.com/account/billing. Error: ${apiMsg}`,
+        }, { status: 402 });
+      }
+
+      return NextResponse.json({
+        error: `Replicate API error: ${apiMsg}`,
+      }, { status: 502 });
+    }
 
     // Get the image URL from output
-    const imageUrl = Array.isArray(output) ? output[0] : output;
-    if (!imageUrl || typeof imageUrl !== 'string') {
-      return NextResponse.json({ error: 'Image generation failed — no output from AI' }, { status: 500 });
+    // Replicate v1.4+ returns FileOutput objects, not strings
+    const rawOutput = Array.isArray(output) ? output[0] : output;
+    let imageUrl: string;
+    if (typeof rawOutput === 'string') {
+      imageUrl = rawOutput;
+    } else if (rawOutput && typeof rawOutput === 'object') {
+      // FileOutput has .url() method and toString()
+      if (typeof (rawOutput as any).url === 'function') {
+        const urlResult = (rawOutput as any).url();
+        imageUrl = urlResult instanceof URL ? urlResult.toString() : String(urlResult);
+      } else {
+        imageUrl = String(rawOutput);
+      }
+    } else {
+      console.error('Replicate returned unexpected output:', JSON.stringify(output).slice(0, 500));
+      return NextResponse.json({
+        error: `Image generation returned no output. Replicate response type: ${typeof output}. This may be a temporary issue — try again.`,
+      }, { status: 500 });
+    }
+
+    if (!imageUrl || !imageUrl.startsWith('http')) {
+      console.error('Replicate returned invalid URL:', imageUrl);
+      return NextResponse.json({
+        error: `Image generation returned invalid URL. This may be a temporary issue — try again.`,
+      }, { status: 500 });
     }
 
     // Download the generated image
     const imageResponse = await fetch(imageUrl);
     if (!imageResponse.ok) {
-      return NextResponse.json({ error: 'Failed to download generated image' }, { status: 500 });
+      return NextResponse.json({
+        error: `Failed to download generated image from Replicate (HTTP ${imageResponse.status}). The image URL may have expired. Try generating again.`,
+      }, { status: 500 });
     }
     const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
 
@@ -101,6 +160,19 @@ export async function POST(request: NextRequest) {
     const filename = `${uuid}.png`;
     const filePath = join(botDir, filename);
     await writeFile(filePath, imageBuffer);
+
+    // Deduct credits AFTER successful generation (so user doesn't lose credits on failure)
+    const deducted = await deductCredits(
+      user.id,
+      GENERATION_COSTS.GENERATE_IMAGE,
+      `AI image generation for ${platform || 'general'}`,
+      botId
+    );
+    if (!deducted) {
+      return NextResponse.json({
+        error: `Insufficient credits. You need ${GENERATION_COSTS.GENERATE_IMAGE} credits.`,
+      }, { status: 402 });
+    }
 
     // Save to database
     const media = await db.media.create({
@@ -143,10 +215,9 @@ export async function POST(request: NextRequest) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Image generation error:', message);
 
-    if (message.includes('REPLICATE_API_TOKEN')) {
-      return NextResponse.json({ error: 'AI image generation is not configured yet. Contact support.' }, { status: 503 });
-    }
-
-    return NextResponse.json({ error: 'Image generation failed. Please try again.' }, { status: 500 });
+    // Always show the real error to help debug
+    return NextResponse.json({
+      error: `Image generation failed: ${message}`,
+    }, { status: 500 });
   }
 }

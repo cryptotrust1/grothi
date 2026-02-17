@@ -9,6 +9,7 @@ import {
   CONTENT_TYPES,
   ALL_PLATFORMS,
   ACTION_TYPES,
+  PLATFORM_REQUIREMENTS,
 } from '@/lib/constants';
 
 describe('Constants', () => {
@@ -164,6 +165,103 @@ describe('Constants', () => {
       expect(ACTION_TYPES).toContain('SCAN_FEEDS');
       expect(ACTION_TYPES).toContain('GENERATE_CONTENT');
       expect(ACTION_TYPES).toContain('SAFETY_BLOCK');
+    });
+  });
+
+  describe('PLATFORM_REQUIREMENTS', () => {
+    it('has requirements for all 17 platforms', () => {
+      expect(Object.keys(PLATFORM_REQUIREMENTS)).toHaveLength(17);
+    });
+
+    it('matches ALL_PLATFORMS entries', () => {
+      const reqKeys = Object.keys(PLATFORM_REQUIREMENTS).sort();
+      const allPlatforms = [...ALL_PLATFORMS].sort();
+      expect(reqKeys).toEqual(allPlatforms);
+    });
+
+    it('each platform has all required fields', () => {
+      for (const [key, req] of Object.entries(PLATFORM_REQUIREMENTS)) {
+        expect(req.name).toBeTruthy();
+        expect(typeof req.mediaRequired).toBe('boolean');
+        expect(typeof req.textOnly).toBe('boolean');
+        expect(typeof req.maxCharacters).toBe('number');
+        expect(req.maxCharacters).toBeGreaterThan(0);
+        expect(Array.isArray(req.supportedMediaTypes)).toBe(true);
+        expect(Array.isArray(req.imageFormats)).toBe(true);
+        expect(Array.isArray(req.videoFormats)).toBe(true);
+        expect(typeof req.maxImageSizeMB).toBe('number');
+        expect(typeof req.maxVideoSizeMB).toBe('number');
+        expect(Array.isArray(req.recommendedDimensions)).toBe(true);
+        expect(req.recommendedDimensions.length).toBeGreaterThan(0);
+        expect(typeof req.note).toBe('string');
+        expect(req.note.length).toBeGreaterThan(0);
+      }
+    });
+
+    it('mediaRequired and textOnly are mutually exclusive', () => {
+      for (const [key, req] of Object.entries(PLATFORM_REQUIREMENTS)) {
+        if (req.mediaRequired) {
+          expect(req.textOnly).toBe(false);
+        }
+      }
+    });
+
+    it('Instagram requires media', () => {
+      expect(PLATFORM_REQUIREMENTS.INSTAGRAM.mediaRequired).toBe(true);
+      expect(PLATFORM_REQUIREMENTS.INSTAGRAM.textOnly).toBe(false);
+    });
+
+    it('TikTok requires media', () => {
+      expect(PLATFORM_REQUIREMENTS.TIKTOK.mediaRequired).toBe(true);
+      expect(PLATFORM_REQUIREMENTS.TIKTOK.textOnly).toBe(false);
+    });
+
+    it('Pinterest requires media', () => {
+      expect(PLATFORM_REQUIREMENTS.PINTEREST.mediaRequired).toBe(true);
+      expect(PLATFORM_REQUIREMENTS.PINTEREST.textOnly).toBe(false);
+    });
+
+    it('YouTube requires media', () => {
+      expect(PLATFORM_REQUIREMENTS.YOUTUBE.mediaRequired).toBe(true);
+      expect(PLATFORM_REQUIREMENTS.YOUTUBE.textOnly).toBe(false);
+    });
+
+    it('Facebook supports text-only', () => {
+      expect(PLATFORM_REQUIREMENTS.FACEBOOK.mediaRequired).toBe(false);
+      expect(PLATFORM_REQUIREMENTS.FACEBOOK.textOnly).toBe(true);
+    });
+
+    it('Threads supports text-only', () => {
+      expect(PLATFORM_REQUIREMENTS.THREADS.mediaRequired).toBe(false);
+      expect(PLATFORM_REQUIREMENTS.THREADS.textOnly).toBe(true);
+    });
+
+    it('character limits match known platform limits', () => {
+      expect(PLATFORM_REQUIREMENTS.TWITTER.maxCharacters).toBe(280);
+      expect(PLATFORM_REQUIREMENTS.THREADS.maxCharacters).toBe(500);
+      expect(PLATFORM_REQUIREMENTS.INSTAGRAM.maxCharacters).toBe(2200);
+      expect(PLATFORM_REQUIREMENTS.FACEBOOK.maxCharacters).toBe(63206);
+      expect(PLATFORM_REQUIREMENTS.MASTODON.maxCharacters).toBe(500);
+      expect(PLATFORM_REQUIREMENTS.BLUESKY.maxCharacters).toBe(300);
+    });
+
+    it('recommended dimensions have valid values', () => {
+      for (const req of Object.values(PLATFORM_REQUIREMENTS)) {
+        for (const dim of req.recommendedDimensions) {
+          expect(dim.width).toBeGreaterThan(0);
+          expect(dim.height).toBeGreaterThan(0);
+          expect(dim.aspect).toBeTruthy();
+          expect(dim.label).toBeTruthy();
+        }
+      }
+    });
+
+    it('Instagram only supports JPEG and PNG', () => {
+      expect(PLATFORM_REQUIREMENTS.INSTAGRAM.imageFormats).toEqual(['JPEG', 'PNG']);
+    });
+
+    it('Bluesky has 1MB image limit', () => {
+      expect(PLATFORM_REQUIREMENTS.BLUESKY.maxImageSizeMB).toBe(1);
     });
   });
 });

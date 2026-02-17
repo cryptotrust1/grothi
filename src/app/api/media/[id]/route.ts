@@ -78,7 +78,12 @@ export async function DELETE(
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
-  const filePath = join(UPLOAD_DIR, media.filePath);
+  const filePath = resolve(join(UPLOAD_DIR, media.filePath));
+
+  // Prevent path traversal
+  if (!filePath.startsWith(resolve(UPLOAD_DIR))) {
+    return NextResponse.json({ error: 'Invalid file path' }, { status: 400 });
+  }
 
   // Delete from filesystem
   try {

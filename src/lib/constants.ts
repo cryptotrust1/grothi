@@ -168,6 +168,305 @@ export const RL_DIMENSION_LABELS: Record<string, string> = {
   TONE_STYLE: 'Tone & Style',
 };
 
+// ============ PLATFORM REQUIREMENTS (content creation rules) ============
+// Based on official API documentation from each platform (2026)
+// Used to validate posts before submission and show requirements in UI
+
+export interface PlatformRequirement {
+  /** Platform display name */
+  name: string;
+  /** Whether media (image/video) is required — text-only posts will fail */
+  mediaRequired: boolean;
+  /** Whether text-only posts are supported */
+  textOnly: boolean;
+  /** Max character count for post text */
+  maxCharacters: number;
+  /** Supported media types */
+  supportedMediaTypes: ('IMAGE' | 'VIDEO' | 'GIF')[];
+  /** Accepted image file formats */
+  imageFormats: string[];
+  /** Accepted video file formats */
+  videoFormats: string[];
+  /** Max image file size in MB */
+  maxImageSizeMB: number;
+  /** Max video file size in MB */
+  maxVideoSizeMB: number;
+  /** Recommended image dimensions (first is preferred) */
+  recommendedDimensions: { width: number; height: number; aspect: string; label: string }[];
+  /** Short note about requirements shown to the user */
+  note: string;
+}
+
+export const PLATFORM_REQUIREMENTS: Record<string, PlatformRequirement> = {
+  FACEBOOK: {
+    name: 'Facebook',
+    mediaRequired: false,
+    textOnly: true,
+    maxCharacters: 63206,
+    supportedMediaTypes: ['IMAGE', 'VIDEO', 'GIF'],
+    imageFormats: ['JPEG', 'PNG', 'GIF', 'WebP'],
+    videoFormats: ['MP4', 'MOV'],
+    maxImageSizeMB: 8,
+    maxVideoSizeMB: 1024,
+    recommendedDimensions: [
+      { width: 1200, height: 630, aspect: '1.91:1', label: 'Post Image' },
+      { width: 1200, height: 1200, aspect: '1:1', label: 'Square' },
+      { width: 1080, height: 1920, aspect: '9:16', label: 'Story/Reel' },
+    ],
+    note: 'Supports text, images, and videos. Posts with images get 2-3x more engagement.',
+  },
+  INSTAGRAM: {
+    name: 'Instagram',
+    mediaRequired: true,
+    textOnly: false,
+    maxCharacters: 2200,
+    supportedMediaTypes: ['IMAGE', 'VIDEO'],
+    imageFormats: ['JPEG', 'PNG'],
+    videoFormats: ['MP4', 'MOV'],
+    maxImageSizeMB: 8,
+    maxVideoSizeMB: 100,
+    recommendedDimensions: [
+      { width: 1080, height: 1350, aspect: '4:5', label: 'Portrait (best)' },
+      { width: 1080, height: 1080, aspect: '1:1', label: 'Square' },
+      { width: 1080, height: 1920, aspect: '9:16', label: 'Reel/Story' },
+      { width: 1080, height: 608, aspect: '1.91:1', label: 'Landscape' },
+    ],
+    note: 'Image or video REQUIRED. Text-only posts not supported. JPEG/PNG only.',
+  },
+  THREADS: {
+    name: 'Threads',
+    mediaRequired: false,
+    textOnly: true,
+    maxCharacters: 500,
+    supportedMediaTypes: ['IMAGE', 'VIDEO'],
+    imageFormats: ['JPEG', 'PNG'],
+    videoFormats: ['MP4', 'MOV'],
+    maxImageSizeMB: 8,
+    maxVideoSizeMB: 100,
+    recommendedDimensions: [
+      { width: 1080, height: 1080, aspect: '1:1', label: 'Square' },
+      { width: 1080, height: 1350, aspect: '4:5', label: 'Portrait' },
+    ],
+    note: 'Supports text-only and media posts. Max 500 characters.',
+  },
+  TWITTER: {
+    name: 'X (Twitter)',
+    mediaRequired: false,
+    textOnly: true,
+    maxCharacters: 280,
+    supportedMediaTypes: ['IMAGE', 'VIDEO', 'GIF'],
+    imageFormats: ['JPEG', 'PNG', 'GIF', 'WebP'],
+    videoFormats: ['MP4', 'MOV'],
+    maxImageSizeMB: 5,
+    maxVideoSizeMB: 512,
+    recommendedDimensions: [
+      { width: 1200, height: 675, aspect: '16:9', label: 'Tweet Image' },
+      { width: 1600, height: 900, aspect: '16:9', label: 'Large Image' },
+    ],
+    note: 'Max 280 characters. Up to 4 images or 1 video per tweet.',
+  },
+  LINKEDIN: {
+    name: 'LinkedIn',
+    mediaRequired: false,
+    textOnly: true,
+    maxCharacters: 3000,
+    supportedMediaTypes: ['IMAGE', 'VIDEO'],
+    imageFormats: ['JPEG', 'PNG', 'GIF'],
+    videoFormats: ['MP4'],
+    maxImageSizeMB: 10,
+    maxVideoSizeMB: 200,
+    recommendedDimensions: [
+      { width: 1200, height: 627, aspect: '1.91:1', label: 'Post Image' },
+      { width: 1200, height: 1200, aspect: '1:1', label: 'Square' },
+    ],
+    note: 'Professional tone recommended. Posts with images get higher engagement.',
+  },
+  TIKTOK: {
+    name: 'TikTok',
+    mediaRequired: true,
+    textOnly: false,
+    maxCharacters: 2200,
+    supportedMediaTypes: ['IMAGE', 'VIDEO'],
+    imageFormats: ['JPEG', 'PNG', 'WebP'],
+    videoFormats: ['MP4', 'MOV', 'WebM'],
+    maxImageSizeMB: 10,
+    maxVideoSizeMB: 287,
+    recommendedDimensions: [
+      { width: 1080, height: 1920, aspect: '9:16', label: 'Vertical (required)' },
+    ],
+    note: 'Video or image REQUIRED. Vertical 9:16 format preferred. Text-only not supported.',
+  },
+  PINTEREST: {
+    name: 'Pinterest',
+    mediaRequired: true,
+    textOnly: false,
+    maxCharacters: 500,
+    supportedMediaTypes: ['IMAGE', 'VIDEO'],
+    imageFormats: ['JPEG', 'PNG'],
+    videoFormats: ['MP4', 'MOV'],
+    maxImageSizeMB: 20,
+    maxVideoSizeMB: 2048,
+    recommendedDimensions: [
+      { width: 1000, height: 1500, aspect: '2:3', label: 'Standard Pin' },
+      { width: 1000, height: 1000, aspect: '1:1', label: 'Square Pin' },
+    ],
+    note: 'Image REQUIRED. 2:3 vertical pins perform best. Text-only not supported.',
+  },
+  YOUTUBE: {
+    name: 'YouTube',
+    mediaRequired: true,
+    textOnly: false,
+    maxCharacters: 5000,
+    supportedMediaTypes: ['VIDEO'],
+    imageFormats: [],
+    videoFormats: ['MP4', 'MOV', 'AVI', 'WMV', 'FLV', 'WebM'],
+    maxImageSizeMB: 2,
+    maxVideoSizeMB: 12288,
+    recommendedDimensions: [
+      { width: 1920, height: 1080, aspect: '16:9', label: 'Full HD' },
+      { width: 1080, height: 1920, aspect: '9:16', label: 'Shorts' },
+    ],
+    note: 'Video REQUIRED. Supports Shorts (9:16) and regular videos (16:9).',
+  },
+  MASTODON: {
+    name: 'Mastodon',
+    mediaRequired: false,
+    textOnly: true,
+    maxCharacters: 500,
+    supportedMediaTypes: ['IMAGE', 'VIDEO', 'GIF'],
+    imageFormats: ['JPEG', 'PNG', 'GIF', 'WebP'],
+    videoFormats: ['MP4', 'WebM'],
+    maxImageSizeMB: 8,
+    maxVideoSizeMB: 40,
+    recommendedDimensions: [
+      { width: 1200, height: 675, aspect: '16:9', label: 'Post Image' },
+    ],
+    note: 'Max 500 characters. Supports text, images, video, and GIFs.',
+  },
+  BLUESKY: {
+    name: 'Bluesky',
+    mediaRequired: false,
+    textOnly: true,
+    maxCharacters: 300,
+    supportedMediaTypes: ['IMAGE'],
+    imageFormats: ['JPEG', 'PNG'],
+    videoFormats: [],
+    maxImageSizeMB: 1,
+    maxVideoSizeMB: 0,
+    recommendedDimensions: [
+      { width: 1200, height: 675, aspect: '16:9', label: 'Post Image' },
+    ],
+    note: 'Max 300 characters. Images only (max 1MB). No video support.',
+  },
+  TELEGRAM: {
+    name: 'Telegram',
+    mediaRequired: false,
+    textOnly: true,
+    maxCharacters: 4096,
+    supportedMediaTypes: ['IMAGE', 'VIDEO', 'GIF'],
+    imageFormats: ['JPEG', 'PNG', 'GIF', 'WebP'],
+    videoFormats: ['MP4'],
+    maxImageSizeMB: 10,
+    maxVideoSizeMB: 50,
+    recommendedDimensions: [
+      { width: 1280, height: 720, aspect: '16:9', label: 'Photo' },
+      { width: 1080, height: 1080, aspect: '1:1', label: 'Square' },
+    ],
+    note: 'Supports text, photos, videos, and GIFs. Markdown formatting supported.',
+  },
+  DISCORD: {
+    name: 'Discord',
+    mediaRequired: false,
+    textOnly: true,
+    maxCharacters: 2000,
+    supportedMediaTypes: ['IMAGE', 'VIDEO', 'GIF'],
+    imageFormats: ['JPEG', 'PNG', 'GIF', 'WebP'],
+    videoFormats: ['MP4', 'WebM', 'MOV'],
+    maxImageSizeMB: 8,
+    maxVideoSizeMB: 8,
+    recommendedDimensions: [
+      { width: 1200, height: 675, aspect: '16:9', label: 'Embed Image' },
+    ],
+    note: 'Max 2000 characters. Supports embeds, images, and short videos.',
+  },
+  REDDIT: {
+    name: 'Reddit',
+    mediaRequired: false,
+    textOnly: true,
+    maxCharacters: 40000,
+    supportedMediaTypes: ['IMAGE', 'VIDEO', 'GIF'],
+    imageFormats: ['JPEG', 'PNG', 'GIF'],
+    videoFormats: ['MP4'],
+    maxImageSizeMB: 20,
+    maxVideoSizeMB: 1024,
+    recommendedDimensions: [
+      { width: 1200, height: 628, aspect: '1.91:1', label: 'Link Preview' },
+    ],
+    note: 'Supports text, image, video, and link posts. Check subreddit rules.',
+  },
+  MEDIUM: {
+    name: 'Medium',
+    mediaRequired: false,
+    textOnly: true,
+    maxCharacters: 100000,
+    supportedMediaTypes: ['IMAGE'],
+    imageFormats: ['JPEG', 'PNG', 'GIF'],
+    videoFormats: [],
+    maxImageSizeMB: 5,
+    maxVideoSizeMB: 0,
+    recommendedDimensions: [
+      { width: 1400, height: 788, aspect: '16:9', label: 'Featured Image' },
+    ],
+    note: 'Long-form content platform. Featured image recommended.',
+  },
+  DEVTO: {
+    name: 'Dev.to',
+    mediaRequired: false,
+    textOnly: true,
+    maxCharacters: 100000,
+    supportedMediaTypes: ['IMAGE'],
+    imageFormats: ['JPEG', 'PNG'],
+    videoFormats: [],
+    maxImageSizeMB: 5,
+    maxVideoSizeMB: 0,
+    recommendedDimensions: [
+      { width: 1000, height: 420, aspect: '2.38:1', label: 'Cover Image' },
+    ],
+    note: 'Developer-focused platform. Markdown supported. Cover image recommended.',
+  },
+  NOSTR: {
+    name: 'Nostr',
+    mediaRequired: false,
+    textOnly: true,
+    maxCharacters: 10000,
+    supportedMediaTypes: ['IMAGE'],
+    imageFormats: ['JPEG', 'PNG', 'GIF', 'WebP'],
+    videoFormats: [],
+    maxImageSizeMB: 5,
+    maxVideoSizeMB: 0,
+    recommendedDimensions: [
+      { width: 1200, height: 675, aspect: '16:9', label: 'Post Image' },
+    ],
+    note: 'Decentralized protocol. Text notes with optional image attachments.',
+  },
+  MOLTBOOK: {
+    name: 'Moltbook',
+    mediaRequired: false,
+    textOnly: true,
+    maxCharacters: 5000,
+    supportedMediaTypes: ['IMAGE', 'GIF'],
+    imageFormats: ['JPEG', 'PNG', 'GIF'],
+    videoFormats: [],
+    maxImageSizeMB: 8,
+    maxVideoSizeMB: 0,
+    recommendedDimensions: [
+      { width: 1200, height: 630, aspect: '1.91:1', label: 'Post Image' },
+      { width: 1080, height: 1080, aspect: '1:1', label: 'Square' },
+    ],
+    note: 'Supports text and image posts.',
+  },
+};
+
 // ============ ALL PLATFORM TYPES (for filters) ============
 export const ALL_PLATFORMS = [
   'FACEBOOK', 'INSTAGRAM', 'TWITTER', 'LINKEDIN', 'TIKTOK',
