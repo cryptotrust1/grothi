@@ -13,12 +13,15 @@
  */
 
 import { PrismaClient } from '@prisma/client';
+import type { Transporter } from 'nodemailer';
 import {
   createTransporter,
   sendCampaignEmail,
   prepareCampaignHtml,
   checkDailyLimit,
 } from '../src/lib/email';
+import { createOAuthTransporter } from '../src/lib/oauth';
+import { encrypt } from '../src/lib/encryption';
 import { deductCredits, getActionCost, hasEnoughCredits } from '../src/lib/credits';
 
 const db = new PrismaClient();
@@ -138,6 +141,38 @@ async function sendScheduledCampaign(campaign: Awaited<ReturnType<typeof db.emai
     smtpSecure: campaign.account.smtpSecure,
   };
 
+  // Create OAuth transporter for OAuth2 accounts
+  let oauthTransporterInstance: Transporter | undefined;
+  if (campaign.account.authMethod === 'OAUTH2' && campaign.account.oauthAccessToken && campaign.account.oauthRefreshToken) {
+    try {
+      const oauthResult = await createOAuthTransporter({
+        email: campaign.account.email,
+        oauthAccessToken: campaign.account.oauthAccessToken,
+        oauthRefreshToken: campaign.account.oauthRefreshToken,
+        oauthTokenExpiry: campaign.account.oauthTokenExpiry!,
+        provider: campaign.account.provider as 'GOOGLE' | 'MICROSOFT',
+      });
+      oauthTransporterInstance = oauthResult.transporter;
+      if (oauthResult.tokenRefreshed) {
+        await db.emailAccount.update({
+          where: { id: campaign.account.id },
+          data: {
+            oauthAccessToken: encrypt(oauthResult.accessToken),
+            oauthTokenExpiry: oauthResult.expiresAt,
+          },
+        });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      logError(`Campaign ${campaign.id}: OAuth transporter failed: ${msg}`);
+      await db.emailCampaign.update({
+        where: { id: campaign.id },
+        data: { status: 'FAILED' },
+      });
+      return;
+    }
+  }
+
   // A/B test split
   const hasAbTest = !!(campaign.subjectB && campaign.abTestPercent);
   let sent = 0;
@@ -164,7 +199,7 @@ async function sendScheduledCampaign(campaign: Awaited<ReturnType<typeof db.emai
         }
       }
 
-      const result = await sendOneEmail(campaign, contact, smtpConfig, subject, variant);
+      const result = await sendOneEmail(campaign, contact, smtpConfig, subject, variant, oauthTransporterInstance);
       if (result) sent++;
       else failed++;
     }
@@ -213,6 +248,7 @@ async function sendOneEmail(
   smtpConfig: { smtpHost: string; smtpPort: number; smtpUser: string; smtpPass: string; smtpSecure: boolean },
   subject: string,
   variant: string | null,
+  oauthTransporter?: import('nodemailer').Transporter,
 ): Promise<boolean> {
   const brandName = campaign.bot?.brandName || 'Newsletter';
 
@@ -242,6 +278,7 @@ async function sendOneEmail(
     text: prepared.text,
     unsubscribeUrl: prepared.unsubscribeUrl,
     trackingPixelUrl: prepared.trackingPixelUrl,
+    transporter: oauthTransporter,
   });
 
   if (result.success) {
