@@ -409,8 +409,19 @@ export default async function SchedulerPage({
                       {post.media && (
                         <div className="shrink-0">
                           {post.media.type === 'VIDEO' ? (
-                            <div className="h-16 w-16 rounded bg-muted flex items-center justify-center">
-                              <Film className="h-6 w-6 text-muted-foreground" />
+                            <div className="relative h-16 w-16 rounded overflow-hidden bg-muted">
+                              {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                              <video
+                                src={`/api/media/${post.media.id}`}
+                                className="h-full w-full object-cover"
+                                muted
+                                preload="metadata"
+                              />
+                              <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                                <div className="h-6 w-6 rounded-full bg-black/50 flex items-center justify-center">
+                                  <svg className="h-3 w-3 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                                </div>
+                              </div>
                             </div>
                           ) : (
                             // eslint-disable-next-line @next/next/no-img-element

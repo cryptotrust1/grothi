@@ -275,7 +275,15 @@ export function MediaUploadForm({ botId }: { botId: string }) {
                 }`}
               >
                 {/* Thumbnail / icon */}
-                {entry.status === 'success' && entry.mediaUrl && entry.mediaType !== 'VIDEO' ? (
+                {entry.status === 'success' && entry.mediaUrl && entry.mediaType === 'VIDEO' ? (
+                  <div className="relative h-10 w-10 rounded overflow-hidden bg-muted shrink-0">
+                    {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                    <video src={entry.mediaUrl} className="h-full w-full object-cover" muted preload="metadata" />
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                      <svg className="h-3 w-3 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                    </div>
+                  </div>
+                ) : entry.status === 'success' && entry.mediaUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={entry.mediaUrl} alt="" className="h-10 w-10 rounded object-cover shrink-0" />
                 ) : isVideoFile(entry.file) ? (

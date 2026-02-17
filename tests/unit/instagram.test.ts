@@ -41,6 +41,14 @@ function mockFetchError(errorMessage: string, code = 100) {
   });
 }
 
+/** Parse form-urlencoded body into a plain object. */
+function parseFormBody(body: string): Record<string, string> {
+  const params = new URLSearchParams(body);
+  const obj: Record<string, string> = {};
+  params.forEach((v, k) => { obj[k] = v; });
+  return obj;
+}
+
 // ── Setup ──────────────────────────────────────────────────────
 
 beforeAll(() => {
@@ -138,7 +146,7 @@ describe('postImage', () => {
     const [url, options] = (global.fetch as jest.Mock).mock.calls[0];
     expect(url).toContain('/v21.0/17841400000000/media');
     expect(options.method).toBe('POST');
-    const body = JSON.parse(options.body);
+    const body = parseFormBody(options.body);
     expect(body.image_url).toBe('https://cdn.example.com/photo.jpg');
     expect(body.caption).toBe('My caption');
     expect(body.access_token).toBe('EAAG_test_ig_token_abc123');
@@ -154,7 +162,7 @@ describe('postImage', () => {
     // Verify publish call (3rd fetch call)
     const [url, options] = (global.fetch as jest.Mock).mock.calls[2];
     expect(url).toContain('/v21.0/17841400000000/media_publish');
-    const body = JSON.parse(options.body);
+    const body = parseFormBody(options.body);
     expect(body.creation_id).toBe('container_999');
   });
 
@@ -163,7 +171,7 @@ describe('postImage', () => {
 
     const result = await postImage(makeCreds(), 'Test', 'https://example.com/bad.jpg');
     expect(result.success).toBe(false);
-    expect(result.error).toBe('Invalid image URL');
+    expect(result.error).toBe('Instagram error: Invalid image URL');
   });
 
   it('returns error if container processing fails', async () => {
@@ -182,7 +190,7 @@ describe('postImage', () => {
 
     const result = await postImage(makeCreds(), 'Test', 'https://example.com/img.jpg');
     expect(result.success).toBe(false);
-    expect(result.error).toBe('Rate limit exceeded');
+    expect(result.error).toBe('Instagram rate limit reached. Posts will resume automatically.');
   });
 
   it('handles network errors', async () => {
@@ -231,13 +239,13 @@ describe('postCarousel', () => {
     expect(result).toEqual({ success: true, mediaId: 'published_1' });
 
     // Verify child containers have is_carousel_item
-    const firstChildBody = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
-    expect(firstChildBody.is_carousel_item).toBe(true);
+    const firstChildBody = parseFormBody((global.fetch as jest.Mock).mock.calls[0][1].body);
+    expect(firstChildBody.is_carousel_item).toBe('true');
 
-    // Verify carousel container has children array
-    const carouselBody = JSON.parse((global.fetch as jest.Mock).mock.calls[4][1].body);
+    // Verify carousel container has children (comma-separated in form-urlencoded)
+    const carouselBody = parseFormBody((global.fetch as jest.Mock).mock.calls[4][1].body);
     expect(carouselBody.media_type).toBe('CAROUSEL');
-    expect(carouselBody.children).toEqual(['child_1', 'child_2']);
+    expect(carouselBody.children).toBe('child_1,child_2');
   });
 });
 
@@ -256,7 +264,7 @@ describe('postReel', () => {
     expect(result).toEqual({ success: true, mediaId: 'reel_media_1' });
 
     // Verify container uses REELS media_type
-    const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
+    const body = parseFormBody((global.fetch as jest.Mock).mock.calls[0][1].body);
     expect(body.media_type).toBe('REELS');
     expect(body.video_url).toBe('https://example.com/video.mp4');
   });

@@ -655,8 +655,19 @@ export function PostFormClient({
                           {/* Preview */}
                           <div className="shrink-0">
                             {selectedMedia.type === 'VIDEO' ? (
-                              <div className="h-20 w-20 rounded-lg bg-muted flex items-center justify-center">
-                                <FileVideo className="h-8 w-8 text-muted-foreground" />
+                              <div className="relative h-20 w-20 rounded-lg overflow-hidden bg-muted">
+                                {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                                <video
+                                  src={`/api/media/${selectedMedia.id}`}
+                                  className="h-full w-full object-cover"
+                                  muted
+                                  preload="metadata"
+                                />
+                                <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                                  <div className="h-8 w-8 rounded-full bg-black/50 flex items-center justify-center">
+                                    <svg className="h-4 w-4 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                                  </div>
+                                </div>
                               </div>
                             ) : (
                               // eslint-disable-next-line @next/next/no-img-element
@@ -969,6 +980,165 @@ export function PostFormClient({
                 </CardContent>
               </Card>
 
+              {/* Post Preview Card */}
+              {content.trim().length > 0 && selectedPlatforms.size > 0 && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <Globe className="h-4 w-4" /> Post Preview
+                    </CardTitle>
+                    <CardDescription className="text-xs">How your post will look on each platform.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {Array.from(selectedPlatforms).map((platform) => {
+                      const mediaUrl = selectedMedia ? `/api/media/${selectedMedia.id}` : null;
+                      const isVideo = selectedMedia?.type === 'VIDEO';
+                      const pName = platformNames[platform] || platform;
+
+                      if (platform === 'FACEBOOK') {
+                        return (
+                          <div key={platform} className="rounded-lg border bg-white shadow-sm max-w-full overflow-hidden">
+                            <div className="flex items-center gap-2.5 p-3">
+                              <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xs font-bold shrink-0">
+                                {botName.charAt(0).toUpperCase()}
+                              </div>
+                              <div>
+                                <p className="text-sm font-semibold text-gray-900">{botName}</p>
+                                <p className="text-[10px] text-gray-500">Just now · 🌐</p>
+                              </div>
+                            </div>
+                            <div className="px-3 pb-2">
+                              <p className="text-sm text-gray-900 whitespace-pre-wrap break-words">
+                                {content.length > 477 ? content.slice(0, 477) + '... See more' : content}
+                              </p>
+                            </div>
+                            {mediaUrl && (
+                              <div className="aspect-[1.91/1] bg-gray-100 overflow-hidden">
+                                {isVideo ? (
+                                  /* eslint-disable-next-line jsx-a11y/media-has-caption */
+                                  <video src={mediaUrl} className="w-full h-full object-cover" muted preload="metadata" />
+                                ) : (
+                                  /* eslint-disable-next-line @next/next/no-img-element */
+                                  <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
+                                )}
+                              </div>
+                            )}
+                            <div className="flex items-center justify-around py-1.5 px-3 border-t text-gray-500 text-xs">
+                              <span>👍 Like</span>
+                              <span>💬 Comment</span>
+                              <span>↗️ Share</span>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      if (platform === 'INSTAGRAM') {
+                        return (
+                          <div key={platform} className="rounded-lg border bg-white shadow-sm max-w-full overflow-hidden">
+                            <div className="flex items-center gap-2.5 p-3">
+                              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-yellow-400 via-red-500 to-purple-600 p-[2px] shrink-0">
+                                <div className="w-full h-full rounded-full bg-white flex items-center justify-center text-[10px] font-bold text-gray-900">
+                                  {botName.charAt(0).toUpperCase()}
+                                </div>
+                              </div>
+                              <p className="text-sm font-semibold text-gray-900">{botName.toLowerCase().replace(/\s+/g, '')}</p>
+                            </div>
+                            {mediaUrl ? (
+                              <div className="aspect-square bg-gray-100 overflow-hidden">
+                                {isVideo ? (
+                                  /* eslint-disable-next-line jsx-a11y/media-has-caption */
+                                  <video src={mediaUrl} className="w-full h-full object-cover" muted preload="metadata" />
+                                ) : (
+                                  /* eslint-disable-next-line @next/next/no-img-element */
+                                  <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
+                                )}
+                              </div>
+                            ) : (
+                              <div className="aspect-square bg-gray-100 flex items-center justify-center text-gray-400 text-xs">
+                                Image required
+                              </div>
+                            )}
+                            <div className="flex items-center justify-between px-3 py-2 text-gray-900">
+                              <div className="flex items-center gap-3.5">
+                                <span className="text-lg">♡</span>
+                                <span className="text-lg">💬</span>
+                                <span className="text-lg">↗️</span>
+                              </div>
+                              <span className="text-lg">🔖</span>
+                            </div>
+                            <div className="px-3 pb-3">
+                              <p className="text-sm text-gray-900">
+                                <span className="font-semibold">{botName.toLowerCase().replace(/\s+/g, '')}</span>{' '}
+                                {content.length > 125 ? content.slice(0, 125) + '... more' : content}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      if (platform === 'THREADS') {
+                        return (
+                          <div key={platform} className="rounded-lg border bg-white shadow-sm max-w-full p-3.5">
+                            <div className="flex items-start gap-2.5">
+                              <div className="w-9 h-9 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-600 shrink-0">
+                                {botName.charAt(0).toUpperCase()}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-sm font-semibold text-gray-900">{botName.toLowerCase().replace(/\s+/g, '')}</span>
+                                  <span className="text-xs text-gray-500">· now</span>
+                                </div>
+                                <p className="text-sm text-gray-900 mt-1 whitespace-pre-wrap break-words">
+                                  {content.length > 500 ? content.slice(0, 500) : content}
+                                </p>
+                                {mediaUrl && (
+                                  <div className="mt-2 rounded-lg overflow-hidden border aspect-[16/9] bg-gray-100">
+                                    {isVideo ? (
+                                      /* eslint-disable-next-line jsx-a11y/media-has-caption */
+                                      <video src={mediaUrl} className="w-full h-full object-cover" muted preload="metadata" />
+                                    ) : (
+                                      /* eslint-disable-next-line @next/next/no-img-element */
+                                      <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
+                                    )}
+                                  </div>
+                                )}
+                                <div className="flex items-center gap-5 mt-2.5 text-gray-400 text-xs">
+                                  <span>♡</span>
+                                  <span>💬</span>
+                                  <span>🔁</span>
+                                  <span>↗️</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      // Generic fallback for other platforms
+                      return (
+                        <div key={platform} className="rounded-lg border bg-white shadow-sm p-3">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Badge variant="outline" className="text-[10px]">{pName}</Badge>
+                          </div>
+                          <p className="text-sm text-gray-900 whitespace-pre-wrap break-words line-clamp-4">{content}</p>
+                          {mediaUrl && (
+                            <div className="mt-2 rounded overflow-hidden aspect-video bg-gray-100">
+                              {isVideo ? (
+                                /* eslint-disable-next-line jsx-a11y/media-has-caption */
+                                <video src={mediaUrl} className="w-full h-full object-cover" muted preload="metadata" />
+                              ) : (
+                                /* eslint-disable-next-line @next/next/no-img-element */
+                                <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Platform Specs Card (collapsible) */}
               <Card className="bg-muted/30">
                 <CardHeader className="pb-2 cursor-pointer" onClick={() => setShowDimensions(!showDimensions)}>
@@ -1049,8 +1219,17 @@ export function PostFormClient({
                   {post.media && (
                     <div className="shrink-0">
                       {post.media.type === 'VIDEO' ? (
-                        <div className="h-12 w-12 rounded bg-muted flex items-center justify-center">
-                          <Film className="h-4 w-4 text-muted-foreground" />
+                        <div className="relative h-12 w-12 rounded overflow-hidden bg-muted">
+                          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                          <video
+                            src={`/api/media/${post.media.id}`}
+                            className="h-full w-full object-cover"
+                            muted
+                            preload="metadata"
+                          />
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                            <svg className="h-3 w-3 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                          </div>
                         </div>
                       ) : (
                         // eslint-disable-next-line @next/next/no-img-element

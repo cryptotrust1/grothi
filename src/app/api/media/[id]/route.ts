@@ -42,12 +42,68 @@ export async function GET(
     return NextResponse.json({ error: 'File not found on disk' }, { status: 404 });
   }
 
-  const buffer = await readFile(filePath);
-
-  // Use inline for images, attachment for other types to prevent XSS
   const isImage = media.mimeType.startsWith('image/');
-  const disposition = isImage ? 'inline' : 'attachment';
+  const isVideo = media.mimeType.startsWith('video/');
   const safeFilename = media.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+
+  // Serve images and videos inline (for preview/playback), others as attachment
+  const disposition = (isImage || isVideo) ? 'inline' : 'attachment';
+
+  // Support Range requests for video streaming (required for HTML5 <video>)
+  if (isVideo) {
+    const rangeHeader = request.headers.get('range');
+    const { stat } = await import('fs/promises');
+    const fileStat = await stat(filePath);
+    const fileSize = fileStat.size;
+
+    if (rangeHeader) {
+      const parts = rangeHeader.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const chunkSize = end - start + 1;
+
+      const { createReadStream } = await import('fs');
+      const stream = createReadStream(filePath, { start, end });
+
+      // Convert Node.js Readable to Web ReadableStream
+      const webStream = new ReadableStream({
+        start(controller) {
+          stream.on('data', (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
+          stream.on('end', () => controller.close());
+          stream.on('error', (err) => controller.error(err));
+        },
+      });
+
+      return new NextResponse(webStream, {
+        status: 206,
+        headers: {
+          'Content-Type': media.mimeType,
+          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': String(chunkSize),
+          'Content-Disposition': `inline; filename="${safeFilename}"`,
+          'X-Content-Type-Options': 'nosniff',
+          'Cache-Control': 'private, max-age=86400',
+        },
+      });
+    }
+
+    // No Range header — return full video with Accept-Ranges
+    const buffer = await readFile(filePath);
+    return new NextResponse(buffer, {
+      headers: {
+        'Content-Type': media.mimeType,
+        'Content-Length': String(fileSize),
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'private, max-age=86400',
+        'Content-Disposition': `inline; filename="${safeFilename}"`,
+        'X-Content-Type-Options': 'nosniff',
+      },
+    });
+  }
+
+  // Non-video files: serve as before
+  const buffer = await readFile(filePath);
 
   return new NextResponse(buffer, {
     headers: {
