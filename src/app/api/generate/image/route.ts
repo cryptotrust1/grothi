@@ -41,14 +41,9 @@ export async function POST(request: NextRequest) {
       }, { status: 503 });
     }
 
-    // Deduct credits only after confirming service is available
-    const deducted = await deductCredits(
-      user.id,
-      GENERATION_COSTS.GENERATE_IMAGE,
-      `AI image generation for ${platform || 'general'}`,
-      botId
-    );
-    if (!deducted) {
+    // Check credits are sufficient BEFORE calling API (deduct after success)
+    const balance = await db.creditBalance.findUnique({ where: { userId: user.id } });
+    if (!balance || balance.balance < GENERATION_COSTS.GENERATE_IMAGE) {
       return NextResponse.json({
         error: `Insufficient credits. You need ${GENERATION_COSTS.GENERATE_IMAGE} credits to generate an image. Buy more credits in the Credits page.`,
       }, { status: 402 });
@@ -116,11 +111,30 @@ export async function POST(request: NextRequest) {
     }
 
     // Get the image URL from output
-    const imageUrl = Array.isArray(output) ? output[0] : output;
-    if (!imageUrl || typeof imageUrl !== 'string') {
+    // Replicate v1.4+ returns FileOutput objects, not strings
+    const rawOutput = Array.isArray(output) ? output[0] : output;
+    let imageUrl: string;
+    if (typeof rawOutput === 'string') {
+      imageUrl = rawOutput;
+    } else if (rawOutput && typeof rawOutput === 'object') {
+      // FileOutput has .url() method and toString()
+      if (typeof (rawOutput as any).url === 'function') {
+        const urlResult = (rawOutput as any).url();
+        imageUrl = urlResult instanceof URL ? urlResult.toString() : String(urlResult);
+      } else {
+        imageUrl = String(rawOutput);
+      }
+    } else {
       console.error('Replicate returned unexpected output:', JSON.stringify(output).slice(0, 500));
       return NextResponse.json({
         error: `Image generation returned no output. Replicate response type: ${typeof output}. This may be a temporary issue — try again.`,
+      }, { status: 500 });
+    }
+
+    if (!imageUrl || !imageUrl.startsWith('http')) {
+      console.error('Replicate returned invalid URL:', imageUrl);
+      return NextResponse.json({
+        error: `Image generation returned invalid URL. This may be a temporary issue — try again.`,
       }, { status: 500 });
     }
 
@@ -146,6 +160,19 @@ export async function POST(request: NextRequest) {
     const filename = `${uuid}.png`;
     const filePath = join(botDir, filename);
     await writeFile(filePath, imageBuffer);
+
+    // Deduct credits AFTER successful generation (so user doesn't lose credits on failure)
+    const deducted = await deductCredits(
+      user.id,
+      GENERATION_COSTS.GENERATE_IMAGE,
+      `AI image generation for ${platform || 'general'}`,
+      botId
+    );
+    if (!deducted) {
+      return NextResponse.json({
+        error: `Insufficient credits. You need ${GENERATION_COSTS.GENERATE_IMAGE} credits.`,
+      }, { status: 402 });
+    }
 
     // Save to database
     const media = await db.media.create({
