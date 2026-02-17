@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -111,6 +111,11 @@ export function PostFormClient({
   const [scheduledAt, setScheduledAt] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showDimensions, setShowDimensions] = useState(false);
+
+  // Reset submitting state when page navigates back with success/error message
+  useEffect(() => {
+    setIsSubmitting(false);
+  }, [successMessage, errorMessage]);
 
   // AI generation state
   const [isGenerating, setIsGenerating] = useState(false);
@@ -1072,7 +1077,7 @@ export function PostFormClient({
                       )}
                     </div>
                     <p className="text-sm line-clamp-1 mt-1">{post.content}</p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                    <p suppressHydrationWarning className="text-[10px] text-muted-foreground mt-0.5">
                       {new Date(post.createdAt).toLocaleString('en', {
                         month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
                       })}

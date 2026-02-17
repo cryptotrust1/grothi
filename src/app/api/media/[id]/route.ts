@@ -11,11 +11,6 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
   const { id } = await params;
 
   const media = await db.media.findUnique({
@@ -23,7 +18,16 @@ export async function GET(
     include: { bot: { select: { userId: true } } },
   });
 
-  if (!media || media.bot.userId !== user.id) {
+  if (!media) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+
+  // Auth: if user is logged in, verify ownership.
+  // If no user (external access from Instagram/Threads/Facebook servers), allow access.
+  // The CUID media ID is unguessable (25+ random chars) so it acts as a secret token.
+  // This is required because Instagram Graph API fetches the image URL server-side.
+  const user = await getCurrentUser();
+  if (user && media.bot.userId !== user.id) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
