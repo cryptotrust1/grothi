@@ -48,14 +48,9 @@ export async function POST(request: NextRequest) {
       }, { status: 503 });
     }
 
-    // Deduct credits only after confirming service is available
-    const deducted = await deductCredits(
-      user.id,
-      GENERATION_COSTS.GENERATE_VIDEO,
-      `AI video generation for ${platform || 'general'}`,
-      botId
-    );
-    if (!deducted) {
+    // Check credits are sufficient BEFORE calling API (deduct after success)
+    const balance = await db.creditBalance.findUnique({ where: { userId: user.id } });
+    if (!balance || balance.balance < GENERATION_COSTS.GENERATE_VIDEO) {
       return NextResponse.json({
         error: `Insufficient credits. You need ${GENERATION_COSTS.GENERATE_VIDEO} credits to generate a video. Buy more credits in the Credits page.`,
       }, { status: 402 });
@@ -127,6 +122,19 @@ export async function POST(request: NextRequest) {
       }, { status: 500 });
     }
     const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
+
+    // Deduct credits AFTER successful generation + download
+    const deducted = await deductCredits(
+      user.id,
+      GENERATION_COSTS.GENERATE_VIDEO,
+      `AI video generation for ${platform || 'general'}`,
+      botId
+    );
+    if (!deducted) {
+      return NextResponse.json({
+        error: `Insufficient credits. You need ${GENERATION_COSTS.GENERATE_VIDEO} credits.`,
+      }, { status: 402 });
+    }
 
     // Save to filesystem
     const botDir = resolve(join(UPLOAD_DIR, botId));
@@ -200,9 +208,24 @@ async function generateWithReplicate(
     input: { prompt },
   });
 
-  const videoUrl = Array.isArray(output) ? output[0] : output;
-  if (!videoUrl || typeof videoUrl !== 'string') {
+  // Replicate v1.4+ returns FileOutput objects, not strings
+  const rawOutput = Array.isArray(output) ? output[0] : output;
+  let videoUrl: string;
+  if (typeof rawOutput === 'string') {
+    videoUrl = rawOutput;
+  } else if (rawOutput && typeof rawOutput === 'object') {
+    if (typeof (rawOutput as any).url === 'function') {
+      const urlResult = (rawOutput as any).url();
+      videoUrl = urlResult instanceof URL ? urlResult.toString() : String(urlResult);
+    } else {
+      videoUrl = String(rawOutput);
+    }
+  } else {
     throw new Error(`Replicate returned no video URL. Output type: ${typeof output}`);
+  }
+
+  if (!videoUrl || !videoUrl.startsWith('http')) {
+    throw new Error(`Replicate returned invalid video URL: ${videoUrl}`);
   }
 
   return { videoUrl };

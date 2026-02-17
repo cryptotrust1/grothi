@@ -48,16 +48,25 @@ function validateMagicBytes(buffer: Buffer, mimeType: string): boolean {
     'image/jpeg': [[0xFF, 0xD8, 0xFF]],
     'image/png': [[0x89, 0x50, 0x4E, 0x47]],
     'image/gif': [[0x47, 0x49, 0x46, 0x38]],
-    'image/webp': [[0x52, 0x49, 0x46, 0x46]], // RIFF
     'video/mp4': [], // ftyp box at offset 4
     'video/webm': [[0x1A, 0x45, 0xDF, 0xA3]],
   };
 
-  // AVIF: also uses ftyp box like MP4 but with 'ftyp' at offset 4
+  // WebP: RIFF header + "WEBP" at offset 8
+  if (mimeType === 'image/webp') {
+    if (buffer.length < 12) return false;
+    const riff = buffer.slice(0, 4).toString('ascii');
+    const webp = buffer.slice(8, 12).toString('ascii');
+    return riff === 'RIFF' && webp === 'WEBP';
+  }
+
+  // AVIF: ftyp box at offset 4 + 'avif' or 'avis' brand
   if (mimeType === 'image/avif') {
     if (buffer.length < 12) return false;
     const ftyp = buffer.slice(4, 8).toString('ascii');
-    return ftyp === 'ftyp';
+    if (ftyp !== 'ftyp') return false;
+    const brand = buffer.slice(8, 12).toString('ascii');
+    return brand === 'avif' || brand === 'avis' || brand === 'mif1';
   }
 
   // MP4 check: "ftyp" at offset 4
