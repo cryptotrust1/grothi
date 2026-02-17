@@ -198,7 +198,7 @@ describe('postText', () => {
 
     const result = await postText(makeCreds(), 'Test');
     expect(result.success).toBe(false);
-    expect(result.error).toBe('Rate limit exceeded');
+    expect(result.error).toBe('Threads rate limit reached. Posts will resume automatically.');
   });
 
   it('returns error if container processing fails', async () => {

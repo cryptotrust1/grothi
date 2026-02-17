@@ -331,6 +331,56 @@ export async function postWithImage(
 }
 
 /**
+ * Publish a video (from local file path) to a Facebook Page.
+ * Uses the /{pageId}/videos endpoint.
+ * Docs: https://developers.facebook.com/docs/video-api/guides/publishing
+ */
+export async function postWithVideo(
+  creds: FacebookCredentials,
+  message: string,
+  videoPath: string
+): Promise<FacebookPostResult> {
+  const url = `${GRAPH_BASE}/${encodeURIComponent(creds.pageId)}/videos`;
+
+  try {
+    try {
+      await fs.access(videoPath);
+    } catch {
+      return { success: false, error: `Video file not found: ${path.basename(videoPath)}. It may have been deleted.` };
+    }
+
+    const fileBuffer = await fs.readFile(videoPath);
+    const ext = path.extname(videoPath).toLowerCase().replace('.', '');
+    const videoMimeMap: Record<string, string> = {
+      mp4: 'video/mp4',
+      webm: 'video/webm',
+      mov: 'video/quicktime',
+    };
+    const mimeType = videoMimeMap[ext] || 'video/mp4';
+
+    const formData = new FormData();
+    formData.append('source', new Blob([fileBuffer], { type: mimeType }), path.basename(videoPath));
+    formData.append('description', message);
+    formData.append('published', 'true');
+    formData.append('access_token', creds.accessToken);
+
+    const { data } = await graphFetch(url, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (isGraphError(data)) {
+      return { success: false, error: friendlyFbError(data) };
+    }
+
+    return { success: true, postId: data.id };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Network error';
+    return { success: false, error: msg };
+  }
+}
+
+/**
  * Create a scheduled post on Facebook (server-side scheduling via Graph API).
  */
 export async function postScheduled(

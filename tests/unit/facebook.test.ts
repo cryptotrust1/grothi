@@ -138,7 +138,7 @@ describe('postText', () => {
 
     const result = await postText(makeCreds(), 'Test');
     expect(result.success).toBe(false);
-    expect(result.error).toBe('Permission denied');
+    expect(result.error).toBe('Missing Facebook permissions. Please reconnect with full permissions.');
   });
 
   it('handles network errors', async () => {

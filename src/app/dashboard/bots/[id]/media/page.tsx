@@ -130,7 +130,22 @@ export default async function BotMediaPage({
             <Card key={m.id} className="overflow-hidden group">
               <div className="aspect-square relative bg-muted flex items-center justify-center">
                 {m.type === 'VIDEO' ? (
-                  <Film className="h-12 w-12 text-muted-foreground" />
+                  <div className="relative w-full h-full">
+                    {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                    <video
+                      src={`/api/media/${m.id}`}
+                      className="object-cover w-full h-full"
+                      muted
+                      preload="metadata"
+                      onMouseEnter={(e) => { const v = e.currentTarget; v.currentTime = 0; v.play().catch(() => {}); }}
+                      onMouseLeave={(e) => { e.currentTarget.pause(); e.currentTarget.currentTime = 0; }}
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none group-hover:opacity-0 transition-opacity">
+                      <div className="h-10 w-10 rounded-full bg-black/50 flex items-center justify-center">
+                        <svg className="h-5 w-5 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                      </div>
+                    </div>
+                  </div>
                 ) : (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img

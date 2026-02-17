@@ -22,11 +22,13 @@ import {
   decryptFacebookCredentials,
   postText,
   postWithImage,
+  postWithVideo as fbPostWithVideo,
   type FacebookPostResult,
 } from '@/lib/facebook';
 import {
   decryptInstagramCredentials,
   postImage as igPostImage,
+  postReel as igPostReel,
   postLocalImage as igPostLocalImage,
   type InstagramPostResult,
 } from '@/lib/instagram';
@@ -34,6 +36,7 @@ import {
   decryptThreadsCredentials,
   postText as threadsPostText,
   postWithImage as threadsPostWithImage,
+  postWithVideo as threadsPostWithVideo,
   isTokenNearExpiry,
   type ThreadsPostResult,
 } from '@/lib/threads';
@@ -111,7 +114,9 @@ export async function POST(request: NextRequest) {
         platform as PlatformType,
         post.botId,
         post.content,
-        post.media?.filePath || null
+        post.media?.filePath || null,
+        (post.media?.type as 'IMAGE' | 'VIDEO' | 'GIF' | null) || null,
+        post.media?.mimeType || null
       );
 
       platformResults[platform] = result;
@@ -221,7 +226,9 @@ async function publishToPlatform(
   platform: PlatformType,
   botId: string,
   content: string,
-  mediaPath: string | null
+  mediaPath: string | null,
+  mediaType: 'IMAGE' | 'VIDEO' | 'GIF' | null,
+  mediaMimeType: string | null
 ): Promise<{ success: boolean; externalId?: string; error?: string }> {
   // Get platform connection
   const conn = await db.platformConnection.findUnique({
@@ -234,13 +241,13 @@ async function publishToPlatform(
 
   switch (platform) {
     case 'FACEBOOK':
-      return publishToFacebook(conn, content, mediaPath);
+      return publishToFacebook(conn, content, mediaPath, mediaType);
 
     case 'INSTAGRAM':
-      return publishToInstagram(conn, content, mediaPath);
+      return publishToInstagram(conn, content, mediaPath, mediaType);
 
     case 'THREADS':
-      return publishToThreads(conn, content, mediaPath);
+      return publishToThreads(conn, content, mediaPath, mediaType);
 
     default:
       return {
@@ -253,7 +260,8 @@ async function publishToPlatform(
 async function publishToFacebook(
   conn: any,
   content: string,
-  mediaPath: string | null
+  mediaPath: string | null,
+  mediaType: 'IMAGE' | 'VIDEO' | 'GIF' | null
 ): Promise<{ success: boolean; externalId?: string; error?: string }> {
   try {
     const creds = decryptFacebookCredentials(conn);
@@ -266,7 +274,11 @@ async function publishToFacebook(
         ? mediaPath
         : path.join(UPLOAD_DIR, mediaPath);
 
-      result = await postWithImage(creds, content, absPath);
+      if (mediaType === 'VIDEO') {
+        result = await fbPostWithVideo(creds, content, absPath);
+      } else {
+        result = await postWithImage(creds, content, absPath);
+      }
     } else {
       result = await postText(creds, content);
     }
@@ -303,7 +315,8 @@ async function publishToFacebook(
 async function publishToInstagram(
   conn: any,
   content: string,
-  mediaPath: string | null
+  mediaPath: string | null,
+  mediaType: 'IMAGE' | 'VIDEO' | 'GIF' | null
 ): Promise<{ success: boolean; externalId?: string; error?: string }> {
   try {
     const creds = decryptInstagramCredentials(conn);
@@ -315,9 +328,12 @@ async function publishToInstagram(
       };
     }
 
+    // Determine the correct posting function based on media type
+    const postFn = mediaType === 'VIDEO' ? igPostReel : igPostImage;
+
     // Check if mediaPath is already a URL
     if (mediaPath.startsWith('http://') || mediaPath.startsWith('https://')) {
-      const result = await igPostImage(creds, content, mediaPath);
+      const result = await postFn(creds, content, mediaPath);
       if (result.success) {
         return { success: true, externalId: result.mediaId };
       }
@@ -328,11 +344,8 @@ async function publishToInstagram(
     }
 
     // For local files, construct a public URL via the media serve endpoint
-    // The mediaPath format is: data/uploads/{botId}/{uuid}.{ext}
-    // We need the media ID from the database to construct the public URL
     const baseUrl = process.env.NEXTAUTH_URL || 'https://grothi.com';
 
-    // Try to find the media record by file path
     const media = await db.media.findFirst({
       where: { filePath: mediaPath },
       select: { id: true },
@@ -340,7 +353,7 @@ async function publishToInstagram(
 
     if (media) {
       const publicUrl = `${baseUrl}/api/media/${encodeURIComponent(media.id)}`;
-      const result = await igPostImage(creds, content, publicUrl);
+      const result = await postFn(creds, content, publicUrl);
 
       if (result.success) {
         return { success: true, externalId: result.mediaId };
@@ -371,7 +384,8 @@ async function publishToInstagram(
 async function publishToThreads(
   conn: any,
   content: string,
-  mediaPath: string | null
+  mediaPath: string | null,
+  mediaType: 'IMAGE' | 'VIDEO' | 'GIF' | null
 ): Promise<{ success: boolean; externalId?: string; error?: string }> {
   try {
     const creds = decryptThreadsCredentials(conn);
@@ -388,10 +402,10 @@ async function publishToThreads(
     let result: ThreadsPostResult;
 
     if (mediaPath) {
-      let imageUrl: string;
+      let mediaUrl: string;
 
       if (mediaPath.startsWith('http://') || mediaPath.startsWith('https://')) {
-        imageUrl = mediaPath;
+        mediaUrl = mediaPath;
       } else {
         // Construct public URL from media record
         const baseUrl = process.env.NEXTAUTH_URL || 'https://grothi.com';
@@ -403,14 +417,19 @@ async function publishToThreads(
         if (!media) {
           return {
             success: false,
-            error: 'Could not find media record for Threads publishing. Threads requires a publicly accessible URL for images.',
+            error: 'Could not find media record for Threads publishing. Threads requires a publicly accessible URL.',
           };
         }
 
-        imageUrl = `${baseUrl}/api/media/${encodeURIComponent(media.id)}`;
+        mediaUrl = `${baseUrl}/api/media/${encodeURIComponent(media.id)}`;
       }
 
-      result = await threadsPostWithImage(creds, content, imageUrl);
+      // Use correct posting function based on media type
+      if (mediaType === 'VIDEO') {
+        result = await threadsPostWithVideo(creds, content, mediaUrl);
+      } else {
+        result = await threadsPostWithImage(creds, content, mediaUrl);
+      }
     } else {
       // Text-only post
       result = await threadsPostText(creds, content);
