@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
+import { SignJWT, jwtVerify } from 'jose';
 import { encrypt, decrypt } from './encryption';
 
 // ============ CONFIGURATION ============
@@ -10,7 +11,7 @@ const GOOGLE_SCOPES = ['https://mail.google.com/'];
 
 const MICROSOFT_AUTH_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize';
 const MICROSOFT_TOKEN_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
-const MICROSOFT_SCOPES = ['https://outlook.office365.com/SMTP.Send', 'offline_access'];
+const MICROSOFT_SCOPES = ['https://outlook.office.com/SMTP.Send', 'offline_access', 'openid', 'email'];
 
 // ============ ENVIRONMENT HELPERS ============
 
@@ -36,6 +37,36 @@ function getBaseUrl(): string {
   return process.env.NEXTAUTH_URL || 'https://grothi.com';
 }
 
+function getJwtSecret() {
+  const secret = process.env.NEXTAUTH_SECRET;
+  if (!secret) throw new Error('NEXTAUTH_SECRET environment variable is required');
+  return new TextEncoder().encode(secret);
+}
+
+/**
+ * Create a signed JWT state token for CSRF protection.
+ * Contains botId and userId, expires in 10 minutes.
+ */
+export async function createOAuthState(botId: string, userId: string): Promise<string> {
+  return new SignJWT({ botId, userId })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setExpirationTime('10m')
+    .setIssuedAt()
+    .sign(getJwtSecret());
+}
+
+/**
+ * Verify and decode a signed JWT state token.
+ * Throws if expired, tampered, or invalid.
+ */
+export async function verifyOAuthState(state: string): Promise<{ botId: string; userId: string }> {
+  const { payload } = await jwtVerify(state, getJwtSecret());
+  const botId = payload.botId as string;
+  const userId = payload.userId as string;
+  if (!botId || !userId) throw new Error('Invalid state token payload');
+  return { botId, userId };
+}
+
 // ============ TOKEN TYPES ============
 
 export interface OAuthTokens {
@@ -56,9 +87,9 @@ export interface OAuthAccount {
 
 /**
  * Generate Google OAuth2 consent URL for Gmail SMTP access.
- * State parameter encodes the botId for the callback to associate the connection.
+ * State parameter is a signed JWT for CSRF protection.
  */
-export function getGoogleOAuthUrl(botId: string, baseUrl: string): string {
+export function getGoogleOAuthUrl(signedState: string): string {
   const { clientId } = getGoogleCredentials();
   const redirectUri = `${getBaseUrl()}/api/email/oauth/google/callback`;
 
@@ -69,7 +100,7 @@ export function getGoogleOAuthUrl(botId: string, baseUrl: string): string {
     scope: GOOGLE_SCOPES.join(' '),
     access_type: 'offline',
     prompt: 'consent',
-    state: encodeURIComponent(JSON.stringify({ botId, baseUrl })),
+    state: signedState,
   });
 
   return `${GOOGLE_AUTH_URL}?${params.toString()}`;
@@ -77,9 +108,9 @@ export function getGoogleOAuthUrl(botId: string, baseUrl: string): string {
 
 /**
  * Generate Microsoft OAuth2 consent URL for Outlook SMTP access.
- * State parameter encodes the botId for the callback to associate the connection.
+ * State parameter is a signed JWT for CSRF protection.
  */
-export function getMicrosoftOAuthUrl(botId: string, baseUrl: string): string {
+export function getMicrosoftOAuthUrl(signedState: string): string {
   const { clientId } = getMicrosoftCredentials();
   const redirectUri = `${getBaseUrl()}/api/email/oauth/microsoft/callback`;
 
@@ -89,7 +120,7 @@ export function getMicrosoftOAuthUrl(botId: string, baseUrl: string): string {
     response_type: 'code',
     scope: MICROSOFT_SCOPES.join(' '),
     response_mode: 'query',
-    state: encodeURIComponent(JSON.stringify({ botId, baseUrl })),
+    state: signedState,
   });
 
   return `${MICROSOFT_AUTH_URL}?${params.toString()}`;

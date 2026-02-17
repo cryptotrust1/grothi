@@ -234,7 +234,7 @@ async function processEvents(events: NormalizedEvent[]) {
 
       for (const contact of contacts) {
         if (event.eventType === 'bounce' && event.bounceType === 'hard') {
-          // Hard bounce: mark contact as BOUNCED
+          // Hard bounce: mark contact as BOUNCED immediately
           await db.emailContact.update({
             where: { id: contact.id },
             data: { status: 'BOUNCED' },
@@ -267,11 +267,60 @@ async function processEvents(events: NormalizedEvent[]) {
                 data: event.raw ? JSON.parse(JSON.stringify(event.raw)) : undefined,
               },
             });
-            // Update campaign stats
             await db.emailCampaign.update({
               where: { id: send.campaignId },
               data: { totalBounced: { increment: 1 } },
             });
+          }
+
+          processed++;
+        } else if (event.eventType === 'bounce' && event.bounceType === 'soft') {
+          // Soft bounce: increment counter, auto-suppress after 3 consecutive
+          const SOFT_BOUNCE_THRESHOLD = 3;
+          const updated = await db.emailContact.update({
+            where: { id: contact.id },
+            data: { softBounceCount: { increment: 1 } },
+          });
+
+          const send = event.messageId
+            ? await db.emailSend.findFirst({ where: { messageId: event.messageId } })
+            : await db.emailSend.findFirst({
+                where: { contactId: contact.id, status: 'SENT' },
+                orderBy: { sentAt: 'desc' },
+              });
+
+          if (send) {
+            await db.emailEvent.create({
+              data: {
+                sendId: send.id,
+                contactId: contact.id,
+                type: 'BOUNCED',
+                data: { ...(event.raw ? JSON.parse(JSON.stringify(event.raw)) : {}), softBounce: true },
+              },
+            });
+          }
+
+          // Auto-suppress after threshold consecutive soft bounces
+          if (updated.softBounceCount >= SOFT_BOUNCE_THRESHOLD) {
+            await db.emailContact.update({
+              where: { id: contact.id },
+              data: { status: 'BOUNCED' },
+            });
+            await db.emailList.update({
+              where: { id: contact.listId },
+              data: { contactCount: { decrement: 1 } },
+            });
+            if (send) {
+              await db.emailSend.update({
+                where: { id: send.id },
+                data: { status: 'BOUNCED', bouncedAt: new Date() },
+              });
+              await db.emailCampaign.update({
+                where: { id: send.campaignId },
+                data: { totalBounced: { increment: 1 } },
+              });
+            }
+            console.log(`[WEBHOOK] Contact ${contact.email} auto-suppressed after ${SOFT_BOUNCE_THRESHOLD} soft bounces`);
           }
 
           processed++;
@@ -331,6 +380,17 @@ async function processEvents(events: NormalizedEvent[]) {
                 type: 'DELIVERED',
               },
             });
+
+            // Reset soft bounce counter on confirmed delivery.
+            // This is the correct place — DELIVERED webhook confirms mailbox
+            // accepted the message, unlike SMTP acceptance which only means
+            // the relay accepted it.
+            if (contact.softBounceCount > 0) {
+              await db.emailContact.update({
+                where: { id: contact.id },
+                data: { softBounceCount: 0 },
+              });
+            }
           }
 
           processed++;

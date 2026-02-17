@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { encrypt } from '@/lib/encryption';
+import { verifyOAuthState } from '@/lib/oauth';
 
 /**
  * Microsoft OAuth2 callback handler.
  * Microsoft redirects here after user grants consent.
- * Exchanges auth code for access + refresh tokens, saves to EmailAccount.
+ * Verifies state JWT, exchanges auth code for tokens, saves to EmailAccount.
  */
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get('code');
-  const state = request.nextUrl.searchParams.get('state'); // botId
+  const state = request.nextUrl.searchParams.get('state');
   const error = request.nextUrl.searchParams.get('error');
   const errorDescription = request.nextUrl.searchParams.get('error_description');
 
@@ -17,7 +18,18 @@ export async function GET(request: NextRequest) {
 
   if (error || !code || !state) {
     return NextResponse.redirect(
-      `${baseUrl}/dashboard/bots/${state || ''}/email?error=${encodeURIComponent(errorDescription || error || 'OAuth authorization failed')}`
+      `${baseUrl}/dashboard?error=${encodeURIComponent(errorDescription || error || 'OAuth authorization failed')}`
+    );
+  }
+
+  // Verify signed state token (CSRF protection)
+  let botId: string;
+  try {
+    const statePayload = await verifyOAuthState(state);
+    botId = statePayload.botId;
+  } catch {
+    return NextResponse.redirect(
+      `${baseUrl}/dashboard?error=${encodeURIComponent('Invalid or expired OAuth state. Please try again.')}`
     );
   }
 
@@ -26,7 +38,7 @@ export async function GET(request: NextRequest) {
 
   if (!clientId || !clientSecret) {
     return NextResponse.redirect(
-      `${baseUrl}/dashboard/bots/${state}/email?error=${encodeURIComponent('Microsoft OAuth not configured')}`
+      `${baseUrl}/dashboard/bots/${encodeURIComponent(botId)}/email?error=${encodeURIComponent('Microsoft OAuth not configured')}`
     );
   }
 
@@ -41,7 +53,7 @@ export async function GET(request: NextRequest) {
         client_secret: clientSecret,
         redirect_uri: `${baseUrl}/api/email/oauth/microsoft/callback`,
         grant_type: 'authorization_code',
-        scope: 'https://outlook.office365.com/SMTP.Send offline_access openid email',
+        scope: 'https://outlook.office.com/SMTP.Send offline_access openid email',
       }),
     });
 
@@ -49,7 +61,7 @@ export async function GET(request: NextRequest) {
       const errBody = await tokenResponse.text();
       console.error('[OAUTH] Microsoft token exchange failed:', errBody);
       return NextResponse.redirect(
-        `${baseUrl}/dashboard/bots/${state}/email?error=${encodeURIComponent('Failed to exchange authorization code')}`
+        `${baseUrl}/dashboard/bots/${encodeURIComponent(botId)}/email?error=${encodeURIComponent('Failed to exchange authorization code')}`
       );
     }
 
@@ -58,7 +70,7 @@ export async function GET(request: NextRequest) {
 
     if (!access_token) {
       return NextResponse.redirect(
-        `${baseUrl}/dashboard/bots/${state}/email?error=${encodeURIComponent('No access token received')}`
+        `${baseUrl}/dashboard/bots/${encodeURIComponent(botId)}/email?error=${encodeURIComponent('No access token received')}`
       );
     }
 
@@ -73,9 +85,9 @@ export async function GET(request: NextRequest) {
     const tokenExpiry = new Date(Date.now() + (expires_in || 3600) * 1000);
 
     await db.emailAccount.upsert({
-      where: { botId: state },
+      where: { botId },
       create: {
-        botId: state,
+        botId,
         provider: 'MICROSOFT',
         authMethod: 'OAUTH2',
         email: userEmail,
@@ -108,13 +120,13 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.redirect(
-      `${baseUrl}/dashboard/bots/${state}/email?success=${encodeURIComponent('Microsoft account connected via OAuth2!')}`
+      `${baseUrl}/dashboard/bots/${encodeURIComponent(botId)}/email?success=${encodeURIComponent('Microsoft account connected via OAuth2!')}`
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
     console.error('[OAUTH] Microsoft callback error:', msg);
     return NextResponse.redirect(
-      `${baseUrl}/dashboard/bots/${state}/email?error=${encodeURIComponent('OAuth error: ' + msg)}`
+      `${baseUrl}/dashboard/bots/${encodeURIComponent(botId)}/email?error=${encodeURIComponent('OAuth error: ' + msg)}`
     );
   }
 }

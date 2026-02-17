@@ -208,7 +208,7 @@ async function sendScheduledCampaign(campaign: Awaited<ReturnType<typeof db.emai
 }
 
 async function sendOneEmail(
-  campaign: { id: string; htmlContent: string; textContent: string | null; fromName: string | null; listId: string; bot: { brandName: string } | null; account: { email: string; fromName: string | null } | null },
+  campaign: { id: string; htmlContent: string; textContent: string | null; fromName: string | null; listId: string; bot: { brandName: string } | null; account: { email: string; fromName: string | null; physicalAddress: string | null } | null },
   contact: { id: string; email: string; firstName: string | null; lastName: string | null },
   smtpConfig: { smtpHost: string; smtpPort: number; smtpUser: string; smtpPass: string; smtpSecure: boolean },
   subject: string,
@@ -229,6 +229,7 @@ async function sendOneEmail(
     listId: campaign.listId,
     brandName,
     baseUrl: BASE_URL,
+    physicalAddress: campaign.account?.physicalAddress,
   });
 
   const result = await sendCampaignEmail({
@@ -468,6 +469,7 @@ async function processAutomationSteps() {
       listId: contact.listId,
       brandName: automation.bot.brandName,
       baseUrl: BASE_URL,
+      physicalAddress: account.physicalAddress,
     });
 
     try {
@@ -602,6 +604,7 @@ async function retryFailedSends() {
       listId: campaign.listId,
       brandName,
       baseUrl: BASE_URL,
+      physicalAddress: campaign.account?.physicalAddress,
     });
 
     // Determine subject (A/B test variant)

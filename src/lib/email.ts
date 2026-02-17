@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
+import crypto from 'crypto';
 import { decrypt } from './encryption';
 
 // ============ CAMPAIGN EMAIL (user SMTP via encrypted credentials) ============
@@ -76,8 +77,9 @@ export async function sendCampaignEmail(options: SendCampaignEmailOptions) {
   const headers: Record<string, string> = {};
 
   // CAN-SPAM: List-Unsubscribe header (one-click unsubscribe)
+  // RFC 8058: include both HTTPS URL and mailto: for maximum compatibility (Gmail requires both)
   if (options.unsubscribeUrl) {
-    headers['List-Unsubscribe'] = `<${options.unsubscribeUrl}>`;
+    headers['List-Unsubscribe'] = `<${options.unsubscribeUrl}>, <mailto:${options.from}?subject=unsubscribe>`;
     headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
   }
 
@@ -132,6 +134,7 @@ export function prepareCampaignHtml(options: {
   listId: string;
   brandName: string;
   baseUrl: string;
+  physicalAddress?: string | null;
 }): { html: string; text: string | undefined; unsubscribeUrl: string; trackingPixelUrl: string } {
   const { contact, sendId, listId, brandName, baseUrl } = options;
 
@@ -146,10 +149,13 @@ export function prepareCampaignHtml(options: {
   const trackingPixelUrl = getTrackingPixelUrl(sendId, baseUrl);
   html = wrapLinksForTracking(html, sendId, baseUrl);
 
-  // CAN-SPAM unsubscribe footer
-  const unsubscribeUrl = `${baseUrl}/api/email/unsubscribe?cid=${encodeURIComponent(contact.id)}&lid=${encodeURIComponent(listId)}`;
+  // CAN-SPAM compliant footer with HMAC-signed unsubscribe URL
+  const unsubscribeUrl = getSignedUnsubscribeUrl(contact.id, listId, baseUrl);
   html += `<div style="margin-top:20px;padding-top:15px;border-top:1px solid #eee;font-size:12px;color:#999;text-align:center;">`;
   html += `<p>You received this because you subscribed to ${brandName}.</p>`;
+  if (options.physicalAddress) {
+    html += `<p>${options.physicalAddress.replace(/\n/g, '<br>')}</p>`;
+  }
   html += `<p><a href="${unsubscribeUrl}" style="color:#999;">Unsubscribe</a></p>`;
   html += `</div>`;
 
@@ -217,6 +223,53 @@ export function checkDailyLimit(
     remaining: Math.max(0, remaining),
     needsReset,
   };
+}
+
+// ============ HMAC-SIGNED UNSUBSCRIBE URLs ============
+
+function getHmacSecret(): string {
+  return process.env.NEXTAUTH_SECRET || process.env.ENCRYPTION_KEY || '';
+}
+
+/**
+ * Generate an HMAC-signed unsubscribe URL.
+ * Prevents forged unsubscribes by requiring a valid signature.
+ */
+export function getSignedUnsubscribeUrl(contactId: string, listId: string, baseUrl: string): string {
+  const data = `${contactId}:${listId}`;
+  const sig = crypto
+    .createHmac('sha256', getHmacSecret())
+    .update(data)
+    .digest('hex')
+    .slice(0, 16); // 16 hex chars = 64 bits, sufficient for anti-tampering
+
+  return `${baseUrl}/api/email/unsubscribe?cid=${encodeURIComponent(contactId)}&lid=${encodeURIComponent(listId)}&sig=${sig}`;
+}
+
+/**
+ * Verify an HMAC signature on an unsubscribe URL.
+ */
+export function verifyUnsubscribeSignature(contactId: string, listId: string, signature: string): boolean {
+  const data = `${contactId}:${listId}`;
+  const expected = crypto
+    .createHmac('sha256', getHmacSecret())
+    .update(data)
+    .digest('hex')
+    .slice(0, 16);
+
+  try {
+    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Delay helper for rate limiting between email sends.
+ * Default: 100ms between emails (~600/min, safe for most SMTP providers).
+ */
+export function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // ============ TRANSACTIONAL EMAIL (system SMTP via env vars) ============

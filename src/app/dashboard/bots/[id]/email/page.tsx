@@ -37,6 +37,8 @@ async function saveEmailAccount(formData: FormData) {
   const bot = await db.bot.findFirst({ where: { id: botId, userId: user.id } });
   if (!bot) return;
 
+  const physicalAddress = (formData.get('physicalAddress') as string)?.trim() || undefined;
+
   const raw = {
     provider: formData.get('provider') as string,
     email: formData.get('email') as string,
@@ -74,6 +76,7 @@ async function saveEmailAccount(formData: FormData) {
         provider: data.provider as 'GOOGLE' | 'MICROSOFT' | 'SENDGRID' | 'MAILGUN' | 'AMAZON_SES' | 'POSTMARK' | 'CUSTOM',
         email: data.email,
         fromName: data.fromName || null,
+        physicalAddress: physicalAddress || null,
         smtpHost: data.smtpHost,
         smtpPort: data.smtpPort,
         smtpUser: data.smtpUser,
@@ -87,6 +90,7 @@ async function saveEmailAccount(formData: FormData) {
         provider: data.provider as 'GOOGLE' | 'MICROSOFT' | 'SENDGRID' | 'MAILGUN' | 'AMAZON_SES' | 'POSTMARK' | 'CUSTOM',
         email: data.email,
         fromName: data.fromName || null,
+        physicalAddress: physicalAddress || null,
         smtpHost: data.smtpHost,
         smtpPort: data.smtpPort,
         smtpUser: data.smtpUser,
@@ -570,6 +574,20 @@ export default async function EmailMarketingPage({
               </div>
 
               <input type="hidden" name="smtpSecure" value="false" />
+
+              {/* CAN-SPAM Physical Address */}
+              <div>
+                <Label htmlFor="physicalAddress">Physical Mailing Address (CAN-SPAM)</Label>
+                <Input
+                  name="physicalAddress"
+                  id="physicalAddress"
+                  placeholder="123 Main St, Suite 100, City, State 12345"
+                  defaultValue={account?.physicalAddress || ''}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Required by CAN-SPAM Act. Included in the footer of every email.
+                </p>
+              </div>
 
               <div className="flex gap-3">
                 <Button type="submit">

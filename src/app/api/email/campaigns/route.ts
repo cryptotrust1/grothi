@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { sendCampaignEmail, checkDailyLimit, prepareCampaignHtml } from '@/lib/email';
+import { sendCampaignEmail, checkDailyLimit, prepareCampaignHtml, sleep } from '@/lib/email';
 
 /**
  * POST /api/email/campaigns
@@ -107,6 +107,7 @@ export async function POST(request: NextRequest) {
           listId: campaign.listId,
           brandName: campaign.bot.brandName,
           baseUrl,
+          physicalAddress: campaign.account.physicalAddress,
         });
 
         const result = await sendCampaignEmail({
@@ -139,6 +140,10 @@ export async function POST(request: NextRequest) {
             },
           });
 
+          // NOTE: softBounceCount is NOT reset here. SMTP acceptance != delivery.
+          // The counter is reset only when a DELIVERED webhook event arrives,
+          // confirming actual mailbox delivery. See webhooks/route.ts.
+
           sent++;
         } else {
           await db.emailSend.update({
@@ -149,6 +154,11 @@ export async function POST(request: NextRequest) {
             },
           });
           failed++;
+        }
+
+        // Rate limiting: 100ms between sends (~600/min) to avoid SMTP throttling
+        if (contactsToSend.indexOf(contact) < contactsToSend.length - 1) {
+          await sleep(100);
         }
       }
 
