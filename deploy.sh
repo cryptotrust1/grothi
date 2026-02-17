@@ -55,7 +55,8 @@ echo ""
 echo "[5/8] Running Prisma migrations..."
 ./node_modules/.bin/prisma generate
 ./node_modules/.bin/prisma migrate deploy 2>&1 || {
-  echo "WARN: migrate deploy had issues (may already be in sync)"
+  echo "No existing migrations found, running migrate dev..."
+  ./node_modules/.bin/prisma migrate dev --name auto 2>&1 || echo "WARN: Migration had issues"
 }
 
 # Step 5: Seed the database

@@ -11,7 +11,7 @@
 | **Domain** | grothi.com (Cloudflare → Nginx → localhost:3000) |
 | **PM2** | `grothi` |
 | **DB** | PostgreSQL - user `grothi`, db `grothi` |
-| **Admin** | admin@grothi.com / Admin123! |
+| **Admin** | info@grothi.com / Vladimir54793347@ |
 | **Deploy** | `cd /home/acechange-bot/grothi && git pull origin main && bash deploy.sh` |
 
 ## CRITICAL: Prisma Version
