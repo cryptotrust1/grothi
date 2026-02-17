@@ -142,9 +142,15 @@ export async function GET(request: NextRequest) {
     profileUrl.searchParams.set('access_token', longLivedToken);
 
     const profileRes = await fetch(profileUrl.toString());
-    const profileData = await profileRes.json();
-
-    const igUsername = profileData.username || 'unknown';
+    let igUsername = 'unknown';
+    if (profileRes.ok) {
+      const profileData = await profileRes.json();
+      if (profileData.username) {
+        igUsername = profileData.username;
+      }
+    } else {
+      console.error('[Instagram OAuth] Profile fetch failed:', profileRes.status);
+    }
 
     // Step 4: Save encrypted credentials
     const encryptedCredentials = {
@@ -160,7 +166,7 @@ export async function GET(request: NextRequest) {
         encryptedCredentials,
         config: {
           igUsername,
-          connectedVia: 'instagram_direct_login',
+          connectedVia: 'oauth',
         },
         status: 'CONNECTED',
       },
@@ -168,7 +174,7 @@ export async function GET(request: NextRequest) {
         encryptedCredentials,
         config: {
           igUsername,
-          connectedVia: 'instagram_direct_login',
+          connectedVia: 'oauth',
         },
         status: 'CONNECTED',
         lastError: null,
