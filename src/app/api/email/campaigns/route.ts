@@ -3,6 +3,12 @@ import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { sendCampaignEmail, checkDailyLimit, prepareCampaignHtml, sleep } from '@/lib/email';
 import { createOAuthTransporter } from '@/lib/oauth';
+import {
+  analyzeSpamScore,
+  getEffectiveDailyLimit,
+  checkCampaignHealth,
+  getSendDelay,
+} from '@/lib/email-antispam';
 
 /**
  * POST /api/email/campaigns
@@ -55,15 +61,50 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'No active contacts in this list' }, { status: 400 });
       }
 
-      // Check daily limit
+      // Anti-spam: Check content spam score before sending
+      const spamCheck = analyzeSpamScore(campaign.subject, campaign.htmlContent);
+      if (spamCheck.level === 'blocked') {
+        return NextResponse.json({
+          error: 'Campaign blocked by spam filter. Fix these issues before sending.',
+          spamScore: spamCheck.score,
+          warnings: spamCheck.warnings,
+        }, { status: 422 });
+      }
+
+      // Anti-spam: Check recent campaign health (bounce/complaint rates)
+      const recentCampaigns = await db.emailCampaign.findMany({
+        where: {
+          accountId: campaign.accountId,
+          status: 'SENT',
+          sentAt: { gte: new Date(Date.now() - 30 * 86400000) }, // last 30 days
+        },
+        select: { totalSent: true, totalBounced: true, totalComplaints: true },
+      });
+      const healthCheck = checkCampaignHealth(recentCampaigns);
+      if (!healthCheck.canSend) {
+        return NextResponse.json({
+          error: 'Sending paused due to poor sender reputation. Fix list quality before resuming.',
+          warnings: healthCheck.warnings,
+          bounceRate: healthCheck.bounceRate,
+          complaintRate: healthCheck.complaintRate,
+        }, { status: 422 });
+      }
+
+      // Anti-spam: Apply warm-up daily limit (account age based)
+      const warmup = getEffectiveDailyLimit(campaign.account.dailyLimit, campaign.account.createdAt);
+
+      // Check daily limit (using warm-up adjusted limit)
       const limitStatus = checkDailyLimit(
         campaign.account.sentToday,
-        campaign.account.dailyLimit,
+        warmup.limit,
         campaign.account.lastResetAt,
       );
 
       if (!limitStatus.canSend) {
-        return NextResponse.json({ error: 'Daily sending limit reached' }, { status: 429 });
+        const msg = warmup.isWarmupRestricted
+          ? `Warm-up limit reached (day ${warmup.warmupDay}, max ${warmup.limit}/day). Your account is still building reputation.`
+          : 'Daily sending limit reached';
+        return NextResponse.json({ error: msg }, { status: 429 });
       }
 
       const maxToSend = Math.min(contacts.length, limitStatus.remaining);
@@ -155,6 +196,8 @@ export async function POST(request: NextRequest) {
           unsubscribeUrl: prepared.unsubscribeUrl,
           trackingPixelUrl: prepared.trackingPixelUrl,
           transporter: oauthTransporter?.transporter,
+          campaignId,
+          botId: campaign.botId,
         });
 
         if (result.success) {
@@ -191,9 +234,9 @@ export async function POST(request: NextRequest) {
           failed++;
         }
 
-        // Rate limiting: 100ms between sends (~600/min) to avoid SMTP throttling
+        // Anti-spam: Rate limiting based on account age (newer accounts = slower)
         if (contactsToSend.indexOf(contact) < contactsToSend.length - 1) {
-          await sleep(100);
+          await sleep(getSendDelay(campaign.account.createdAt));
         }
       }
 
@@ -228,6 +271,19 @@ export async function POST(request: NextRequest) {
         sent,
         failed,
         total: contactsToSend.length,
+        // Include anti-spam feedback so the UI can display warnings
+        ...(spamCheck.warnings.length > 0 ? {
+          spamScore: spamCheck.score,
+          spamLevel: spamCheck.level,
+          spamWarnings: spamCheck.warnings,
+        } : {}),
+        ...(warmup.isWarmupRestricted ? {
+          warmupDay: warmup.warmupDay,
+          warmupLimit: warmup.limit,
+        } : {}),
+        ...(healthCheck.warnings.length > 0 ? {
+          healthWarnings: healthCheck.warnings,
+        } : {}),
       });
     }
 

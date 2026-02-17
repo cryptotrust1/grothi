@@ -66,6 +66,10 @@ interface SendCampaignEmailOptions {
   trackingPixelUrl?: string;
   /** Pre-built transporter (used for OAuth2 accounts). If provided, config is ignored. */
   transporter?: Transporter;
+  /** Campaign ID for Feedback-ID header (Gmail Postmaster Tools tracking) */
+  campaignId?: string;
+  /** Bot ID for Feedback-ID header */
+  botId?: string;
 }
 
 /**
@@ -86,6 +90,25 @@ export async function sendCampaignEmail(options: SendCampaignEmailOptions) {
     headers['List-Unsubscribe'] = `<${options.unsubscribeUrl}>, <mailto:${options.from}?subject=unsubscribe>`;
     headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
   }
+
+  // Anti-spam: Precedence header prevents auto-responders (OOO replies) from replying
+  // to bulk email, which protects bounce metrics
+  headers['Precedence'] = 'bulk';
+
+  // Anti-spam: Feedback-ID header enables per-campaign tracking in Gmail Postmaster Tools
+  // Format: campaignId:botId:type:platform (colon-separated, up to 4 fields)
+  if (options.campaignId) {
+    headers['Feedback-ID'] = `${options.campaignId}:${options.botId || 'unknown'}:marketing:grothi`;
+  }
+
+  // Anti-spam: Message-ID with sending domain for proper message threading
+  // Using the sender's domain ensures alignment with DKIM/SPF
+  const senderDomain = options.from.split('@')[1] || 'grothi.com';
+  const messageUniqueId = crypto.randomUUID();
+  headers['Message-ID'] = `<${messageUniqueId}@${senderDomain}>`;
+
+  // Anti-spam: X-Mailer identifies legitimate sending software
+  headers['X-Mailer'] = 'Grothi/1.0';
 
   // Inject tracking pixel for open tracking
   let html = options.html;

@@ -23,11 +23,16 @@ import {
 import { createOAuthTransporter } from '../src/lib/oauth';
 import { encrypt } from '../src/lib/encryption';
 import { deductCredits, getActionCost, hasEnoughCredits } from '../src/lib/credits';
+import {
+  analyzeSpamScore,
+  getEffectiveDailyLimit,
+  checkCampaignHealth,
+  getSendingPace,
+  evaluateContactEngagement,
+} from '../src/lib/email-antispam';
 
 const db = new PrismaClient();
 const BASE_URL = process.env.NEXTAUTH_URL || 'https://grothi.com';
-const BATCH_SIZE = 50; // emails per batch
-const BATCH_DELAY_MS = 2000; // delay between batches
 const MAX_RETRIES = 3;
 
 function log(msg: string) {
@@ -106,10 +111,46 @@ async function sendScheduledCampaign(campaign: Awaited<ReturnType<typeof db.emai
     return;
   }
 
-  // Check daily limit
+  // Anti-spam: Check content spam score before sending
+  const spamCheck = analyzeSpamScore(campaign.subject, campaign.htmlContent);
+  if (spamCheck.level === 'blocked') {
+    logError(`Campaign ${campaign.id}: blocked by spam filter (score ${spamCheck.score}): ${spamCheck.warnings.join('; ')}`);
+    await db.emailCampaign.update({
+      where: { id: campaign.id },
+      data: { status: 'FAILED' },
+    });
+    return;
+  }
+  if (spamCheck.warnings.length > 0) {
+    log(`Campaign ${campaign.id} spam warnings: ${spamCheck.warnings.join('; ')}`);
+  }
+
+  // Anti-spam: Check recent campaign health (bounce/complaint rates)
+  const recentCampaigns = await db.emailCampaign.findMany({
+    where: {
+      accountId: campaign.account.id,
+      status: 'SENT',
+      sentAt: { gte: new Date(Date.now() - 30 * 86400000) },
+    },
+    select: { totalSent: true, totalBounced: true, totalComplaints: true },
+  });
+  const healthCheck = checkCampaignHealth(recentCampaigns);
+  if (!healthCheck.canSend) {
+    logError(`Campaign ${campaign.id}: sending paused due to poor health — ${healthCheck.warnings.join('; ')}`);
+    // Don't mark as FAILED — keep SCHEDULED so it can resume after cleanup
+    return;
+  }
+
+  // Anti-spam: Apply warm-up daily limit (account age based)
+  const warmup = getEffectiveDailyLimit(campaign.account.dailyLimit, campaign.account.createdAt);
+  if (warmup.isWarmupRestricted) {
+    log(`Campaign ${campaign.id}: warm-up day ${warmup.warmupDay}, limit ${warmup.limit}/day`);
+  }
+
+  // Check daily limit with warm-up adjusted value
   const limitCheck = checkDailyLimit(
     campaign.account.sentToday,
-    campaign.account.dailyLimit,
+    warmup.limit,
     campaign.account.lastResetAt,
   );
 
@@ -120,10 +161,10 @@ async function sendScheduledCampaign(campaign: Awaited<ReturnType<typeof db.emai
     });
   }
 
-  const maxToSend = Math.min(contacts.length, limitCheck.needsReset ? campaign.account.dailyLimit : limitCheck.remaining);
+  const maxToSend = Math.min(contacts.length, limitCheck.needsReset ? warmup.limit : limitCheck.remaining);
 
   if (maxToSend === 0) {
-    logError(`Campaign ${campaign.id}: daily limit reached`);
+    logError(`Campaign ${campaign.id}: daily limit reached (warm-up day ${warmup.warmupDay}, limit ${warmup.limit})`);
     return; // Keep SCHEDULED, will retry next run
   }
 
@@ -140,6 +181,9 @@ async function sendScheduledCampaign(campaign: Awaited<ReturnType<typeof db.emai
     smtpPass: campaign.account.smtpPass,
     smtpSecure: campaign.account.smtpSecure,
   };
+
+  // Anti-spam: Get account-age-based sending pace
+  const pace = getSendingPace(campaign.account.createdAt);
 
   // Create OAuth transporter for OAuth2 accounts
   let oauthTransporterInstance: Transporter | undefined;
@@ -178,11 +222,12 @@ async function sendScheduledCampaign(campaign: Awaited<ReturnType<typeof db.emai
   let sent = 0;
   let failed = 0;
 
-  // Process in batches
-  for (let i = 0; i < contactsToSend.length; i += BATCH_SIZE) {
-    const batch = contactsToSend.slice(i, i + BATCH_SIZE);
+  // Process in batches (pace is account-age-based for warm-up)
+  for (let i = 0; i < contactsToSend.length; i += pace.batchSize) {
+    const batch = contactsToSend.slice(i, i + pace.batchSize);
 
-    for (const contact of batch) {
+    for (let j = 0; j < batch.length; j++) {
+      const contact = batch[j];
       // Determine variant for A/B test
       let subject = campaign.subject;
       let variant: string | null = null;
@@ -202,11 +247,16 @@ async function sendScheduledCampaign(campaign: Awaited<ReturnType<typeof db.emai
       const result = await sendOneEmail(campaign, contact, smtpConfig, subject, variant, oauthTransporterInstance);
       if (result) sent++;
       else failed++;
+
+      // Anti-spam: Per-email delay based on account age
+      if (j < batch.length - 1) {
+        await sleep(pace.perEmailDelayMs);
+      }
     }
 
     // Delay between batches to avoid rate limiting
-    if (i + BATCH_SIZE < contactsToSend.length) {
-      await sleep(BATCH_DELAY_MS);
+    if (i + pace.batchSize < contactsToSend.length) {
+      await sleep(pace.batchDelayMs);
     }
   }
 
@@ -279,6 +329,7 @@ async function sendOneEmail(
     unsubscribeUrl: prepared.unsubscribeUrl,
     trackingPixelUrl: prepared.trackingPixelUrl,
     transporter: oauthTransporter,
+    campaignId: campaign.id,
   });
 
   if (result.success) {
@@ -783,6 +834,91 @@ async function autoListCleaning() {
   }
 }
 
+// ============ 6. ENGAGEMENT-BASED SUNSET POLICY ============
+
+/**
+ * Automatically suppress contacts that have not engaged in 180+ days.
+ * This prevents sending to inactive addresses which damages sender reputation.
+ *
+ * Sunset policy:
+ * - 181-365 days inactive → mark as UNSUBSCRIBED (sunset)
+ * - 365+ days inactive    → mark as UNSUBSCRIBED (dead contact)
+ *
+ * Only processes ACTIVE contacts. Runs daily (not every minute) to avoid
+ * excessive DB queries — the main() function calls this only once per hour.
+ */
+async function engagementSunset() {
+  // Find contacts inactive for 180+ days that are still ACTIVE
+  const sunsetCutoff = new Date(Date.now() - 180 * 86400000); // 180 days ago
+  const deadCutoff = new Date(Date.now() - 365 * 86400000);   // 365 days ago
+
+  // Dead contacts (365+ days, never engaged since creation)
+  const deadContacts = await db.emailContact.findMany({
+    where: {
+      status: 'ACTIVE',
+      OR: [
+        // Never opened/clicked AND created > 365 days ago
+        { lastOpenAt: null, lastClickAt: null, createdAt: { lte: deadCutoff } },
+        // Last engagement > 365 days ago
+        { lastOpenAt: { lte: deadCutoff }, lastClickAt: null },
+        { lastClickAt: { lte: deadCutoff }, lastOpenAt: null },
+        // Both last engagement dates > 365 days ago
+        { lastOpenAt: { lte: deadCutoff }, lastClickAt: { lte: deadCutoff } },
+      ],
+    },
+    take: 200, // Process in batches to limit DB load
+  });
+
+  let suppressedCount = 0;
+
+  for (const contact of deadContacts) {
+    const engagement = evaluateContactEngagement(contact);
+    if (engagement.segment === 'dead' || engagement.segment === 'inactive') {
+      await db.emailContact.update({
+        where: { id: contact.id },
+        data: { status: 'UNSUBSCRIBED' },
+      });
+      await db.emailList.update({
+        where: { id: contact.listId },
+        data: { contactCount: { decrement: 1 } },
+      });
+      suppressedCount++;
+    }
+  }
+
+  // Inactive contacts (180-365 days) — suppress from regular campaigns
+  const inactiveContacts = await db.emailContact.findMany({
+    where: {
+      status: 'ACTIVE',
+      OR: [
+        { lastOpenAt: null, lastClickAt: null, createdAt: { lte: sunsetCutoff, gt: deadCutoff } },
+        { lastOpenAt: { lte: sunsetCutoff, gt: deadCutoff }, lastClickAt: null },
+        { lastClickAt: { lte: sunsetCutoff, gt: deadCutoff }, lastOpenAt: null },
+      ],
+    },
+    take: 200,
+  });
+
+  for (const contact of inactiveContacts) {
+    const engagement = evaluateContactEngagement(contact);
+    if (engagement.segment === 'inactive') {
+      await db.emailContact.update({
+        where: { id: contact.id },
+        data: { status: 'UNSUBSCRIBED' },
+      });
+      await db.emailList.update({
+        where: { id: contact.listId },
+        data: { contactCount: { decrement: 1 } },
+      });
+      suppressedCount++;
+    }
+  }
+
+  if (suppressedCount > 0) {
+    log(`Engagement sunset: suppressed ${suppressedCount} inactive contact(s)`);
+  }
+}
+
 // ============ MAIN ============
 
 function sleep(ms: number): Promise<void> {
@@ -820,6 +956,15 @@ async function main() {
     await autoListCleaning();
   } catch (error) {
     logError(`List cleaning: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  // Run engagement sunset once per hour (minute 0 only) to avoid excessive DB queries
+  if (new Date().getMinutes() === 0) {
+    try {
+      await engagementSunset();
+    } catch (error) {
+      logError(`Engagement sunset: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   log('Email jobs run complete.');
