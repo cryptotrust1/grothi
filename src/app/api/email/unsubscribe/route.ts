@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { verifyUnsubscribeSignature } from '@/lib/email';
 
 /**
  * GET /api/email/unsubscribe?cid=<contactId>&lid=<listId>
@@ -9,8 +10,17 @@ import { db } from '@/lib/db';
 export async function GET(request: NextRequest) {
   const contactId = request.nextUrl.searchParams.get('cid');
   const listId = request.nextUrl.searchParams.get('lid');
+  const sig = request.nextUrl.searchParams.get('sig');
 
   if (!contactId || !listId) {
+    return new NextResponse(unsubscribePage('Invalid unsubscribe link.', false), {
+      status: 400,
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    });
+  }
+
+  // Verify HMAC signature to prevent forged unsubscribes
+  if (sig && !verifyUnsubscribeSignature(contactId, listId, sig)) {
     return new NextResponse(unsubscribePage('Invalid unsubscribe link.', false), {
       status: 400,
       headers: { 'Content-Type': 'text/html; charset=utf-8' },

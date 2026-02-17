@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { sendCampaignEmail, checkDailyLimit, wrapLinksForTracking, getTrackingPixelUrl } from '@/lib/email';
+import { sendCampaignEmail, checkDailyLimit, wrapLinksForTracking, getTrackingPixelUrl, getSignedUnsubscribeUrl, sleep } from '@/lib/email';
 
 /**
  * POST /api/email/campaigns
@@ -102,10 +102,13 @@ export async function POST(request: NextRequest) {
         // Wrap links for click tracking
         html = wrapLinksForTracking(html, emailSend.id, baseUrl);
 
-        // Add unsubscribe footer
-        const unsubscribeUrl = `${baseUrl}/api/email/unsubscribe?cid=${encodeURIComponent(contact.id)}&lid=${encodeURIComponent(campaign.listId)}`;
+        // Add unsubscribe footer with HMAC-signed URL + CAN-SPAM physical address
+        const unsubscribeUrl = getSignedUnsubscribeUrl(contact.id, campaign.listId, baseUrl);
         html += `<div style="margin-top:20px;padding-top:15px;border-top:1px solid #eee;font-size:12px;color:#999;text-align:center;">`;
         html += `<p>You received this because you subscribed to ${campaign.bot.brandName}.</p>`;
+        if (campaign.account.physicalAddress) {
+          html += `<p>${campaign.account.physicalAddress.replace(/\n/g, '<br>')}</p>`;
+        }
         html += `<p><a href="${unsubscribeUrl}" style="color:#999;">Unsubscribe</a></p>`;
         html += `</div>`;
 
@@ -156,6 +159,14 @@ export async function POST(request: NextRequest) {
             },
           });
 
+          // Reset soft bounce counter on successful delivery
+          if (contact.softBounceCount > 0) {
+            await db.emailContact.update({
+              where: { id: contact.id },
+              data: { softBounceCount: 0 },
+            });
+          }
+
           sent++;
         } else {
           await db.emailSend.update({
@@ -166,6 +177,11 @@ export async function POST(request: NextRequest) {
             },
           });
           failed++;
+        }
+
+        // Rate limiting: 100ms between sends (~600/min) to avoid SMTP throttling
+        if (contactsToSend.indexOf(contact) < contactsToSend.length - 1) {
+          await sleep(100);
         }
       }
 

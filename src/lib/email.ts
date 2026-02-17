@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
+import crypto from 'crypto';
 import { decrypt } from './encryption';
 
 // ============ CAMPAIGN EMAIL (user SMTP via encrypted credentials) ============
@@ -72,8 +73,9 @@ export async function sendCampaignEmail(options: SendCampaignEmailOptions) {
   const headers: Record<string, string> = {};
 
   // CAN-SPAM: List-Unsubscribe header (one-click unsubscribe)
+  // RFC 8058: include both HTTPS URL and mailto: for maximum compatibility (Gmail requires both)
   if (options.unsubscribeUrl) {
-    headers['List-Unsubscribe'] = `<${options.unsubscribeUrl}>`;
+    headers['List-Unsubscribe'] = `<${options.unsubscribeUrl}>, <mailto:${options.from}?subject=unsubscribe>`;
     headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
   }
 
@@ -165,6 +167,53 @@ export function checkDailyLimit(
     remaining: Math.max(0, remaining),
     needsReset,
   };
+}
+
+// ============ HMAC-SIGNED UNSUBSCRIBE URLs ============
+
+function getHmacSecret(): string {
+  return process.env.NEXTAUTH_SECRET || process.env.ENCRYPTION_KEY || '';
+}
+
+/**
+ * Generate an HMAC-signed unsubscribe URL.
+ * Prevents forged unsubscribes by requiring a valid signature.
+ */
+export function getSignedUnsubscribeUrl(contactId: string, listId: string, baseUrl: string): string {
+  const data = `${contactId}:${listId}`;
+  const sig = crypto
+    .createHmac('sha256', getHmacSecret())
+    .update(data)
+    .digest('hex')
+    .slice(0, 16); // 16 hex chars = 64 bits, sufficient for anti-tampering
+
+  return `${baseUrl}/api/email/unsubscribe?cid=${encodeURIComponent(contactId)}&lid=${encodeURIComponent(listId)}&sig=${sig}`;
+}
+
+/**
+ * Verify an HMAC signature on an unsubscribe URL.
+ */
+export function verifyUnsubscribeSignature(contactId: string, listId: string, signature: string): boolean {
+  const data = `${contactId}:${listId}`;
+  const expected = crypto
+    .createHmac('sha256', getHmacSecret())
+    .update(data)
+    .digest('hex')
+    .slice(0, 16);
+
+  try {
+    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Delay helper for rate limiting between email sends.
+ * Default: 100ms between emails (~600/min, safe for most SMTP providers).
+ */
+export function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // ============ TRANSACTIONAL EMAIL (system SMTP via env vars) ============
