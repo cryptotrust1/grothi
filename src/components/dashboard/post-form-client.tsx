@@ -136,7 +136,7 @@ export function PostFormClient({
   const validationIssues = useMemo((): ValidationIssue[] => {
     const issues: ValidationIssue[] = [];
 
-    for (const platform of selectedPlatforms) {
+    for (const platform of Array.from(selectedPlatforms)) {
       const req = platformRequirements[platform];
       if (!req) continue;
 
@@ -247,7 +247,7 @@ export function PostFormClient({
   // ── Lowest char limit for tip ──────────────────────────────
   const lowestLimit = useMemo(() => {
     let min = 100000;
-    for (const p of selectedPlatforms) {
+    for (const p of Array.from(selectedPlatforms)) {
       const req = platformRequirements[p];
       if (req && req.maxCharacters < min) min = req.maxCharacters;
     }
@@ -350,7 +350,7 @@ export function PostFormClient({
     addHidden('action', action);
     if (selectedMediaId) addHidden('mediaId', selectedMediaId);
     if (scheduledAt) addHidden('scheduledAt', scheduledAt);
-    for (const p of selectedPlatforms) {
+    for (const p of Array.from(selectedPlatforms)) {
       addHidden('platforms', p);
     }
 
