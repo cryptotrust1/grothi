@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { SignJWT } from 'jose';
 
-const FB_GRAPH_VERSION = 'v24.0';
 const JWT_SECRET = new TextEncoder().encode(
   process.env.NEXTAUTH_SECRET!
 );
@@ -10,13 +9,11 @@ const JWT_SECRET = new TextEncoder().encode(
 /**
  * GET /api/oauth/instagram?botId=xxx
  *
- * Initiates the Instagram OAuth flow via Meta's Facebook Login.
- * Instagram Business/Creator accounts are linked to Facebook Pages,
- * so we use the same Meta app but request Instagram-specific scopes.
+ * Initiates the Instagram OAuth flow via Instagram Business Login (Direct Login).
+ * Uses the Instagram App (separate from Facebook App) with instagram_business_* scopes.
  *
  * Official docs:
- * - https://developers.facebook.com/docs/instagram-platform/getting-started
- * - https://developers.facebook.com/docs/instagram-api/getting-started
+ * - https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/business-login
  */
 export async function GET(request: NextRequest) {
   const user = await getCurrentUser();
@@ -31,11 +28,12 @@ export async function GET(request: NextRequest) {
 
   const baseUrl = process.env.NEXTAUTH_URL || request.nextUrl.origin;
 
-  const appId = process.env.FACEBOOK_APP_ID;
+  const appId = process.env.INSTAGRAM_APP_ID;
   if (!appId) {
-    const errorMsg = encodeURIComponent('Instagram OAuth is not yet configured. Please use manual credentials for now, or contact support.');
-    return NextResponse.redirect(new URL(botId ? `/dashboard/bots/${botId}/platforms?error=${errorMsg}` : `/dashboard?error=${errorMsg}`, baseUrl));
+    const errorMsg = encodeURIComponent('Instagram OAuth is not yet configured. Please add INSTAGRAM_APP_ID to env vars.');
+    return NextResponse.redirect(new URL(`/dashboard/bots/${botId}/platforms?error=${errorMsg}`, baseUrl));
   }
+
   const redirectUri = `${baseUrl}/api/oauth/instagram/callback`;
 
   // Signed state token for CSRF protection
@@ -45,28 +43,25 @@ export async function GET(request: NextRequest) {
     .setIssuedAt()
     .sign(JWT_SECRET);
 
-  // Required scopes for Instagram via Facebook Login:
-  // - pages_show_list: list pages the user manages (needed to find linked IG account)
-  // - pages_read_engagement: required dependency for page-related operations
-  // - instagram_basic: read Instagram Business profile info and media
-  // - instagram_content_publish: create posts on Instagram
+  // Instagram Business Login scopes (api.instagram.com/oauth/authorize):
+  // - instagram_business_basic: read profile info and media
+  // - instagram_business_content_publish: create posts on Instagram
   //
-  // NOTE: These are Facebook Login scopes (facebook.com/dialog/oauth).
-  // Do NOT use instagram_business_* scopes here — those are for the
-  // Instagram Direct Login flow (api.instagram.com/oauth/authorize).
+  // NOTE: Do NOT use these scopes with facebook.com/dialog/oauth — that's Facebook Login.
   const scopes = [
-    'pages_show_list',
-    'pages_read_engagement',
-    'instagram_basic',
-    'instagram_content_publish',
+    'instagram_business_basic',
+    'instagram_business_content_publish',
   ].join(',');
 
-  const authUrl = new URL(`https://www.facebook.com/${FB_GRAPH_VERSION}/dialog/oauth`);
+  // Instagram Direct Login uses api.instagram.com, NOT facebook.com
+  const authUrl = new URL('https://api.instagram.com/oauth/authorize');
   authUrl.searchParams.set('client_id', appId);
   authUrl.searchParams.set('redirect_uri', redirectUri);
   authUrl.searchParams.set('state', state);
   authUrl.searchParams.set('scope', scopes);
   authUrl.searchParams.set('response_type', 'code');
+  // enable_fb_login=0 ensures only Instagram login, not Facebook
+  authUrl.searchParams.set('enable_fb_login', '0');
 
   return NextResponse.redirect(authUrl.toString());
 }
