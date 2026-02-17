@@ -13,6 +13,47 @@ export const maxDuration = 300; // 5 minutes for video generation
 
 const UPLOAD_DIR = join(process.cwd(), 'data', 'uploads');
 
+// ── In-memory store for pending async predictions ──
+// Uses globalThis to survive hot reloads in dev mode (same pattern as db.ts)
+interface PendingGeneration {
+  userId: string;
+  botId: string;
+  platform: string;
+  fullPrompt: string;
+  provider: 'replicate' | 'runway';
+  apiKey: string;
+  createdAt: number;
+}
+
+const globalForVideo = globalThis as unknown as {
+  pendingVideoGenerations: Map<string, PendingGeneration>;
+  finalizedVideoIds: Set<string>;
+};
+
+if (!globalForVideo.pendingVideoGenerations) {
+  globalForVideo.pendingVideoGenerations = new Map();
+}
+if (!globalForVideo.finalizedVideoIds) {
+  globalForVideo.finalizedVideoIds = new Set();
+}
+
+const pendingGenerations = globalForVideo.pendingVideoGenerations;
+const finalizedIds = globalForVideo.finalizedVideoIds;
+
+// Cleanup entries older than 10 minutes (prevent memory leak)
+function cleanupOldEntries() {
+  const cutoff = Date.now() - 10 * 60 * 1000;
+  for (const [id, meta] of pendingGenerations) {
+    if (meta.createdAt < cutoff) {
+      pendingGenerations.delete(id);
+    }
+  }
+  if (finalizedIds.size > 500) {
+    finalizedIds.clear();
+  }
+}
+
+// ── POST: Start video generation (returns immediately for Replicate) ──
 export async function POST(request: NextRequest) {
   const user = await getCurrentUser();
   if (!user) {
@@ -33,7 +74,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Bot not found' }, { status: 404 });
     }
 
-    // ── CHECK CONFIG BEFORE DEDUCTING CREDITS ──────────────────
+    // ── CHECK CONFIG BEFORE ANYTHING ──
     const provider = await getActiveVideoProvider();
     const apiKey = await getProviderApiKey(provider);
 
@@ -48,7 +89,7 @@ export async function POST(request: NextRequest) {
       }, { status: 503 });
     }
 
-    // Check credits are sufficient BEFORE calling API (deduct after success)
+    // Check credits are sufficient (deduct only after success)
     const balance = await db.creditBalance.findUnique({ where: { userId: user.id } });
     if (!balance || balance.balance < GENERATION_COSTS.GENERATE_VIDEO) {
       return NextResponse.json({
@@ -73,164 +114,272 @@ export async function POST(request: NextRequest) {
       'High quality, professional, suitable for social media.',
     ].filter(Boolean).join('. ');
 
-    // Generate video via active provider
-    let videoUrl: string;
-    let usedProvider: string;
+    if (provider === 'replicate') {
+      // ── ASYNC: Create prediction and return immediately ──
+      // This avoids Nginx/Cloudflare timeout (60-100s) since video takes 1-3 min
+      const Replicate = (await import('replicate')).default;
+      const replicate = new Replicate({ auth: apiKey });
 
-    try {
-      if (provider === 'runway') {
-        const result = await generateWithRunway(fullPrompt, apiKey);
-        videoUrl = result.videoUrl;
-        usedProvider = 'runway';
-      } else {
-        const result = await generateWithReplicate(fullPrompt, apiKey);
-        videoUrl = result.videoUrl;
-        usedProvider = 'replicate';
-      }
-    } catch (genError) {
-      const genMsg = genError instanceof Error ? genError.message : String(genError);
-      console.error(`Video generation error (${provider}):`, genMsg);
+      const prediction = await replicate.predictions.create({
+        model: 'minimax/video-01-live',
+        input: { prompt: fullPrompt },
+      });
 
-      // Check for common errors
-      if (genMsg.includes('Invalid token') || genMsg.includes('Unauthenticated') || genMsg.includes('401') || genMsg.includes('invalid_api_key')) {
-        const envVar = provider === 'replicate' ? 'REPLICATE_API_TOKEN' : 'RUNWAYML_API_SECRET';
-        return NextResponse.json({
-          error: `${provider} authentication failed. Your ${envVar} may be invalid or expired. Error: ${genMsg}`,
-        }, { status: 502 });
-      }
-      if (genMsg.includes('rate limit') || genMsg.includes('429')) {
-        return NextResponse.json({
-          error: `${provider} rate limit reached. Wait a moment and try again. Error: ${genMsg}`,
-        }, { status: 429 });
-      }
-      if (genMsg.includes('billing') || genMsg.includes('payment') || genMsg.includes('insufficient')) {
-        return NextResponse.json({
-          error: `${provider} billing issue. Check your account billing. Error: ${genMsg}`,
-        }, { status: 402 });
-      }
+      // Store metadata for finalization when polling completes
+      pendingGenerations.set(prediction.id, {
+        userId: user.id,
+        botId,
+        platform: platform || 'TIKTOK',
+        fullPrompt,
+        provider: 'replicate',
+        apiKey,
+        createdAt: Date.now(),
+      });
+
+      cleanupOldEntries();
 
       return NextResponse.json({
-        error: `Video generation failed (${provider}): ${genMsg}`,
+        predictionId: prediction.id,
+        status: prediction.status || 'starting',
+        provider: 'replicate',
+      });
+    } else {
+      // ── RUNWAY: Synchronous (typically faster, less likely to timeout) ──
+      const result = await generateWithRunway(fullPrompt, apiKey);
+      return await finalizeVideo(result.videoUrl, 'runway', user.id, botId, platform || 'TIKTOK', fullPrompt);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Video generation POST error:', message);
+
+    if (message.includes('Invalid token') || message.includes('Unauthenticated') || message.includes('401') || message.includes('invalid_api_key')) {
+      return NextResponse.json({
+        error: `Authentication failed. Check your API token. Error: ${message}`,
       }, { status: 502 });
     }
-
-    // Download the generated video
-    const videoResponse = await fetch(videoUrl);
-    if (!videoResponse.ok) {
+    if (message.includes('rate limit') || message.includes('429')) {
       return NextResponse.json({
-        error: `Failed to download generated video from ${usedProvider} (HTTP ${videoResponse.status}). The video URL may have expired. Try generating again.`,
-      }, { status: 500 });
+        error: `Rate limit reached. Wait a moment and try again. Error: ${message}`,
+      }, { status: 429 });
     }
-    const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
-
-    // Deduct credits AFTER successful generation + download
-    const deducted = await deductCredits(
-      user.id,
-      GENERATION_COSTS.GENERATE_VIDEO,
-      `AI video generation for ${platform || 'general'}`,
-      botId
-    );
-    if (!deducted) {
+    if (message.includes('billing') || message.includes('payment') || message.includes('insufficient')) {
       return NextResponse.json({
-        error: `Insufficient credits. You need ${GENERATION_COSTS.GENERATE_VIDEO} credits.`,
+        error: `Billing issue. Check your account billing. Error: ${message}`,
       }, { status: 402 });
     }
 
-    // Save to filesystem
-    const botDir = resolve(join(UPLOAD_DIR, botId));
-    if (!botDir.startsWith(resolve(UPLOAD_DIR))) {
-      return NextResponse.json({ error: 'Invalid bot ID' }, { status: 400 });
-    }
-    if (!existsSync(botDir)) {
-      await mkdir(botDir, { recursive: true });
-    }
-
-    const uuid = randomUUID();
-    const filename = `${uuid}.mp4`;
-    const filePath = join(botDir, filename);
-    await writeFile(filePath, videoBuffer);
-
-    // Save to database
-    const media = await db.media.create({
-      data: {
-        botId,
-        type: 'VIDEO',
-        filename: `ai-generated-${platform || 'general'}.mp4`,
-        mimeType: 'video/mp4',
-        fileSize: videoBuffer.length,
-        filePath: `${botId}/${filename}`,
-        aiDescription: fullPrompt,
-      },
-    });
-
-    // Log activity
-    await db.botActivity.create({
-      data: {
-        botId,
-        platform: (platform as any) || 'TIKTOK',
-        action: 'GENERATE_VIDEO',
-        content: `[${usedProvider}] ${fullPrompt.slice(0, 480)}`,
-        success: true,
-        creditsUsed: GENERATION_COSTS.GENERATE_VIDEO,
-      },
-    });
-
-    return NextResponse.json({
-      id: media.id,
-      filename: media.filename,
-      type: media.type,
-      fileSize: media.fileSize,
-      url: `/api/media/${media.id}`,
-      prompt: fullPrompt,
-      provider: usedProvider,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    console.error('Video generation error:', message);
-
-    // Always show the real error to help debug
     return NextResponse.json({
       error: `Video generation failed: ${message}`,
     }, { status: 500 });
   }
 }
 
-// ── Provider implementations (inlined to avoid import issues) ──
+// ── GET: Poll async video generation status ──
+export async function GET(request: NextRequest) {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
 
-async function generateWithReplicate(
-  prompt: string,
-  apiKey: string
-): Promise<{ videoUrl: string }> {
-  const Replicate = (await import('replicate')).default;
-  const replicate = new Replicate({ auth: apiKey });
+  const predictionId = request.nextUrl.searchParams.get('predictionId');
+  if (!predictionId) {
+    return NextResponse.json({ error: 'Missing predictionId parameter' }, { status: 400 });
+  }
 
-  const output = await replicate.run('minimax/video-01-live', {
-    input: { prompt },
-  });
-
-  // Replicate v1.4+ returns FileOutput objects, not strings
-  const rawOutput = Array.isArray(output) ? output[0] : output;
-  let videoUrl: string;
-  if (typeof rawOutput === 'string') {
-    videoUrl = rawOutput;
-  } else if (rawOutput && typeof rawOutput === 'object') {
-    if (typeof (rawOutput as any).url === 'function') {
-      const urlResult = (rawOutput as any).url();
-      videoUrl = urlResult instanceof URL ? urlResult.toString() : String(urlResult);
-    } else {
-      videoUrl = String(rawOutput);
+  const meta = pendingGenerations.get(predictionId);
+  if (!meta) {
+    if (finalizedIds.has(predictionId)) {
+      return NextResponse.json({ status: 'already_processed' }, { status: 200 });
     }
-  } else {
-    throw new Error(`Replicate returned no video URL. Output type: ${typeof output}`);
+    return NextResponse.json({
+      error: 'Prediction not found or expired. It may have been processed already, or the server was restarted. Try generating again.',
+    }, { status: 404 });
   }
 
-  if (!videoUrl || !videoUrl.startsWith('http')) {
-    throw new Error(`Replicate returned invalid video URL: ${videoUrl}`);
+  if (meta.userId !== user.id) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  return { videoUrl };
+  try {
+    const Replicate = (await import('replicate')).default;
+    const replicate = new Replicate({ auth: meta.apiKey });
+
+    const prediction = await replicate.predictions.get(predictionId);
+
+    // Still running
+    if (prediction.status === 'starting' || prediction.status === 'processing') {
+      return NextResponse.json({
+        status: prediction.status,
+        progress: prediction.status === 'processing' ? 'Video is being generated...' : 'Starting up...',
+      });
+    }
+
+    // Failed or canceled
+    if (prediction.status === 'failed' || prediction.status === 'canceled') {
+      pendingGenerations.delete(predictionId);
+      const errorMsg = typeof prediction.error === 'string'
+        ? prediction.error
+        : prediction.error ? JSON.stringify(prediction.error) : 'Video generation failed';
+
+      console.error(`Video prediction ${predictionId} failed:`, errorMsg);
+      return NextResponse.json({
+        status: 'failed',
+        error: `Replicate error: ${errorMsg}`,
+      });
+    }
+
+    // Succeeded — finalize (download, save, deduct credits)
+    if (prediction.status === 'succeeded') {
+      // Prevent double finalization
+      if (finalizedIds.has(predictionId)) {
+        pendingGenerations.delete(predictionId);
+        return NextResponse.json({ status: 'already_processed' });
+      }
+      finalizedIds.add(predictionId);
+
+      // Extract video URL from output
+      const output = prediction.output;
+      let videoUrl: string;
+
+      if (typeof output === 'string') {
+        videoUrl = output;
+      } else if (Array.isArray(output) && output.length > 0) {
+        const first = output[0];
+        if (typeof first === 'string') {
+          videoUrl = first;
+        } else if (first && typeof first === 'object' && typeof (first as any).url === 'function') {
+          const urlResult = (first as any).url();
+          videoUrl = urlResult instanceof URL ? urlResult.toString() : String(urlResult);
+        } else {
+          videoUrl = String(first);
+        }
+      } else if (output && typeof output === 'object') {
+        if (typeof (output as any).url === 'function') {
+          const urlResult = (output as any).url();
+          videoUrl = urlResult instanceof URL ? urlResult.toString() : String(urlResult);
+        } else {
+          videoUrl = String(output);
+        }
+      } else {
+        pendingGenerations.delete(predictionId);
+        finalizedIds.delete(predictionId);
+        return NextResponse.json({
+          status: 'failed',
+          error: `No video URL in Replicate output. Output type: ${typeof output}`,
+        });
+      }
+
+      if (!videoUrl || !videoUrl.startsWith('http')) {
+        pendingGenerations.delete(predictionId);
+        finalizedIds.delete(predictionId);
+        return NextResponse.json({
+          status: 'failed',
+          error: `Invalid video URL from Replicate: ${videoUrl}`,
+        });
+      }
+
+      const result = await finalizeVideo(videoUrl, 'replicate', meta.userId, meta.botId, meta.platform, meta.fullPrompt);
+      pendingGenerations.delete(predictionId);
+      return result;
+    }
+
+    // Unknown status
+    return NextResponse.json({ status: prediction.status });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Video poll error:', message);
+    return NextResponse.json({
+      status: 'failed',
+      error: `Error checking video status: ${message}`,
+    });
+  }
 }
 
+// ── Shared: Download video, save to disk, deduct credits, create media record ──
+async function finalizeVideo(
+  videoUrl: string,
+  provider: string,
+  userId: string,
+  botId: string,
+  platform: string,
+  fullPrompt: string,
+): Promise<NextResponse> {
+  // Download the generated video
+  const videoResponse = await fetch(videoUrl);
+  if (!videoResponse.ok) {
+    return NextResponse.json({
+      status: 'failed',
+      error: `Failed to download generated video from ${provider} (HTTP ${videoResponse.status}). Try generating again.`,
+    }, { status: 500 });
+  }
+  const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
+
+  // Deduct credits AFTER successful generation + download
+  const deducted = await deductCredits(
+    userId,
+    GENERATION_COSTS.GENERATE_VIDEO,
+    `AI video generation for ${platform}`,
+    botId
+  );
+  if (!deducted) {
+    return NextResponse.json({
+      status: 'failed',
+      error: `Insufficient credits. You need ${GENERATION_COSTS.GENERATE_VIDEO} credits.`,
+    }, { status: 402 });
+  }
+
+  // Save to filesystem
+  const botDir = resolve(join(UPLOAD_DIR, botId));
+  if (!botDir.startsWith(resolve(UPLOAD_DIR))) {
+    return NextResponse.json({ status: 'failed', error: 'Invalid bot ID' }, { status: 400 });
+  }
+  if (!existsSync(botDir)) {
+    await mkdir(botDir, { recursive: true });
+  }
+
+  const uuid = randomUUID();
+  const filename = `${uuid}.mp4`;
+  const filePath = join(botDir, filename);
+  await writeFile(filePath, videoBuffer);
+
+  // Save to database
+  const media = await db.media.create({
+    data: {
+      botId,
+      type: 'VIDEO',
+      filename: `ai-generated-${platform}.mp4`,
+      mimeType: 'video/mp4',
+      fileSize: videoBuffer.length,
+      filePath: `${botId}/${filename}`,
+      aiDescription: fullPrompt,
+    },
+  });
+
+  // Log activity
+  await db.botActivity.create({
+    data: {
+      botId,
+      platform: platform as any,
+      action: 'GENERATE_VIDEO',
+      content: `[${provider}] ${fullPrompt.slice(0, 480)}`,
+      success: true,
+      creditsUsed: GENERATION_COSTS.GENERATE_VIDEO,
+    },
+  });
+
+  return NextResponse.json({
+    status: 'succeeded',
+    id: media.id,
+    filename: media.filename,
+    type: media.type,
+    fileSize: media.fileSize,
+    url: `/api/media/${media.id}`,
+    prompt: fullPrompt,
+    provider,
+  });
+}
+
+// ── Runway provider (synchronous) ──
 async function generateWithRunway(
   prompt: string,
   apiKey: string

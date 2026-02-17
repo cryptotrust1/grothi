@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { Loader2, Sparkles, ImageIcon, Film, CheckCircle, AlertCircle, ExternalLink } from 'lucide-react';
+import { Loader2, Sparkles, ImageIcon, Film, CheckCircle, AlertCircle } from 'lucide-react';
 
 const PLATFORMS = [
   { value: 'INSTAGRAM', label: 'Instagram (1080x1080)' },
@@ -25,7 +25,11 @@ interface GenerateResult {
   mediaUrl?: string;
   prompt?: string;
   httpStatus?: number;
+  progress?: string;
 }
+
+const POLL_INTERVAL = 5000; // 5 seconds
+const MAX_POLLS = 60; // 5 minutes max
 
 export function MediaGenerateForm({ botId }: { botId: string }) {
   const [imagePrompt, setImagePrompt] = useState('');
@@ -33,6 +37,7 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
   const [videoPrompt, setVideoPrompt] = useState('');
   const [videoPlatform, setVideoPlatform] = useState('TIKTOK');
   const [results, setResults] = useState<GenerateResult[]>([]);
+  const abortRef = useRef<AbortController | null>(null);
 
   const generateImage = useCallback(async () => {
     const result: GenerateResult = { type: 'image', status: 'generating' };
@@ -74,10 +79,16 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
   }, [botId, imagePlatform, imagePrompt]);
 
   const generateVideo = useCallback(async () => {
-    const result: GenerateResult = { type: 'video', status: 'generating' };
+    const result: GenerateResult = { type: 'video', status: 'generating', progress: 'Starting video generation...' };
     setResults(prev => [result, ...prev]);
 
+    // Cancel any previous polling
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
+      // Step 1: Start video generation (returns immediately for Replicate)
       const res = await fetch('/api/generate/video', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -86,24 +97,116 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
           platform: videoPlatform,
           prompt: videoPrompt || undefined,
         }),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        const error = data?.error || `Generation failed (HTTP ${res.status})`;
+        const error = data?.error || `Failed to start video generation (HTTP ${res.status})`;
         setResults(prev => prev.map((r, i) => i === 0 ? { ...r, status: 'error', error, httpStatus: res.status } : r));
         return;
       }
 
       const data = await res.json();
+
+      // If response already has final result (Runway synchronous path)
+      if (data.status === 'succeeded') {
+        setResults(prev => prev.map((r, i) => i === 0 ? {
+          ...r,
+          status: 'success',
+          mediaId: data.id,
+          mediaUrl: data.url,
+          prompt: data.prompt,
+        } : r));
+        return;
+      }
+
+      // Step 2: Async polling for Replicate predictions
+      const predictionId = data.predictionId;
+      if (!predictionId) {
+        setResults(prev => prev.map((r, i) => i === 0 ? {
+          ...r,
+          status: 'error',
+          error: 'Server did not return a prediction ID. Check server logs.',
+        } : r));
+        return;
+      }
+
+      // Update progress
       setResults(prev => prev.map((r, i) => i === 0 ? {
         ...r,
-        status: 'success',
-        mediaId: data.id,
-        mediaUrl: data.url,
-        prompt: data.prompt,
+        progress: 'Video generation started. This takes 1-3 minutes...',
       } : r));
-    } catch {
+
+      // Poll until completion or timeout
+      for (let poll = 0; poll < MAX_POLLS; poll++) {
+        await new Promise(r => setTimeout(r, POLL_INTERVAL));
+
+        if (controller.signal.aborted) return;
+
+        try {
+          const pollRes = await fetch(
+            `/api/generate/video?predictionId=${encodeURIComponent(predictionId)}`,
+            { signal: controller.signal },
+          );
+          const pollData = await pollRes.json().catch(() => null);
+
+          if (!pollData) {
+            // Non-JSON response (shouldn't happen for GET polls)
+            continue;
+          }
+
+          if (pollData.status === 'succeeded') {
+            setResults(prev => prev.map((r, i) => i === 0 ? {
+              ...r,
+              status: 'success',
+              mediaId: pollData.id,
+              mediaUrl: pollData.url,
+              prompt: pollData.prompt,
+            } : r));
+            return;
+          }
+
+          if (pollData.status === 'failed') {
+            setResults(prev => prev.map((r, i) => i === 0 ? {
+              ...r,
+              status: 'error',
+              error: pollData.error || 'Video generation failed.',
+              httpStatus: pollRes.status,
+            } : r));
+            return;
+          }
+
+          if (pollData.status === 'already_processed') {
+            setResults(prev => prev.map((r, i) => i === 0 ? {
+              ...r,
+              status: 'success',
+              progress: 'Video was already processed. Refresh the page to see it.',
+            } : r));
+            return;
+          }
+
+          // Still processing — update progress indicator
+          const elapsed = Math.round((poll + 1) * POLL_INTERVAL / 1000);
+          setResults(prev => prev.map((r, i) => i === 0 ? {
+            ...r,
+            progress: pollData.progress || `Generating video... (${elapsed}s)`,
+          } : r));
+        } catch (pollError) {
+          if (controller.signal.aborted) return;
+          // Network glitch during poll — just retry
+          continue;
+        }
+      }
+
+      // Timeout after MAX_POLLS
+      setResults(prev => prev.map((r, i) => i === 0 ? {
+        ...r,
+        status: 'error',
+        error: 'Video generation timed out after 5 minutes. The video may still be processing — try refreshing the media library in a few minutes.',
+      } : r));
+    } catch (err) {
+      if (controller.signal.aborted) return;
       setResults(prev => prev.map((r, i) => i === 0 ? {
         ...r,
         status: 'error',
@@ -112,7 +215,10 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
     }
   }, [botId, videoPlatform, videoPrompt]);
 
-  const clearResults = () => setResults([]);
+  const clearResults = () => {
+    if (abortRef.current) abortRef.current.abort();
+    setResults([]);
+  };
 
   const isGenerating = results.some(r => r.status === 'generating');
 
@@ -188,7 +294,7 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
               size="sm"
             >
               {isGenerating && results[0]?.type === 'video' && results[0]?.status === 'generating' ? (
-                <><Loader2 className="h-4 w-4 animate-spin" /> Generating (may take 1-3 min)...</>
+                <><Loader2 className="h-4 w-4 animate-spin" /> Generating (1-3 min)...</>
               ) : (
                 <><Sparkles className="h-4 w-4" /> Generate Video</>
               )}
@@ -232,6 +338,11 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
                     {r.status === 'generating' && ' — in progress...'}
                     {r.status === 'success' && ' — completed!'}
                   </p>
+
+                  {/* Progress indicator for async video generation */}
+                  {r.status === 'generating' && r.progress && (
+                    <p className="text-xs text-muted-foreground mt-1">{r.progress}</p>
+                  )}
 
                   {/* Error display with full detail */}
                   {r.error && (
