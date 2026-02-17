@@ -69,9 +69,14 @@ npm run build
 
 # Step 7: Restart PM2
 echo ""
-echo "Restarting PM2..."
+echo "[8/9] Restarting PM2..."
 pm2 restart grothi --update-env 2>/dev/null || pm2 start npm --name grothi -- start
 pm2 save
+
+# Step 8: Setup cron jobs (process-posts, collect-engagement, health-check)
+echo ""
+echo "[9/9] Setting up cron jobs..."
+bash server/setup-cron.sh 2>&1 || echo "WARN: Cron setup failed. Run manually: bash server/setup-cron.sh"
 
 echo ""
 echo "========================================="

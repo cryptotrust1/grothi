@@ -195,14 +195,31 @@ NEXTAUTH_SECRET=<random string>
 STRIPE_SECRET_KEY=<sk_live_...>
 STRIPE_WEBHOOK_SECRET=<whsec_...>
 ANTHROPIC_API_KEY=<sk-ant-...>  # For Claude Vision AI captions
+CRON_SECRET=<random string>     # Protects /api/cron/* endpoints
+FACEBOOK_APP_ID=<Meta App ID>
+FACEBOOK_APP_SECRET=<Meta App Secret>
+THREADS_APP_ID=<Threads App ID>
+THREADS_APP_SECRET=<Threads App Secret>
 ```
+
+## Background Workers (Cron Jobs)
+
+Three cron endpoints process background tasks. Protected by `CRON_SECRET` env var.
+
+| Endpoint | Frequency | Purpose |
+|----------|-----------|---------|
+| `POST /api/cron/process-posts` | Every 1 min | Publishes SCHEDULED posts to Facebook/Instagram/Threads |
+| `POST /api/cron/collect-engagement` | Every 15 min | Fetches likes/comments/shares from published posts |
+| `POST /api/cron/health-check` | Daily 3 AM | Validates tokens, refreshes Threads, resets counters |
+
+Setup: `bash server/setup-cron.sh` (auto-reads CRON_SECRET from .env, installs crontab entries)
 
 ## Deployment
 
 1. Push to `main` branch on GitHub
 2. SSH to server: `ssh root@89.167.18.92`
 3. `cd /home/acechange-bot/grothi && git pull origin main && bash deploy.sh`
-4. deploy.sh runs: `npm install && npx prisma generate && npx prisma db push && npm run build && pm2 restart grothi`
+4. deploy.sh runs: `npm install && prisma generate && prisma migrate && build && pm2 restart && setup-cron`
 
 ## Known Constraints
 
