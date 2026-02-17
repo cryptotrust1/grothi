@@ -10,7 +10,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { healthCheckAllConnections } from '@/lib/facebook';
+import { healthCheckAllConnections as fbHealthCheck } from '@/lib/facebook';
+import { healthCheckAllConnections as igHealthCheck } from '@/lib/instagram';
+import { healthCheckAllConnections as threadsHealthCheck } from '@/lib/threads';
 
 const CRON_SECRET = process.env.CRON_SECRET;
 
@@ -27,11 +29,15 @@ export async function POST(request: NextRequest) {
     data: { postsToday: 0, repliesToday: 0 },
   });
 
-  // Validate all Facebook connections
-  const fbResult = await healthCheckAllConnections();
+  // Validate all platform connections (Facebook, Instagram, Threads)
+  const fbResult = await fbHealthCheck();
+  const igResult = await igHealthCheck();
+  const threadsResult = await threadsHealthCheck();
 
   return NextResponse.json({
     dailyCountersReset: true,
     facebook: fbResult,
+    instagram: igResult,
+    threads: threadsResult,
   });
 }

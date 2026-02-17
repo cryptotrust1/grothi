@@ -140,23 +140,76 @@ function parseRateLimits(headers: Headers): RateLimitInfo {
 
 // ── Core API Call ──────────────────────────────────────────────
 
+/** Timeout for individual API calls (30 seconds). */
+const FETCH_TIMEOUT = 30_000;
+
 async function graphFetch(
   url: string,
   options?: RequestInit
 ): Promise<{ data: any; rateLimits: RateLimitInfo }> {
-  const res = await fetch(url, options);
-  const rateLimits = parseRateLimits(res.headers);
-  const data = await res.json();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
 
-  if (rateLimits.shouldThrottle) {
-    await new Promise((r) => setTimeout(r, 30_000));
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timer);
+
+    const rateLimits = parseRateLimits(res.headers);
+
+    // Handle HTTP 429 explicitly
+    if (res.status === 429) {
+      if (rateLimits.shouldThrottle) {
+        await new Promise((r) => setTimeout(r, 30_000));
+      }
+      const data = await res.json().catch(() => ({
+        error: { message: 'Rate limit exceeded. Please wait a few minutes.', type: 'OAuthException', code: 429 },
+      }));
+      return { data, rateLimits };
+    }
+
+    const data = await res.json();
+
+    if (rateLimits.shouldThrottle) {
+      await new Promise((r) => setTimeout(r, 30_000));
+    }
+
+    return { data, rateLimits };
+  } catch (e) {
+    clearTimeout(timer);
+    if (e instanceof Error && e.name === 'AbortError') {
+      throw new Error('Instagram API request timed out (30s). Try again later.');
+    }
+    throw e;
   }
-
-  return { data, rateLimits };
 }
 
 function isGraphError(data: any): data is GraphApiError {
   return data && typeof data === 'object' && 'error' in data;
+}
+
+/**
+ * Transform raw Instagram Graph API errors into user-friendly messages.
+ */
+function friendlyIgError(data: GraphApiError): string {
+  const err = data.error;
+  const code = err.code;
+  const sub = err.error_subcode;
+
+  // Token errors
+  if (code === 190) return 'Instagram token expired. Please reconnect Instagram in Platforms.';
+  // Permission errors
+  if (code === 10 || code === 200) return 'Missing Instagram permissions. Please reconnect with full permissions.';
+  // Rate limit
+  if (code === 4 || code === 32) return 'Instagram rate limit reached. Posts will resume automatically.';
+  // Media errors
+  if (code === 36003) return 'Instagram could not download the image. Make sure the image is publicly accessible.';
+  // Generic API service error (code 2)
+  if (code === 2) return 'Instagram is temporarily unavailable. The post will be retried.';
+  // Duplicate post
+  if (sub === 2207051) return 'Duplicate post detected. Instagram rejected identical content.';
+
+  // Fallback: include the raw message but prefix with context
+  return `Instagram error: ${err.message}`;
 }
 
 /**
@@ -287,18 +340,19 @@ export async function postImage(
     // Step 1: Create media container
     const containerUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.accountId)}/media`;
 
+    // Instagram Graph API requires form-urlencoded (not JSON)
     const { data: containerData } = await graphFetch(containerUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
         image_url: imageUrl,
         caption,
         access_token: creds.accessToken,
-      }),
+      }).toString(),
     });
 
     if (isGraphError(containerData)) {
-      return { success: false, error: containerData.error.message };
+      return { success: false, error: friendlyIgError(containerData) };
     }
 
     const containerId = containerData.id;
@@ -317,15 +371,15 @@ export async function postImage(
 
     const { data: publishData } = await graphFetch(publishUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
         creation_id: containerId,
         access_token: creds.accessToken,
-      }),
+      }).toString(),
     });
 
     if (isGraphError(publishData)) {
-      return { success: false, error: publishData.error.message };
+      return { success: false, error: friendlyIgError(publishData) };
     }
 
     return { success: true, mediaId: publishData.id };
@@ -365,16 +419,16 @@ export async function postCarousel(
 
       const { data: containerData } = await graphFetch(containerUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
           image_url: imageUrl,
-          is_carousel_item: true,
+          is_carousel_item: 'true',
           access_token: creds.accessToken,
-        }),
+        }).toString(),
       });
 
       if (isGraphError(containerData)) {
-        return { success: false, error: `Carousel item failed: ${containerData.error.message}` };
+        return { success: false, error: `Carousel item failed: ${friendlyIgError(containerData)}` };
       }
 
       childContainerIds.push(containerData.id);
@@ -393,17 +447,17 @@ export async function postCarousel(
 
     const { data: carouselData } = await graphFetch(carouselUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
         media_type: 'CAROUSEL',
         caption,
-        children: childContainerIds,
+        children: childContainerIds.join(','),
         access_token: creds.accessToken,
-      }),
+      }).toString(),
     });
 
     if (isGraphError(carouselData)) {
-      return { success: false, error: carouselData.error.message };
+      return { success: false, error: friendlyIgError(carouselData) };
     }
 
     // Step 4: Wait for carousel container
@@ -417,15 +471,15 @@ export async function postCarousel(
 
     const { data: publishData } = await graphFetch(publishUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
         creation_id: carouselData.id,
         access_token: creds.accessToken,
-      }),
+      }).toString(),
     });
 
     if (isGraphError(publishData)) {
-      return { success: false, error: publishData.error.message };
+      return { success: false, error: friendlyIgError(publishData) };
     }
 
     return { success: true, mediaId: publishData.id };
@@ -453,17 +507,17 @@ export async function postReel(
 
     const { data: containerData } = await graphFetch(containerUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
         media_type: 'REELS',
         video_url: videoUrl,
         caption,
         access_token: creds.accessToken,
-      }),
+      }).toString(),
     });
 
     if (isGraphError(containerData)) {
-      return { success: false, error: containerData.error.message };
+      return { success: false, error: friendlyIgError(containerData) };
     }
 
     const containerId = containerData.id;
@@ -482,15 +536,15 @@ export async function postReel(
 
     const { data: publishData } = await graphFetch(publishUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
         creation_id: containerId,
         access_token: creds.accessToken,
-      }),
+      }).toString(),
     });
 
     if (isGraphError(publishData)) {
-      return { success: false, error: publishData.error.message };
+      return { success: false, error: friendlyIgError(publishData) };
     }
 
     return { success: true, mediaId: publishData.id };

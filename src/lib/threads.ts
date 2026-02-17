@@ -109,17 +109,57 @@ export async function getThreadsCredentials(
 
 // ── Core API Call ──────────────────────────────────────────────
 
+/** Timeout for individual API calls (30 seconds). */
+const FETCH_TIMEOUT = 30_000;
+
 async function threadsFetch(
   url: string,
   options?: RequestInit
 ): Promise<{ data: any }> {
-  const res = await fetch(url, options);
-  const data = await res.json();
-  return { data };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timer);
+
+    // Handle HTTP 429 rate limiting
+    if (res.status === 429) {
+      await new Promise((r) => setTimeout(r, 30_000));
+      const data = await res.json().catch(() => ({
+        error: { message: 'Rate limit exceeded. Please wait a few minutes.', type: 'OAuthException', code: 429 },
+      }));
+      return { data };
+    }
+
+    const data = await res.json();
+    return { data };
+  } catch (e) {
+    clearTimeout(timer);
+    if (e instanceof Error && e.name === 'AbortError') {
+      throw new Error('Threads API request timed out (30s). Try again later.');
+    }
+    throw e;
+  }
 }
 
 function isApiError(data: any): data is ThreadsApiError {
   return data && typeof data === 'object' && 'error' in data;
+}
+
+/**
+ * Transform raw Threads API errors into user-friendly messages.
+ */
+function friendlyThreadsError(data: ThreadsApiError): string {
+  const err = data.error;
+  const code = err.code;
+
+  if (code === 190) return 'Threads token expired. Please reconnect Threads in Platforms.';
+  if (code === 10 || code === 200) return 'Missing Threads permissions. Please reconnect with full permissions.';
+  if (code === 4 || code === 32) return 'Threads rate limit reached. Posts will resume automatically.';
+  if (code === 2) return 'Threads is temporarily unavailable. The post will be retried.';
+
+  return `Threads error: ${err.message}`;
 }
 
 /**
@@ -301,7 +341,7 @@ export async function postText(
 
     if (isApiError(containerData)) {
       console.error('[threads] Container creation failed:', JSON.stringify(containerData.error));
-      return { success: false, error: containerData.error.message };
+      return { success: false, error: friendlyThreadsError(containerData) };
     }
 
     const containerId = containerData.id;
@@ -329,7 +369,7 @@ export async function postText(
 
     if (isApiError(publishData)) {
       console.error('[threads] Publish failed:', JSON.stringify(publishData.error));
-      return { success: false, error: publishData.error.message };
+      return { success: false, error: friendlyThreadsError(publishData) };
     }
 
     return { success: true, postId: publishData.id };
@@ -375,7 +415,7 @@ export async function postWithImage(
 
     if (isApiError(containerData)) {
       console.error('[threads] Image container creation failed:', JSON.stringify(containerData.error));
-      return { success: false, error: containerData.error.message };
+      return { success: false, error: friendlyThreadsError(containerData) };
     }
 
     const containerId = containerData.id;
@@ -403,7 +443,7 @@ export async function postWithImage(
 
     if (isApiError(publishData)) {
       console.error('[threads] Image publish failed:', JSON.stringify(publishData.error));
-      return { success: false, error: publishData.error.message };
+      return { success: false, error: friendlyThreadsError(publishData) };
     }
 
     return { success: true, postId: publishData.id };
@@ -443,7 +483,7 @@ export async function postWithVideo(
 
     if (isApiError(containerData)) {
       console.error('[threads] Video container creation failed:', JSON.stringify(containerData.error));
-      return { success: false, error: containerData.error.message };
+      return { success: false, error: friendlyThreadsError(containerData) };
     }
 
     const containerId = containerData.id;
@@ -469,7 +509,7 @@ export async function postWithVideo(
 
     if (isApiError(publishData)) {
       console.error('[threads] Video publish failed:', JSON.stringify(publishData.error));
-      return { success: false, error: publishData.error.message };
+      return { success: false, error: friendlyThreadsError(publishData) };
     }
 
     return { success: true, postId: publishData.id };
@@ -577,7 +617,7 @@ export async function postCarousel(
 
     if (isApiError(publishData)) {
       console.error('[threads] Carousel publish failed:', JSON.stringify(publishData.error));
-      return { success: false, error: publishData.error.message };
+      return { success: false, error: friendlyThreadsError(publishData) };
     }
 
     return { success: true, postId: publishData.id };
