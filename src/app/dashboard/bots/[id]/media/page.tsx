@@ -10,6 +10,7 @@ import { Image, Film, Upload, Trash2, Sparkles, ChevronLeft, ChevronRight, Wand2
 import { MediaUploadForm } from '@/components/dashboard/media-upload-form';
 import { MediaGenerateForm } from '@/components/dashboard/media-generate-form';
 import { MediaCardActions } from '@/components/dashboard/media-card-actions';
+import { MediaVideoThumbnail } from '@/components/dashboard/media-video-thumbnail';
 import { BotNav } from '@/components/dashboard/bot-nav';
 
 export const metadata: Metadata = { title: 'Media Library', robots: { index: false } };
@@ -132,14 +133,9 @@ export default async function BotMediaPage({
               <div className="aspect-square relative bg-muted flex items-center justify-center">
                 {m.type === 'VIDEO' ? (
                   <div className="relative w-full h-full">
-                    {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                    <video
+                    <MediaVideoThumbnail
                       src={`/api/media/${m.id}`}
                       className="object-cover w-full h-full"
-                      muted
-                      preload="metadata"
-                      onMouseEnter={(e) => { const v = e.currentTarget; v.currentTime = 0; v.play().catch(() => {}); }}
-                      onMouseLeave={(e) => { e.currentTarget.pause(); e.currentTarget.currentTime = 0; }}
                     />
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none group-hover:opacity-0 transition-opacity">
                       <div className="h-10 w-10 rounded-full bg-black/50 flex items-center justify-center">
