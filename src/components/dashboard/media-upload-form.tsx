@@ -48,7 +48,7 @@ export function MediaUploadForm({ botId }: { botId: string }) {
   const [isUploading, setIsUploading] = useState(false);
   const [showFormats, setShowFormats] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  let idCounter = useRef(0);
+  const idCounter = useRef(0);
 
   const validateFile = (file: File): string | null => {
     const allowed = ACCEPTED_TYPES.split(',');
