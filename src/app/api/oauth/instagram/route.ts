@@ -45,16 +45,20 @@ export async function GET(request: NextRequest) {
     .setIssuedAt()
     .sign(JWT_SECRET);
 
-  // Required scopes for Instagram Business content publishing via Facebook Login:
+  // Required scopes for Instagram via Facebook Login:
   // - pages_show_list: list pages the user manages (needed to find linked IG account)
-  // - instagram_business_basic: read Instagram Business profile info and media
-  // - instagram_business_content_publish: create posts, reels, stories on Instagram
   // - pages_read_engagement: required dependency for page-related operations
+  // - instagram_basic: read Instagram Business profile info and media
+  // - instagram_content_publish: create posts on Instagram
+  //
+  // NOTE: These are Facebook Login scopes (facebook.com/dialog/oauth).
+  // Do NOT use instagram_business_* scopes here — those are for the
+  // Instagram Direct Login flow (api.instagram.com/oauth/authorize).
   const scopes = [
     'pages_show_list',
     'pages_read_engagement',
-    'instagram_business_basic',
-    'instagram_business_content_publish',
+    'instagram_basic',
+    'instagram_content_publish',
   ].join(',');
 
   const authUrl = new URL(`https://www.facebook.com/${FB_GRAPH_VERSION}/dialog/oauth`);
