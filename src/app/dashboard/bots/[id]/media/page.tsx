@@ -31,7 +31,8 @@ export default async function BotMediaPage({
   const bot = await db.bot.findFirst({ where: { id, userId: user.id } });
   if (!bot) notFound();
 
-  const page = Math.max(1, parseInt(sp.page || '1'));
+  const parsedPage = parseInt(sp.page || '1', 10);
+  const page = Math.max(1, isNaN(parsedPage) ? 1 : parsedPage);
   const typeFilter = sp.type && sp.type !== 'ALL' ? sp.type : undefined;
 
   const where: Record<string, unknown> = {

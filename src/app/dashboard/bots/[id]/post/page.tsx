@@ -2,7 +2,7 @@ import { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { deductCredits, getActionCost, hasEnoughCredits } from '@/lib/credits';
+import { getActionCost, hasEnoughCredits } from '@/lib/credits';
 import { PLATFORM_NAMES, PLATFORM_REQUIREMENTS, POST_STATUS_COLORS } from '@/lib/constants';
 import { BotNav } from '@/components/dashboard/bot-nav';
 import { PostFormClient } from '@/components/dashboard/post-form-client';
@@ -196,7 +196,7 @@ export default async function ManualPostPage({
       finalScheduledAt = parsed;
     }
 
-    // Deduct credits for immediate post
+    // Check credits for immediate post (deduction happens in process-posts cron on success)
     if (action === 'now') {
       const cost = await getActionCost('POST');
       const totalCost = cost * platformsRaw.length;
@@ -204,12 +204,6 @@ export default async function ManualPostPage({
       if (!hasCredits) {
         redirect(`/dashboard/bots/${id}/post?error=${encodeURIComponent(`Not enough credits. Need ${totalCost} credits (${cost} per platform x ${platformsRaw.length} platforms).`)}`);
       }
-      await deductCredits(
-        currentUser.id,
-        totalCost,
-        `Manual post to ${platformsRaw.length} platform(s)`,
-        id
-      );
     }
 
     await db.scheduledPost.create({
