@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { sendCampaignEmail, checkDailyLimit, wrapLinksForTracking, getTrackingPixelUrl } from '@/lib/email';
+import { sendCampaignEmail, checkDailyLimit, prepareCampaignHtml } from '@/lib/email';
 
 /**
  * POST /api/email/campaigns
@@ -80,6 +80,14 @@ export async function POST(request: NextRequest) {
       let failed = 0;
       const contactsToSend = contacts.slice(0, maxToSend);
 
+      const smtpConfig = {
+        smtpHost: campaign.account.smtpHost,
+        smtpPort: campaign.account.smtpPort,
+        smtpUser: campaign.account.smtpUser,
+        smtpPass: campaign.account.smtpPass,
+        smtpSecure: campaign.account.smtpSecure,
+      };
+
       for (const contact of contactsToSend) {
         // Create send record
         const emailSend = await db.emailSend.create({
@@ -90,41 +98,16 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        // Personalize content
-        let html = campaign.htmlContent;
-        html = html.replace(/\{\{firstName\}\}/g, contact.firstName || '');
-        html = html.replace(/\{\{lastName\}\}/g, contact.lastName || '');
-        html = html.replace(/\{\{email\}\}/g, contact.email);
-
-        // Add tracking pixel
-        const trackingPixelUrl = getTrackingPixelUrl(emailSend.id, baseUrl);
-
-        // Wrap links for click tracking
-        html = wrapLinksForTracking(html, emailSend.id, baseUrl);
-
-        // Add unsubscribe footer
-        const unsubscribeUrl = `${baseUrl}/api/email/unsubscribe?cid=${encodeURIComponent(contact.id)}&lid=${encodeURIComponent(campaign.listId)}`;
-        html += `<div style="margin-top:20px;padding-top:15px;border-top:1px solid #eee;font-size:12px;color:#999;text-align:center;">`;
-        html += `<p>You received this because you subscribed to ${campaign.bot.brandName}.</p>`;
-        html += `<p><a href="${unsubscribeUrl}" style="color:#999;">Unsubscribe</a></p>`;
-        html += `</div>`;
-
-        // Personalize text version
-        let text = campaign.textContent || '';
-        if (text) {
-          text = text.replace(/\{\{firstName\}\}/g, contact.firstName || '');
-          text = text.replace(/\{\{lastName\}\}/g, contact.lastName || '');
-          text = text.replace(/\{\{email\}\}/g, contact.email);
-          text += `\n\nUnsubscribe: ${unsubscribeUrl}`;
-        }
-
-        const smtpConfig = {
-          smtpHost: campaign.account.smtpHost,
-          smtpPort: campaign.account.smtpPort,
-          smtpUser: campaign.account.smtpUser,
-          smtpPass: campaign.account.smtpPass,
-          smtpSecure: campaign.account.smtpSecure,
-        };
+        // Prepare email using shared helper (personalization, tracking, unsubscribe)
+        const prepared = prepareCampaignHtml({
+          html: campaign.htmlContent,
+          text: campaign.textContent,
+          contact,
+          sendId: emailSend.id,
+          listId: campaign.listId,
+          brandName: campaign.bot.brandName,
+          baseUrl,
+        });
 
         const result = await sendCampaignEmail({
           config: smtpConfig,
@@ -132,10 +115,10 @@ export async function POST(request: NextRequest) {
           fromName: campaign.fromName || campaign.account.fromName || undefined,
           to: contact.email,
           subject: campaign.subject,
-          html,
-          text: text || undefined,
-          unsubscribeUrl,
-          trackingPixelUrl,
+          html: prepared.html,
+          text: prepared.text,
+          unsubscribeUrl: prepared.unsubscribeUrl,
+          trackingPixelUrl: prepared.trackingPixelUrl,
         });
 
         if (result.success) {
