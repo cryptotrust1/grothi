@@ -119,20 +119,48 @@ function parseRateLimits(headers: Headers): RateLimitInfo {
 
 // ── Core API Call ──────────────────────────────────────────────
 
+/** Timeout for individual API calls (30 seconds). */
+const FETCH_TIMEOUT = 30_000;
+
 async function graphFetch(
   url: string,
   options?: RequestInit
 ): Promise<{ data: any; rateLimits: RateLimitInfo }> {
-  const res = await fetch(url, options);
-  const rateLimits = parseRateLimits(res.headers);
-  const data = await res.json();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
 
-  // If rate limited, wait before returning
-  if (rateLimits.shouldThrottle) {
-    await new Promise((r) => setTimeout(r, 30_000));
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timer);
+
+    const rateLimits = parseRateLimits(res.headers);
+
+    // Handle HTTP 429 explicitly
+    if (res.status === 429) {
+      if (rateLimits.shouldThrottle) {
+        await new Promise((r) => setTimeout(r, 30_000));
+      }
+      const data = await res.json().catch(() => ({
+        error: { message: 'Rate limit exceeded. Please wait a few minutes.', type: 'OAuthException', code: 429 },
+      }));
+      return { data, rateLimits };
+    }
+
+    const data = await res.json();
+
+    // If rate limited, wait before returning
+    if (rateLimits.shouldThrottle) {
+      await new Promise((r) => setTimeout(r, 30_000));
+    }
+
+    return { data, rateLimits };
+  } catch (e) {
+    clearTimeout(timer);
+    if (e instanceof Error && e.name === 'AbortError') {
+      throw new Error('Facebook API request timed out (30s). Try again later.');
+    }
+    throw e;
   }
-
-  return { data, rateLimits };
 }
 
 function isGraphError(data: any): data is GraphApiError {
@@ -146,6 +174,22 @@ function isGraphError(data: any): data is GraphApiError {
 function isTokenError(data: any): boolean {
   if (!isGraphError(data)) return false;
   return data.error.code === 190;
+}
+
+/**
+ * Transform raw Facebook Graph API errors into user-friendly messages.
+ */
+function friendlyFbError(data: GraphApiError): string {
+  const err = data.error;
+  const code = err.code;
+
+  if (code === 190) return 'Facebook token expired. Please reconnect Facebook in Platforms.';
+  if (code === 10 || code === 200) return 'Missing Facebook permissions. Please reconnect with full permissions.';
+  if (code === 4 || code === 32) return 'Facebook rate limit reached. Posts will resume automatically.';
+  if (code === 2) return 'Facebook is temporarily unavailable. The post will be retried.';
+  if (code === 324) return 'Facebook could not process the image. The file may be corrupted or too large.';
+
+  return `Facebook error: ${err.message}`;
 }
 
 // ── Token Validation ───────────────────────────────────────────
@@ -224,7 +268,7 @@ export async function postText(
     });
 
     if (isGraphError(data)) {
-      return { success: false, error: data.error.message };
+      return { success: false, error: friendlyFbError(data) };
     }
 
     return { success: true, postId: data.id };
@@ -245,6 +289,13 @@ export async function postWithImage(
   const url = `${GRAPH_BASE}/${encodeURIComponent(creds.pageId)}/photos`;
 
   try {
+    // Verify file exists before attempting to read (friendly error)
+    try {
+      await fs.access(imagePath);
+    } catch {
+      return { success: false, error: `Image file not found: ${path.basename(imagePath)}. It may have been deleted.` };
+    }
+
     const fileBuffer = await fs.readFile(imagePath);
     const ext = path.extname(imagePath).toLowerCase().replace('.', '');
     const mimeMap: Record<string, string> = {
@@ -268,7 +319,7 @@ export async function postWithImage(
     });
 
     if (isGraphError(data)) {
-      return { success: false, error: data.error.message };
+      return { success: false, error: friendlyFbError(data) };
     }
 
     // Photos endpoint returns { id, post_id }
@@ -304,7 +355,7 @@ export async function postScheduled(
     });
 
     if (isGraphError(data)) {
-      return { success: false, error: data.error.message };
+      return { success: false, error: friendlyFbError(data) };
     }
 
     return { success: true, postId: data.id };

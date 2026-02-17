@@ -40,6 +40,9 @@ import {
 import type { PlatformType } from '@prisma/client';
 import path from 'path';
 
+/** Base directory for uploaded media files. */
+const UPLOAD_DIR = path.join(process.cwd(), 'data', 'uploads');
+
 const CRON_SECRET = process.env.CRON_SECRET;
 
 /** Max posts to process per invocation (prevents long-running requests). */
@@ -93,6 +96,17 @@ export async function POST(request: NextRequest) {
     let anySucceeded = false;
 
     for (const platform of platforms) {
+      // Check credit balance before posting
+      const hasCreds = await hasEnoughCredits(post.bot.userId, await getActionCost('POST'));
+      if (!hasCreds) {
+        platformResults[platform] = {
+          success: false,
+          error: 'Insufficient credits. Buy more credits to continue posting.',
+        };
+        allSucceeded = false;
+        continue;
+      }
+
       const result = await publishToPlatform(
         platform as PlatformType,
         post.botId,
@@ -104,11 +118,15 @@ export async function POST(request: NextRequest) {
 
       if (result.success) {
         anySucceeded = true;
+        // Deduct credits on successful post
+        const cost = await getActionCost('POST');
+        await deductCredits(post.bot.userId, cost, `Post to ${platform}`, post.botId);
       } else {
         allSucceeded = false;
       }
 
       // Record activity
+      const cost = result.success ? await getActionCost('POST') : 0;
       await db.botActivity.create({
         data: {
           botId: post.botId,
@@ -119,7 +137,7 @@ export async function POST(request: NextRequest) {
           contentType: post.contentType || 'custom',
           success: result.success,
           error: result.error || null,
-          creditsUsed: result.success ? await getActionCost('POST') : 0,
+          creditsUsed: cost,
         },
       });
 
@@ -243,10 +261,10 @@ async function publishToFacebook(
     let result: FacebookPostResult;
 
     if (mediaPath) {
-      // Resolve to absolute path
+      // Resolve to absolute path — filePath in DB is relative to data/uploads/
       const absPath = path.isAbsolute(mediaPath)
         ? mediaPath
-        : path.join(process.cwd(), mediaPath);
+        : path.join(UPLOAD_DIR, mediaPath);
 
       result = await postWithImage(creds, content, absPath);
     } else {
