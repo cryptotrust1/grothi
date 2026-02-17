@@ -103,10 +103,12 @@ model Bot {
   rlArmStates     RLArmState[]
   rlConfigs       RLConfig[]
   contentPlans    PlatformContentPlan[]
-  emailAccount    EmailAccount?
-  emailLists      EmailList[]
-  emailCampaigns  EmailCampaign[]
-  emailAutomations EmailAutomation[]
+  emailAccount       EmailAccount?
+  emailLists         EmailList[]
+  emailCampaigns     EmailCampaign[]
+  emailAutomations   EmailAutomation[]
+  signupForms        SignupForm[]
+  ecommerceConns     EcommerceConnection[]
 
   @@index([userId])
   @@index([status])
@@ -629,12 +631,21 @@ model EmailAccount {
   email      String
   fromName   String?
 
+  // Auth method: SMTP (password) or OAuth2
+  authMethod EmailAuthMethod @default(SMTP)
+
   // SMTP credentials (password encrypted with AES-256-GCM)
   smtpHost   String
   smtpPort   Int           @default(587)
   smtpUser   String
   smtpPass   String        // encrypted
   smtpSecure Boolean       @default(false)
+
+  // OAuth2 tokens (encrypted)
+  oauthAccessToken  String?
+  oauthRefreshToken String?
+  oauthTokenExpiry  DateTime?
+  oauthClientId     String?
 
   // Sending limits
   dailyLimit  Int      @default(2000)
@@ -652,6 +663,11 @@ model EmailAccount {
   campaigns EmailCampaign[]
 
   @@index([botId])
+}
+
+enum EmailAuthMethod {
+  SMTP
+  OAUTH2
 }
 
 enum EmailProvider {
@@ -674,11 +690,45 @@ model EmailList {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  bot       Bot              @relation(fields: [botId], references: [id], onDelete: Cascade)
-  contacts  EmailContact[]
-  campaigns EmailCampaign[]
+  bot         Bot              @relation(fields: [botId], references: [id], onDelete: Cascade)
+  contacts    EmailContact[]
+  campaigns   EmailCampaign[]
+  signupForms SignupForm[]
 
   @@index([botId])
+}
+
+model SignupForm {
+  id     String @id @default(cuid())
+  botId  String
+  listId String
+  name   String
+
+  // Form configuration
+  fields      Json    @default("[\"email\",\"firstName\"]") // array of field names
+  buttonText  String  @default("Subscribe")
+  successMsg  String  @default("Thanks for subscribing!")
+  description String?
+
+  // Styling
+  brandColor String @default("#6366f1")
+  style      String @default("inline") // inline, popup, embedded
+
+  // Double opt-in
+  doubleOptIn Boolean @default(false)
+
+  // Stats
+  submissions Int @default(0)
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bot  Bot       @relation(fields: [botId], references: [id], onDelete: Cascade)
+  list EmailList @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  @@index([botId])
+  @@index([listId])
 }
 
 model EmailContact {
@@ -927,4 +977,63 @@ enum AutomationType {
   WELCOME
   RE_ENGAGEMENT
   DRIP
+  ABANDONED_CART
+}
+
+// ============ E-COMMERCE INTEGRATIONS ============
+
+model EcommerceConnection {
+  id       String         @id @default(cuid())
+  botId    String
+  platform EcommercePlatform
+  name     String
+
+  // Connection credentials (encrypted)
+  shopDomain String        // e.g. mystore.myshopify.com
+  apiKey     String        // encrypted
+  apiSecret  String?       // encrypted (for Shopify)
+  webhookSecret String?    // for verifying incoming webhooks
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bot   Bot             @relation(fields: [botId], references: [id], onDelete: Cascade)
+  carts AbandonedCart[]
+
+  @@unique([botId, platform])
+  @@index([botId])
+}
+
+model AbandonedCart {
+  id           String @id @default(cuid())
+  connectionId String
+  externalId   String // cart/checkout ID from the store
+
+  customerEmail String
+  customerName  String?
+  cartTotal     Float
+  currency      String  @default("USD")
+  cartItems     Json    // array of { name, price, quantity, imageUrl, productUrl }
+
+  // Recovery tracking
+  recoveryEmailSent Boolean  @default(false)
+  recoveredAt       DateTime?
+  recoveryValue     Float?
+
+  abandonedAt DateTime
+  createdAt   DateTime @default(now())
+
+  connection EcommerceConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, externalId])
+  @@index([connectionId])
+  @@index([customerEmail])
+  @@index([recoveryEmailSent])
+  @@index([abandonedAt])
+}
+
+enum EcommercePlatform {
+  SHOPIFY
+  WOOCOMMERCE
 }
