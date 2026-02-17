@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { sendCampaignEmail, checkDailyLimit, prepareCampaignHtml, sleep } from '@/lib/email';
+import { createOAuthTransporter } from '@/lib/oauth';
 
 /**
  * POST /api/email/campaigns
@@ -88,6 +89,39 @@ export async function POST(request: NextRequest) {
         smtpSecure: campaign.account.smtpSecure,
       };
 
+      // For OAuth2 accounts, create a reusable OAuth transporter
+      let oauthTransporter: Awaited<ReturnType<typeof createOAuthTransporter>> | null = null;
+      if (campaign.account.authMethod === 'OAUTH2' && campaign.account.oauthAccessToken && campaign.account.oauthRefreshToken) {
+        try {
+          oauthTransporter = await createOAuthTransporter({
+            email: campaign.account.email,
+            oauthAccessToken: campaign.account.oauthAccessToken,
+            oauthRefreshToken: campaign.account.oauthRefreshToken,
+            oauthTokenExpiry: campaign.account.oauthTokenExpiry!,
+            provider: campaign.account.provider as 'GOOGLE' | 'MICROSOFT',
+          });
+          // Persist refreshed tokens if needed
+          if (oauthTransporter.tokenRefreshed) {
+            const { encrypt } = await import('@/lib/encryption');
+            await db.emailAccount.update({
+              where: { id: campaign.account.id },
+              data: {
+                oauthAccessToken: encrypt(oauthTransporter.accessToken),
+                oauthTokenExpiry: oauthTransporter.expiresAt,
+              },
+            });
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'OAuth transporter error';
+          console.error(`[CAMPAIGN] OAuth transporter failed: ${msg}`);
+          await db.emailCampaign.update({
+            where: { id: campaignId },
+            data: { status: 'FAILED' },
+          });
+          return NextResponse.json({ error: `OAuth error: ${msg}` }, { status: 500 });
+        }
+      }
+
       for (const contact of contactsToSend) {
         // Create send record
         const emailSend = await db.emailSend.create({
@@ -120,6 +154,7 @@ export async function POST(request: NextRequest) {
           text: prepared.text,
           unsubscribeUrl: prepared.unsubscribeUrl,
           trackingPixelUrl: prepared.trackingPixelUrl,
+          transporter: oauthTransporter?.transporter,
         });
 
         if (result.success) {

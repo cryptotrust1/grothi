@@ -64,15 +64,19 @@ interface SendCampaignEmailOptions {
   text?: string;
   unsubscribeUrl?: string;
   trackingPixelUrl?: string;
+  /** Pre-built transporter (used for OAuth2 accounts). If provided, config is ignored. */
+  transporter?: Transporter;
 }
 
 /**
- * Send a single campaign email via user's SMTP.
+ * Send a single campaign email via user's SMTP or OAuth2 transporter.
+ * If options.transporter is provided (OAuth2), it's used directly.
+ * Otherwise, creates a new SMTP transporter from options.config.
  * Automatically adds CAN-SPAM compliant unsubscribe header.
  * Injects tracking pixel for open tracking if provided.
  */
 export async function sendCampaignEmail(options: SendCampaignEmailOptions) {
-  const transporter = createTransporter(options.config);
+  const transporter = options.transporter || createTransporter(options.config);
 
   const headers: Record<string, string> = {};
 
@@ -103,7 +107,8 @@ export async function sendCampaignEmail(options: SendCampaignEmailOptions) {
       headers,
     });
 
-    transporter.close();
+    // Only close transporter if we created it (not for reused OAuth transporters)
+    if (!options.transporter) transporter.close();
 
     return {
       success: true as const,
@@ -112,7 +117,7 @@ export async function sendCampaignEmail(options: SendCampaignEmailOptions) {
       rejected: result.rejected as string[],
     };
   } catch (error) {
-    transporter.close();
+    if (!options.transporter) transporter.close();
     return {
       success: false as const,
       error: error instanceof Error ? error.message : 'Send failed',
