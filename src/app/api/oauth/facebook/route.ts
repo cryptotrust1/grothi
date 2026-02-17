@@ -26,14 +26,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Missing botId' }, { status: 400 });
   }
 
+  // Use NEXTAUTH_URL for all redirects — behind Nginx reverse proxy,
+  // request.nextUrl.origin resolves to localhost:3000 instead of grothi.com
+  const baseUrl = process.env.NEXTAUTH_URL || request.nextUrl.origin;
+
   const appId = process.env.FACEBOOK_APP_ID;
   if (!appId) {
     const errorMsg = encodeURIComponent('Facebook OAuth is not yet configured. Please use manual credentials for now, or contact support.');
-    return NextResponse.redirect(new URL(botId ? `/dashboard/bots/${botId}/platforms?error=${errorMsg}` : `/dashboard?error=${errorMsg}`, request.nextUrl.origin));
+    return NextResponse.redirect(new URL(botId ? `/dashboard/bots/${botId}/platforms?error=${errorMsg}` : `/dashboard?error=${errorMsg}`, baseUrl));
   }
-
-  // Build the callback URL
-  const baseUrl = process.env.NEXTAUTH_URL || request.nextUrl.origin;
   const redirectUri = `${baseUrl}/api/oauth/facebook/callback`;
 
   // Create a signed state token with botId + userId for CSRF protection

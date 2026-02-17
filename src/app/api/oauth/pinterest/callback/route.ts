@@ -20,9 +20,11 @@ const JWT_SECRET = new TextEncoder().encode(
  * Official docs: https://developers.pinterest.com/docs/getting-started/set-up-authentication-and-authorization/
  */
 export async function GET(request: NextRequest) {
+  const origin = process.env.NEXTAUTH_URL || request.nextUrl.origin;
+
   const user = await getCurrentUser();
   if (!user) {
-    return NextResponse.redirect(new URL('/auth/signin', request.nextUrl.origin));
+    return NextResponse.redirect(new URL('/auth/signin', origin));
   }
 
   const code = request.nextUrl.searchParams.get('code');
@@ -32,13 +34,13 @@ export async function GET(request: NextRequest) {
   if (errorParam) {
     const errorDesc = request.nextUrl.searchParams.get('error_description') || 'Pinterest authorization was denied';
     return NextResponse.redirect(
-      new URL(`/dashboard?error=${encodeURIComponent(errorDesc)}`, request.nextUrl.origin)
+      new URL(`/dashboard?error=${encodeURIComponent(errorDesc)}`, origin)
     );
   }
 
   if (!code || !state) {
     return NextResponse.redirect(
-      new URL('/dashboard?error=' + encodeURIComponent('Missing authorization code'), request.nextUrl.origin)
+      new URL('/dashboard?error=' + encodeURIComponent('Missing authorization code'), origin)
     );
   }
 
@@ -48,19 +50,19 @@ export async function GET(request: NextRequest) {
     botId = payload.botId as string;
     if (payload.userId !== user.id) {
       return NextResponse.redirect(
-        new URL('/dashboard?error=' + encodeURIComponent('Session mismatch'), request.nextUrl.origin)
+        new URL('/dashboard?error=' + encodeURIComponent('Session mismatch'), origin)
       );
     }
   } catch {
     return NextResponse.redirect(
-      new URL('/dashboard?error=' + encodeURIComponent('Invalid or expired state token. Please try again.'), request.nextUrl.origin)
+      new URL('/dashboard?error=' + encodeURIComponent('Invalid or expired state token. Please try again.'), origin)
     );
   }
 
   const bot = await db.bot.findFirst({ where: { id: botId, userId: user.id } });
   if (!bot) {
     return NextResponse.redirect(
-      new URL('/dashboard?error=' + encodeURIComponent('Bot not found'), request.nextUrl.origin)
+      new URL('/dashboard?error=' + encodeURIComponent('Bot not found'), origin)
     );
   }
 
@@ -68,12 +70,11 @@ export async function GET(request: NextRequest) {
   const appSecret = process.env.PINTEREST_APP_SECRET;
   if (!appId || !appSecret) {
     return NextResponse.redirect(
-      new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent('Pinterest OAuth not configured on server')}`, request.nextUrl.origin)
+      new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent('Pinterest OAuth not configured on server')}`, origin)
     );
   }
 
-  const baseUrl = process.env.NEXTAUTH_URL || request.nextUrl.origin;
-  const redirectUri = `${baseUrl}/api/oauth/pinterest/callback`;
+  const redirectUri = `${origin}/api/oauth/pinterest/callback`;
 
   try {
     // Step 1: Exchange code for tokens (Pinterest uses Basic Auth)
@@ -95,7 +96,7 @@ export async function GET(request: NextRequest) {
     if (tokenData.error || !tokenData.access_token) {
       const msg = tokenData.message || tokenData.error || 'Failed to get access token';
       return NextResponse.redirect(
-        new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(msg)}`, request.nextUrl.origin)
+        new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(msg)}`, origin)
       );
     }
 
@@ -141,7 +142,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(
       new URL(
         `/dashboard/bots/${botId}/platforms?success=${encodeURIComponent(`Pinterest (${username}) connected successfully`)}`,
-        request.nextUrl.origin
+        origin
       )
     );
   } catch (e) {
@@ -149,7 +150,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(
       new URL(
         `/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(message)}`,
-        request.nextUrl.origin
+        origin
       )
     );
   }
