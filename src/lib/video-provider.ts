@@ -64,13 +64,13 @@ export async function generateVideo(prompt: string): Promise<VideoGenerationResu
   return generateWithReplicate(prompt, apiKey);
 }
 
-// ============ REPLICATE (Minimax video-01-live) ============
+// ============ REPLICATE (Minimax video-01 text-to-video) ============
 
 async function generateWithReplicate(prompt: string, apiKey: string): Promise<VideoGenerationResult> {
   const Replicate = (await import('replicate')).default;
   const replicate = new Replicate({ auth: apiKey });
 
-  const output = await replicate.run('minimax/video-01-live', {
+  const output = await replicate.run('minimax/video-01', {
     input: { prompt },
   });
 
