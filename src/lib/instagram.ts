@@ -8,10 +8,11 @@
  *   1. Create a media container (upload reference)
  *   2. Publish the container
  *
- * Uses the Facebook Graph API with Instagram Business Account endpoints.
+ * Uses the Instagram Graph API (graph.instagram.com) with Instagram
+ * Direct Login tokens.
  * Requires: instagram_business_basic, instagram_business_content_publish
  *
- * Docs: https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/content-publishing
+ * Docs: https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login
  */
 
 import { decrypt } from './encryption';
@@ -22,8 +23,8 @@ import fs from 'fs/promises';
 
 // ── Constants ──────────────────────────────────────────────────
 
-const FB_GRAPH_VERSION = 'v24.0';
-const GRAPH_BASE = `https://graph.facebook.com/${FB_GRAPH_VERSION}`;
+const IG_GRAPH_VERSION = 'v21.0';
+const GRAPH_BASE = `https://graph.instagram.com/${IG_GRAPH_VERSION}`;
 
 /** Max time to wait for a container to finish processing (ms). */
 const CONTAINER_POLL_TIMEOUT = 60_000;
