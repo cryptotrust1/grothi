@@ -138,7 +138,8 @@ function isTokenError(data: any): boolean {
 export async function validateToken(
   creds: ThreadsCredentials
 ): Promise<{ id: string; username?: string } | null> {
-  const url = new URL(`${THREADS_BASE}/${encodeURIComponent(creds.userId)}`);
+  // Use 'me' endpoint - most reliable, resolves via access_token
+  const url = new URL(`${THREADS_BASE}/me`);
   url.searchParams.set('fields', 'id,username,threads_profile_picture_url');
   url.searchParams.set('access_token', creds.accessToken);
 
@@ -285,8 +286,8 @@ export async function postText(
 
   try {
     // Step 1: Create text container
-    // Use form-urlencoded (official Threads API format per Meta docs)
-    const containerUrl = `${THREADS_BASE}/${encodeURIComponent(creds.userId)}/threads`;
+    // Use 'me' per official Threads API docs (resolves via access_token)
+    const containerUrl = `${THREADS_BASE}/me/threads`;
 
     const { data: containerData } = await threadsFetch(containerUrl, {
       method: 'POST',
@@ -299,6 +300,7 @@ export async function postText(
     });
 
     if (isApiError(containerData)) {
+      console.error('[threads] Container creation failed:', JSON.stringify(containerData.error));
       return { success: false, error: containerData.error.message };
     }
 
@@ -314,7 +316,7 @@ export async function postText(
     }
 
     // Step 3: Publish
-    const publishUrl = `${THREADS_BASE}/${encodeURIComponent(creds.userId)}/threads_publish`;
+    const publishUrl = `${THREADS_BASE}/me/threads_publish`;
 
     const { data: publishData } = await threadsFetch(publishUrl, {
       method: 'POST',
@@ -326,6 +328,7 @@ export async function postText(
     });
 
     if (isApiError(publishData)) {
+      console.error('[threads] Publish failed:', JSON.stringify(publishData.error));
       return { success: false, error: publishData.error.message };
     }
 
@@ -356,8 +359,8 @@ export async function postWithImage(
   }
 
   try {
-    // Step 1: Create image container (form-urlencoded per Meta docs)
-    const containerUrl = `${THREADS_BASE}/${encodeURIComponent(creds.userId)}/threads`;
+    // Step 1: Create image container (use 'me' per official Threads API docs)
+    const containerUrl = `${THREADS_BASE}/me/threads`;
 
     const { data: containerData } = await threadsFetch(containerUrl, {
       method: 'POST',
@@ -371,6 +374,7 @@ export async function postWithImage(
     });
 
     if (isApiError(containerData)) {
+      console.error('[threads] Image container creation failed:', JSON.stringify(containerData.error));
       return { success: false, error: containerData.error.message };
     }
 
@@ -386,7 +390,7 @@ export async function postWithImage(
     }
 
     // Step 3: Publish
-    const publishUrl = `${THREADS_BASE}/${encodeURIComponent(creds.userId)}/threads_publish`;
+    const publishUrl = `${THREADS_BASE}/me/threads_publish`;
 
     const { data: publishData } = await threadsFetch(publishUrl, {
       method: 'POST',
@@ -398,6 +402,7 @@ export async function postWithImage(
     });
 
     if (isApiError(publishData)) {
+      console.error('[threads] Image publish failed:', JSON.stringify(publishData.error));
       return { success: false, error: publishData.error.message };
     }
 
@@ -423,7 +428,7 @@ export async function postWithVideo(
   }
 
   try {
-    const containerUrl = `${THREADS_BASE}/${encodeURIComponent(creds.userId)}/threads`;
+    const containerUrl = `${THREADS_BASE}/me/threads`;
 
     const { data: containerData } = await threadsFetch(containerUrl, {
       method: 'POST',
@@ -437,6 +442,7 @@ export async function postWithVideo(
     });
 
     if (isApiError(containerData)) {
+      console.error('[threads] Video container creation failed:', JSON.stringify(containerData.error));
       return { success: false, error: containerData.error.message };
     }
 
@@ -450,7 +456,7 @@ export async function postWithVideo(
       return { success: false, error: containerStatus.error || 'Video processing failed' };
     }
 
-    const publishUrl = `${THREADS_BASE}/${encodeURIComponent(creds.userId)}/threads_publish`;
+    const publishUrl = `${THREADS_BASE}/me/threads_publish`;
 
     const { data: publishData } = await threadsFetch(publishUrl, {
       method: 'POST',
@@ -462,6 +468,7 @@ export async function postWithVideo(
     });
 
     if (isApiError(publishData)) {
+      console.error('[threads] Video publish failed:', JSON.stringify(publishData.error));
       return { success: false, error: publishData.error.message };
     }
 
@@ -502,7 +509,7 @@ export async function postCarousel(
     const childContainerIds: string[] = [];
 
     for (const imageUrl of imageUrls) {
-      const containerUrl = `${THREADS_BASE}/${encodeURIComponent(creds.userId)}/threads`;
+      const containerUrl = `${THREADS_BASE}/me/threads`;
 
       const { data: containerData } = await threadsFetch(containerUrl, {
         method: 'POST',
@@ -516,6 +523,7 @@ export async function postCarousel(
       });
 
       if (isApiError(containerData)) {
+        console.error('[threads] Carousel item creation failed:', JSON.stringify(containerData.error));
         return { success: false, error: `Carousel item failed: ${containerData.error.message}` };
       }
 
@@ -531,7 +539,7 @@ export async function postCarousel(
     }
 
     // Step 3: Create carousel container
-    const carouselUrl = `${THREADS_BASE}/${encodeURIComponent(creds.userId)}/threads`;
+    const carouselUrl = `${THREADS_BASE}/me/threads`;
 
     const { data: carouselData } = await threadsFetch(carouselUrl, {
       method: 'POST',
@@ -545,6 +553,7 @@ export async function postCarousel(
     });
 
     if (isApiError(carouselData)) {
+      console.error('[threads] Carousel container creation failed:', JSON.stringify(carouselData.error));
       return { success: false, error: carouselData.error.message };
     }
 
@@ -555,7 +564,7 @@ export async function postCarousel(
     }
 
     // Step 5: Publish
-    const publishUrl = `${THREADS_BASE}/${encodeURIComponent(creds.userId)}/threads_publish`;
+    const publishUrl = `${THREADS_BASE}/me/threads_publish`;
 
     const { data: publishData } = await threadsFetch(publishUrl, {
       method: 'POST',
@@ -567,6 +576,7 @@ export async function postCarousel(
     });
 
     if (isApiError(publishData)) {
+      console.error('[threads] Carousel publish failed:', JSON.stringify(publishData.error));
       return { success: false, error: publishData.error.message };
     }
 

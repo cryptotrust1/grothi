@@ -101,7 +101,8 @@ export async function GET(request: NextRequest) {
     }
 
     const shortLivedToken = tokenData.access_token as string;
-    const threadsUserId = tokenData.user_id as string | undefined;
+    // user_id from token exchange may be a number - ensure string conversion
+    const tokenUserId = tokenData.user_id != null ? String(tokenData.user_id) : '';
 
     // Step 2: Exchange for long-lived token (60 days)
     const longLivedUrl = new URL('https://graph.threads.net/access_token');
@@ -115,15 +116,19 @@ export async function GET(request: NextRequest) {
     const accessToken = longLivedData.access_token || shortLivedToken;
     const tokenExpiresIn = longLivedData.expires_in || 5184000; // Default 60 days
 
-    // Step 3: Fetch Threads user profile
+    // Step 3: Fetch Threads user profile using 'me' endpoint (most reliable)
     let threadsUsername = 'Threads User';
-    if (threadsUserId) {
-      const profileRes = await fetch(
-        `https://graph.threads.net/v1.0/${threadsUserId}?fields=username,threads_profile_picture_url&access_token=${encodeURIComponent(accessToken)}`
-      );
-      if (profileRes.ok) {
-        const profileData = await profileRes.json();
-        threadsUsername = profileData.username || 'Threads User';
+    let threadsUserId = tokenUserId;
+
+    const profileRes = await fetch(
+      `https://graph.threads.net/v1.0/me?fields=id,username,threads_profile_picture_url&access_token=${encodeURIComponent(accessToken)}`
+    );
+    if (profileRes.ok) {
+      const profileData = await profileRes.json();
+      threadsUsername = profileData.username || 'Threads User';
+      // Use the ID from profile response as the definitive user ID
+      if (profileData.id) {
+        threadsUserId = String(profileData.id);
       }
     }
 
@@ -140,7 +145,7 @@ export async function GET(request: NextRequest) {
         encryptedCredentials,
         config: {
           threadsUsername,
-          threadsUserId: threadsUserId || '',
+          threadsUserId,
           connectedVia: 'oauth',
           tokenRefreshedAt: new Date().toISOString(),
           tokenExpiresAt: new Date(Date.now() + tokenExpiresIn * 1000).toISOString(),
@@ -151,7 +156,7 @@ export async function GET(request: NextRequest) {
         encryptedCredentials,
         config: {
           threadsUsername,
-          threadsUserId: threadsUserId || '',
+          threadsUserId,
           connectedVia: 'oauth',
           tokenRefreshedAt: new Date().toISOString(),
           tokenExpiresAt: new Date(Date.now() + tokenExpiresIn * 1000).toISOString(),
