@@ -63,6 +63,15 @@ export async function GET(
       const parts = rangeHeader.replace(/bytes=/, '').split('-');
       const start = parseInt(parts[0], 10);
       const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+
+      // Validate range boundaries
+      if (isNaN(start) || isNaN(end) || start < 0 || end < start || end >= fileSize) {
+        return new NextResponse(null, {
+          status: 416,
+          headers: { 'Content-Range': `bytes */${fileSize}` },
+        });
+      }
+
       const chunkSize = end - start + 1;
 
       const { createReadStream } = await import('fs');
@@ -148,18 +157,26 @@ export async function DELETE(
     return NextResponse.json({ error: 'Invalid file path' }, { status: 400 });
   }
 
-  // Delete from filesystem
+  // Delete from database first (authoritative), then filesystem
+  try {
+    await db.media.delete({ where: { id } });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Database delete failed';
+    console.error(`[media] DB delete failed for ${id}:`, msg);
+    return NextResponse.json({ error: 'Failed to delete media record' }, { status: 500 });
+  }
+
+  // Delete from filesystem (best-effort after DB delete)
   try {
     const { unlink } = await import('fs/promises');
     if (existsSync(filePath)) {
       await unlink(filePath);
     }
-  } catch {
-    // File may already be deleted
+  } catch (error) {
+    // Log but don't fail — DB record is already deleted
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    console.error(`[media] File delete failed for ${filePath}:`, msg);
   }
-
-  // Delete from database
-  await db.media.delete({ where: { id } });
 
   return NextResponse.json({ success: true });
 }

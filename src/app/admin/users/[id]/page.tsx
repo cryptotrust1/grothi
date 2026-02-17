@@ -83,12 +83,32 @@ export default async function AdminUserDetailPage({
     await requireAdmin();
     const credits = parseInt(formData.get('deductCredits') as string, 10);
     if (isNaN(credits) || credits <= 0) redirect(`/admin/users/${id}?error=Invalid amount`);
-    const balance = await db.creditBalance.findUnique({ where: { userId: id } });
-    if (!balance || balance.balance < credits) redirect(`/admin/users/${id}?error=Insufficient balance`);
-    await db.creditBalance.update({ where: { userId: id }, data: { balance: { decrement: credits } } });
-    await db.creditTransaction.create({
-      data: { userId: id, type: 'USAGE', amount: -credits, balance: balance.balance - credits, description: `Admin deduction: ${credits} credits` },
-    });
+
+    // Atomic deduction using transaction to prevent race conditions
+    try {
+      await db.$transaction(async (tx) => {
+        const balance = await tx.creditBalance.findUnique({ where: { userId: id } });
+        if (!balance || balance.balance < credits) {
+          throw new Error('Insufficient balance');
+        }
+        const updated = await tx.creditBalance.update({
+          where: { userId: id },
+          data: { balance: { decrement: credits } },
+        });
+        await tx.creditTransaction.create({
+          data: {
+            userId: id,
+            type: 'USAGE',
+            amount: -credits,
+            balance: updated.balance,
+            description: `Admin deduction: ${credits} credits`,
+          },
+        });
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Deduction failed';
+      redirect(`/admin/users/${id}?error=${encodeURIComponent(msg)}`);
+    }
     redirect(`/admin/users/${id}?success=Deducted ${credits} credits`);
   }
 
