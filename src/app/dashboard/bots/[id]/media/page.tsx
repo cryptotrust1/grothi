@@ -34,7 +34,14 @@ export default async function BotMediaPage({
   const page = Math.max(1, parseInt(sp.page || '1'));
   const typeFilter = sp.type && sp.type !== 'ALL' ? sp.type : undefined;
 
-  const where: Record<string, unknown> = { botId: bot.id };
+  const where: Record<string, unknown> = {
+    botId: bot.id,
+    // Exclude PENDING/PROCESSING generations (not yet finalized)
+    OR: [
+      { generationStatus: null },
+      { generationStatus: 'SUCCEEDED' },
+    ],
+  };
   if (typeFilter) where.type = typeFilter;
 
   const [media, totalCount] = await Promise.all([

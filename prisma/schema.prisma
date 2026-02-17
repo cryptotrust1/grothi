@@ -365,6 +365,10 @@ model Media {
   // Variants for different platforms (auto-generated)
   variants Json?
 
+  // AI generation tracking (for async predictions like video)
+  replicatePredictionId String?   @unique
+  generationStatus      String?   // PENDING, PROCESSING, SUCCEEDED, FAILED, CANCELLED
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -372,6 +376,7 @@ model Media {
   scheduledPosts ScheduledPost[]
 
   @@index([botId, createdAt])
+  @@index([botId, generationStatus])
   @@index([type])
 }
 
