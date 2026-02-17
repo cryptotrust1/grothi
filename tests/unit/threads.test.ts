@@ -130,7 +130,7 @@ describe('validateToken', () => {
     await validateToken(makeCreds());
 
     const calledUrl = (global.fetch as jest.Mock).mock.calls[0][0] as string;
-    expect(calledUrl).toContain('graph.threads.net/v1.0/12345678');
+    expect(calledUrl).toContain('graph.threads.net/v1.0/me');
     expect(calledUrl).toContain('fields=id%2Cusername%2Cthreads_profile_picture_url');
     expect(calledUrl).toContain('access_token=THREADS_test_token_abc123');
   });
@@ -158,7 +158,7 @@ describe('postText', () => {
 
     // Verify container creation
     const [url, options] = (global.fetch as jest.Mock).mock.calls[0];
-    expect(url).toContain('graph.threads.net/v1.0/12345678/threads');
+    expect(url).toContain('graph.threads.net/v1.0/me/threads');
     expect(options.method).toBe('POST');
     const body = parseFormBody(options.body);
     expect(body.media_type).toBe('TEXT');
@@ -175,7 +175,7 @@ describe('postText', () => {
 
     // Verify publish call (3rd fetch call)
     const [url, options] = (global.fetch as jest.Mock).mock.calls[2];
-    expect(url).toContain('graph.threads.net/v1.0/12345678/threads_publish');
+    expect(url).toContain('graph.threads.net/v1.0/me/threads_publish');
     const body = parseFormBody(options.body);
     expect(body.creation_id).toBe('container_42');
   });
