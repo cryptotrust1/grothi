@@ -43,7 +43,7 @@ const finalizedIds = globalForVideo.finalizedVideoIds;
 // Cleanup entries older than 10 minutes (prevent memory leak)
 function cleanupOldEntries() {
   const cutoff = Date.now() - 10 * 60 * 1000;
-  for (const [id, meta] of pendingGenerations) {
+  for (const [id, meta] of Array.from(pendingGenerations.entries())) {
     if (meta.createdAt < cutoff) {
       pendingGenerations.delete(id);
     }
