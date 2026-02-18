@@ -164,6 +164,9 @@ export async function GET(request: NextRequest) {
       accessToken: encrypt(longLivedToken),
     };
 
+    // Long-lived tokens last 60 days
+    const tokenExpiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString();
+
     await db.platformConnection.upsert({
       where: { botId_platform: { botId, platform: 'INSTAGRAM' } },
       create: {
@@ -173,6 +176,7 @@ export async function GET(request: NextRequest) {
         config: {
           igUsername,
           connectedVia: 'oauth',
+          tokenExpiresAt,
         },
         status: 'CONNECTED',
       },
@@ -181,6 +185,7 @@ export async function GET(request: NextRequest) {
         config: {
           igUsername,
           connectedVia: 'oauth',
+          tokenExpiresAt,
         },
         status: 'CONNECTED',
         lastError: null,

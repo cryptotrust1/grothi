@@ -116,7 +116,7 @@ describe('validateToken', () => {
     await validateToken(creds);
 
     const calledUrl = (global.fetch as jest.Mock).mock.calls[0][0] as string;
-    expect(calledUrl).toContain('/v21.0/17841400000000');
+    expect(calledUrl).toContain('/v22.0/17841400000000');
     expect(calledUrl).toContain('fields=id%2Cusername%2Cfollowers_count');
     expect(calledUrl).toContain('access_token=EAAG_test_ig_token_abc123');
   });
@@ -144,7 +144,7 @@ describe('postImage', () => {
 
     // Verify container creation call
     const [url, options] = (global.fetch as jest.Mock).mock.calls[0];
-    expect(url).toContain('/v21.0/17841400000000/media');
+    expect(url).toContain('/v22.0/17841400000000/media');
     expect(options.method).toBe('POST');
     const body = parseFormBody(options.body);
     expect(body.image_url).toBe('https://cdn.example.com/photo.jpg');
@@ -161,7 +161,7 @@ describe('postImage', () => {
 
     // Verify publish call (3rd fetch call)
     const [url, options] = (global.fetch as jest.Mock).mock.calls[2];
-    expect(url).toContain('/v21.0/17841400000000/media_publish');
+    expect(url).toContain('/v22.0/17841400000000/media_publish');
     const body = parseFormBody(options.body);
     expect(body.creation_id).toBe('container_999');
   });
@@ -194,12 +194,16 @@ describe('postImage', () => {
   });
 
   it('handles network errors', async () => {
-    (global.fetch as jest.Mock).mockRejectedValueOnce(new Error('Connection refused'));
+    // Must reject all 3 attempts (initial + 2 retries) to exhaust retry logic
+    (global.fetch as jest.Mock)
+      .mockRejectedValueOnce(new Error('Connection refused'))
+      .mockRejectedValueOnce(new Error('Connection refused'))
+      .mockRejectedValueOnce(new Error('Connection refused'));
 
     const result = await postImage(makeCreds(), 'Test', 'https://example.com/img.jpg');
     expect(result.success).toBe(false);
     expect(result.error).toBe('Connection refused');
-  });
+  }, 30000);
 });
 
 describe('postCarousel', () => {
@@ -299,7 +303,7 @@ describe('getMediaInsights', () => {
     await getMediaInsights(makeCreds(), 'media_123');
 
     const url = (global.fetch as jest.Mock).mock.calls[0][0] as string;
-    expect(url).toContain('/v21.0/media_123/insights');
+    expect(url).toContain('/v22.0/media_123/insights');
     expect(url).toContain('metric=impressions%2Creach%2Clikes%2Ccomments%2Csaved%2Cshares');
   });
 

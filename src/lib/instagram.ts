@@ -23,11 +23,13 @@ import fs from 'fs/promises';
 
 // ── Constants ──────────────────────────────────────────────────
 
-const IG_GRAPH_VERSION = 'v21.0';
+const IG_GRAPH_VERSION = 'v22.0';
 const GRAPH_BASE = `https://graph.instagram.com/${IG_GRAPH_VERSION}`;
 
-/** Max time to wait for a container to finish processing (ms). */
+/** Max time to wait for an image container to finish processing (ms). */
 const CONTAINER_POLL_TIMEOUT = 60_000;
+/** Max time to wait for a video/reel container to finish processing (ms). */
+const VIDEO_CONTAINER_POLL_TIMEOUT = 180_000;
 /** Interval between container status checks (ms). */
 const CONTAINER_POLL_INTERVAL = 3_000;
 
@@ -189,11 +191,20 @@ function isGraphError(data: any): data is GraphApiError {
 
 /**
  * Transform raw Instagram Graph API errors into user-friendly messages.
+ * Always logs the raw error for server-side debugging (visible in PM2 logs).
  */
 function friendlyIgError(data: GraphApiError): string {
   const err = data.error;
   const code = err.code;
   const sub = err.error_subcode;
+
+  // Always log the raw error for debugging
+  console.error('[instagram] Graph API error:', JSON.stringify({
+    code,
+    subcode: sub,
+    type: err.type,
+    message: err.message,
+  }));
 
   // Token errors
   if (code === 190) return 'Instagram token expired. Please reconnect Instagram in Platforms.';
@@ -203,8 +214,8 @@ function friendlyIgError(data: GraphApiError): string {
   if (code === 4 || code === 32) return 'Instagram rate limit reached. Posts will resume automatically.';
   // Media errors
   if (code === 36003) return 'Instagram could not download the image. Make sure the image is publicly accessible.';
-  // Generic API service error (code 2)
-  if (code === 2) return 'Instagram is temporarily unavailable. The post will be retried.';
+  // Generic API service error (code 2) — include raw message for debugging
+  if (code === 2) return `Instagram temporarily unavailable (code 2): ${err.message}`;
   // Duplicate post
   if (sub === 2207051) return 'Duplicate post detected. Instagram rejected identical content.';
 
@@ -219,6 +230,20 @@ function isTokenError(data: any): boolean {
   if (!isGraphError(data)) return false;
   return data.error.code === 190;
 }
+
+/**
+ * Check if a Graph API error is transient and worth retrying.
+ * Code 2 = "Temporary issue" — Meta recommends retrying 1-2 times.
+ */
+function isTransientError(data: any): boolean {
+  if (!isGraphError(data)) return false;
+  return data.error.code === 2;
+}
+
+/** Max retries for transient errors (code 2). */
+const TRANSIENT_MAX_RETRIES = 2;
+/** Delay between retries (ms). */
+const TRANSIENT_RETRY_DELAY = 5_000;
 
 // ── Token Validation ───────────────────────────────────────────
 
@@ -277,19 +302,69 @@ export async function validateAndUpdateConnection(botId: string): Promise<boolea
   return false;
 }
 
+// ── Token Refresh ──────────────────────────────────────────────
+
+/** Days before token expiry to trigger a refresh. */
+const TOKEN_REFRESH_WARNING_DAYS = 10;
+
+/**
+ * Refresh an Instagram long-lived token.
+ * Instagram tokens can be refreshed to get a new 60-day expiry.
+ * Uses ig_refresh_token grant type on graph.instagram.com.
+ */
+export async function refreshToken(
+  currentToken: string
+): Promise<{ accessToken: string; expiresIn: number } | null> {
+  const url = new URL(`${GRAPH_BASE}/refresh_access_token`);
+  url.searchParams.set('grant_type', 'ig_refresh_token');
+  url.searchParams.set('access_token', currentToken);
+
+  try {
+    const { data } = await graphFetch(url.toString());
+
+    if (isGraphError(data) || !data.access_token) {
+      console.error('[instagram] Token refresh failed:', JSON.stringify(data));
+      return null;
+    }
+
+    return {
+      accessToken: data.access_token,
+      expiresIn: data.expires_in || 5184000, // Default 60 days
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    console.error('[instagram] Token refresh error:', msg);
+    return null;
+  }
+}
+
+/**
+ * Check if a token is nearing expiry based on config data.
+ */
+export function isTokenNearExpiry(config: Record<string, unknown>): boolean {
+  const expiresAt = config.tokenExpiresAt ? new Date(config.tokenExpiresAt as string) : null;
+  if (!expiresAt || isNaN(expiresAt.getTime())) return true;
+
+  const warningThreshold = new Date(Date.now() + TOKEN_REFRESH_WARNING_DAYS * 24 * 60 * 60 * 1000);
+  return expiresAt < warningThreshold;
+}
+
 // ── Container Status Check ─────────────────────────────────────
 
 /**
  * Poll the container status until it finishes or times out.
  * Instagram containers go through IN_PROGRESS → FINISHED before they can be published.
+ * Videos/reels get an extended timeout (180s) since processing takes longer.
  */
 async function waitForContainer(
   containerId: string,
-  accessToken: string
+  accessToken: string,
+  isVideo = false
 ): Promise<{ status: ContainerStatus; error?: string }> {
+  const timeout = isVideo ? VIDEO_CONTAINER_POLL_TIMEOUT : CONTAINER_POLL_TIMEOUT;
   const startTime = Date.now();
 
-  while (Date.now() - startTime < CONTAINER_POLL_TIMEOUT) {
+  while (Date.now() - startTime < timeout) {
     const url = new URL(`${GRAPH_BASE}/${encodeURIComponent(containerId)}`);
     url.searchParams.set('fields', 'status_code,status');
     url.searchParams.set('access_token', accessToken);
@@ -336,57 +411,80 @@ export async function postImage(
   caption: string,
   imageUrl: string
 ): Promise<InstagramPostResult> {
-  try {
-    // Step 1: Create media container
-    const containerUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.accountId)}/media`;
+  for (let attempt = 0; attempt <= TRANSIENT_MAX_RETRIES; attempt++) {
+    try {
+      if (attempt > 0) {
+        console.log(`[instagram] postImage: retry ${attempt}/${TRANSIENT_MAX_RETRIES}`);
+        await new Promise((r) => setTimeout(r, TRANSIENT_RETRY_DELAY * attempt));
+      }
+      console.log('[instagram] postImage: creating container for', imageUrl.substring(0, 80));
+      // Step 1: Create media container
+      const containerUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.accountId)}/media`;
 
-    // Instagram Graph API requires form-urlencoded (not JSON)
-    const { data: containerData } = await graphFetch(containerUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        image_url: imageUrl,
-        caption,
-        access_token: creds.accessToken,
-      }).toString(),
-    });
+      // Instagram Graph API requires form-urlencoded (not JSON)
+      const { data: containerData } = await graphFetch(containerUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          image_url: imageUrl,
+          caption,
+          access_token: creds.accessToken,
+        }).toString(),
+      });
 
-    if (isGraphError(containerData)) {
-      return { success: false, error: friendlyIgError(containerData) };
+      if (isGraphError(containerData)) {
+        // Retry on transient errors (code 2)
+        if (isTransientError(containerData) && attempt < TRANSIENT_MAX_RETRIES) {
+          console.warn('[instagram] Transient error creating container, will retry:', containerData.error.message);
+          continue;
+        }
+        return { success: false, error: friendlyIgError(containerData) };
+      }
+
+      const containerId = containerData.id;
+      if (!containerId) {
+        return { success: false, error: 'No container ID returned from Instagram' };
+      }
+
+      // Step 2: Wait for container to finish processing
+      const containerStatus = await waitForContainer(containerId, creds.accessToken);
+      if (containerStatus.status !== 'FINISHED') {
+        return { success: false, error: containerStatus.error || 'Container processing failed' };
+      }
+
+      // Step 3: Publish the container
+      const publishUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.accountId)}/media_publish`;
+
+      const { data: publishData } = await graphFetch(publishUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          creation_id: containerId,
+          access_token: creds.accessToken,
+        }).toString(),
+      });
+
+      if (isGraphError(publishData)) {
+        // Retry on transient errors (code 2) at publish step
+        if (isTransientError(publishData) && attempt < TRANSIENT_MAX_RETRIES) {
+          console.warn('[instagram] Transient error publishing, will retry:', publishData.error.message);
+          continue;
+        }
+        return { success: false, error: friendlyIgError(publishData) };
+      }
+
+      return { success: true, mediaId: publishData.id };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Network error';
+      if (attempt < TRANSIENT_MAX_RETRIES) {
+        console.warn(`[instagram] postImage error, will retry: ${msg}`);
+        continue;
+      }
+      return { success: false, error: msg };
     }
-
-    const containerId = containerData.id;
-    if (!containerId) {
-      return { success: false, error: 'No container ID returned from Instagram' };
-    }
-
-    // Step 2: Wait for container to finish processing
-    const containerStatus = await waitForContainer(containerId, creds.accessToken);
-    if (containerStatus.status !== 'FINISHED') {
-      return { success: false, error: containerStatus.error || 'Container processing failed' };
-    }
-
-    // Step 3: Publish the container
-    const publishUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.accountId)}/media_publish`;
-
-    const { data: publishData } = await graphFetch(publishUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        creation_id: containerId,
-        access_token: creds.accessToken,
-      }).toString(),
-    });
-
-    if (isGraphError(publishData)) {
-      return { success: false, error: friendlyIgError(publishData) };
-    }
-
-    return { success: true, mediaId: publishData.id };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Network error';
-    return { success: false, error: msg };
   }
+
+  return { success: false, error: 'Instagram publishing failed after retries' };
 }
 
 // ── Publishing: Carousel (Multiple Images) ────────────────────
@@ -501,57 +599,78 @@ export async function postReel(
   caption: string,
   videoUrl: string
 ): Promise<InstagramPostResult> {
-  try {
-    // Step 1: Create video container
-    const containerUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.accountId)}/media`;
+  for (let attempt = 0; attempt <= TRANSIENT_MAX_RETRIES; attempt++) {
+    try {
+      if (attempt > 0) {
+        console.log(`[instagram] postReel: retry ${attempt}/${TRANSIENT_MAX_RETRIES}`);
+        await new Promise((r) => setTimeout(r, TRANSIENT_RETRY_DELAY * attempt));
+      }
+      console.log('[instagram] postReel: creating container for', videoUrl.substring(0, 80));
+      // Step 1: Create video container
+      const containerUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.accountId)}/media`;
 
-    const { data: containerData } = await graphFetch(containerUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        media_type: 'REELS',
-        video_url: videoUrl,
-        caption,
-        access_token: creds.accessToken,
-      }).toString(),
-    });
+      const { data: containerData } = await graphFetch(containerUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          media_type: 'REELS',
+          video_url: videoUrl,
+          caption,
+          access_token: creds.accessToken,
+        }).toString(),
+      });
 
-    if (isGraphError(containerData)) {
-      return { success: false, error: friendlyIgError(containerData) };
+      if (isGraphError(containerData)) {
+        if (isTransientError(containerData) && attempt < TRANSIENT_MAX_RETRIES) {
+          console.warn('[instagram] Transient error creating reel container, will retry:', containerData.error.message);
+          continue;
+        }
+        return { success: false, error: friendlyIgError(containerData) };
+      }
+
+      const containerId = containerData.id;
+      if (!containerId) {
+        return { success: false, error: 'No container ID returned from Instagram' };
+      }
+
+      // Step 2: Wait for video processing (uses extended timeout)
+      const containerStatus = await waitForContainer(containerId, creds.accessToken, true);
+      if (containerStatus.status !== 'FINISHED') {
+        return { success: false, error: containerStatus.error || 'Video processing failed' };
+      }
+
+      // Step 3: Publish
+      const publishUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.accountId)}/media_publish`;
+
+      const { data: publishData } = await graphFetch(publishUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          creation_id: containerId,
+          access_token: creds.accessToken,
+        }).toString(),
+      });
+
+      if (isGraphError(publishData)) {
+        if (isTransientError(publishData) && attempt < TRANSIENT_MAX_RETRIES) {
+          console.warn('[instagram] Transient error publishing reel, will retry:', publishData.error.message);
+          continue;
+        }
+        return { success: false, error: friendlyIgError(publishData) };
+      }
+
+      return { success: true, mediaId: publishData.id };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Network error';
+      if (attempt < TRANSIENT_MAX_RETRIES) {
+        console.warn(`[instagram] postReel error, will retry: ${msg}`);
+        continue;
+      }
+      return { success: false, error: msg };
     }
-
-    const containerId = containerData.id;
-    if (!containerId) {
-      return { success: false, error: 'No container ID returned from Instagram' };
-    }
-
-    // Step 2: Wait for video processing (may take longer than images)
-    const containerStatus = await waitForContainer(containerId, creds.accessToken);
-    if (containerStatus.status !== 'FINISHED') {
-      return { success: false, error: containerStatus.error || 'Video processing failed' };
-    }
-
-    // Step 3: Publish
-    const publishUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.accountId)}/media_publish`;
-
-    const { data: publishData } = await graphFetch(publishUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        creation_id: containerId,
-        access_token: creds.accessToken,
-      }).toString(),
-    });
-
-    if (isGraphError(publishData)) {
-      return { success: false, error: friendlyIgError(publishData) };
-    }
-
-    return { success: true, mediaId: publishData.id };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Network error';
-    return { success: false, error: msg };
   }
+
+  return { success: false, error: 'Instagram reel publishing failed after retries' };
 }
 
 // ── Publishing: Local File Helper ─────────────────────────────
@@ -710,11 +829,13 @@ export async function getAccountInsights(
 
 /**
  * Run a health check on all Instagram connections.
+ * Also checks for token expiry and attempts refresh if needed.
  */
 export async function healthCheckAllConnections(): Promise<{
   total: number;
   valid: number;
   invalid: number;
+  refreshed: number;
 }> {
   const connections = await db.platformConnection.findMany({
     where: { platform: 'INSTAGRAM', status: 'CONNECTED' },
@@ -722,12 +843,42 @@ export async function healthCheckAllConnections(): Promise<{
 
   let valid = 0;
   let invalid = 0;
+  let refreshed = 0;
 
   for (const conn of connections) {
     try {
       const creds = decryptInstagramCredentials(conn);
-      const info = await validateToken(creds);
+      const config = (conn.config || {}) as Record<string, unknown>;
 
+      // Check if token needs refresh
+      if (isTokenNearExpiry(config)) {
+        const newTokenData = await refreshToken(creds.accessToken);
+        if (newTokenData) {
+          const { encrypt } = await import('./encryption');
+          await db.platformConnection.update({
+            where: { id: conn.id },
+            data: {
+              encryptedCredentials: {
+                accountId: (conn.encryptedCredentials as Record<string, string>).accountId,
+                accessToken: encrypt(newTokenData.accessToken),
+              },
+              config: {
+                ...config,
+                tokenRefreshedAt: new Date().toISOString(),
+                tokenExpiresAt: new Date(
+                  Date.now() + newTokenData.expiresIn * 1000
+                ).toISOString(),
+              },
+            },
+          });
+          refreshed++;
+          valid++;
+          console.log(`[instagram] Token refreshed for connection ${conn.id}`);
+          continue;
+        }
+      }
+
+      const info = await validateToken(creds);
       if (info) {
         valid++;
       } else {
@@ -754,5 +905,5 @@ export async function healthCheckAllConnections(): Promise<{
     await new Promise((r) => setTimeout(r, 500));
   }
 
-  return { total: connections.length, valid, invalid };
+  return { total: connections.length, valid, invalid, refreshed };
 }

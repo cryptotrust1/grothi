@@ -15,6 +15,10 @@ import {
   decryptFacebookCredentials,
   getPostEngagement,
 } from '@/lib/facebook';
+import {
+  decryptInstagramCredentials,
+  getMediaInsights,
+} from '@/lib/instagram';
 import type { PlatformType } from '@prisma/client';
 
 const CRON_SECRET = process.env.CRON_SECRET;
@@ -62,9 +66,9 @@ export async function POST(request: NextRequest) {
 
     for (const [platform, result] of Object.entries(results)) {
       if (!result.success || !result.externalId) continue;
-      if (platform !== 'FACEBOOK') continue; // Only Facebook for now
+      if (platform !== 'FACEBOOK' && platform !== 'INSTAGRAM') continue;
 
-      // Get Facebook connection
+      // Get platform connection
       const conn = await db.platformConnection.findUnique({
         where: {
           botId_platform: { botId: post.botId, platform: platform as PlatformType },
@@ -73,8 +77,22 @@ export async function POST(request: NextRequest) {
       if (!conn || conn.status !== 'CONNECTED') continue;
 
       try {
-        const creds = decryptFacebookCredentials(conn);
-        const engagement = await getPostEngagement(creds, result.externalId);
+        let engagement: { likes: number; comments: number; shares: number } | null = null;
+
+        if (platform === 'FACEBOOK') {
+          const creds = decryptFacebookCredentials(conn);
+          engagement = await getPostEngagement(creds, result.externalId);
+        } else if (platform === 'INSTAGRAM') {
+          const creds = decryptInstagramCredentials(conn);
+          const insights = await getMediaInsights(creds, result.externalId);
+          if (insights) {
+            engagement = {
+              likes: insights.likes || 0,
+              comments: insights.comments || 0,
+              shares: insights.shares || 0,
+            };
+          }
+        }
 
         if (!engagement) {
           errors++;
