@@ -130,7 +130,8 @@ export async function POST(request: NextRequest) {
           post.content,
           post.media?.filePath || null,
           (post.media?.type as 'IMAGE' | 'VIDEO' | 'GIF' | null) || null,
-          post.media?.mimeType || null
+          post.media?.mimeType || null,
+          post.media?.id || null
         );
 
         platformResults[platform] = result;
@@ -249,7 +250,8 @@ async function publishToPlatform(
   content: string,
   mediaPath: string | null,
   mediaType: 'IMAGE' | 'VIDEO' | 'GIF' | null,
-  mediaMimeType: string | null
+  mediaMimeType: string | null,
+  mediaId: string | null
 ): Promise<{ success: boolean; externalId?: string; error?: string }> {
   // Get platform connection
   const conn = await db.platformConnection.findUnique({
@@ -265,7 +267,7 @@ async function publishToPlatform(
       return publishToFacebook(conn, content, mediaPath, mediaType);
 
     case 'INSTAGRAM':
-      return publishToInstagram(conn, content, mediaPath, mediaType);
+      return publishToInstagram(conn, content, mediaPath, mediaType, mediaId);
 
     case 'THREADS':
       return publishToThreads(conn, content, mediaPath, mediaType);
@@ -342,7 +344,8 @@ async function publishToInstagram(
   conn: any,
   content: string,
   mediaPath: string | null,
-  mediaType: 'IMAGE' | 'VIDEO' | 'GIF' | null
+  mediaType: 'IMAGE' | 'VIDEO' | 'GIF' | null,
+  mediaId: string | null
 ): Promise<{ success: boolean; externalId?: string; error?: string }> {
   try {
     const creds = decryptInstagramCredentials(conn);
@@ -372,13 +375,15 @@ async function publishToInstagram(
     // For local files, construct a public URL via the media serve endpoint
     const baseUrl = process.env.NEXTAUTH_URL || 'https://grothi.com';
 
-    const media = await db.media.findFirst({
+    // Use the media ID directly if available (avoids extra DB lookup)
+    const resolvedMediaId = mediaId || (await db.media.findFirst({
       where: { filePath: mediaPath },
       select: { id: true },
-    });
+    }))?.id;
 
-    if (media) {
-      const publicUrl = `${baseUrl}/api/media/${encodeURIComponent(media.id)}`;
+    if (resolvedMediaId) {
+      const publicUrl = `${baseUrl}/api/media/${encodeURIComponent(resolvedMediaId)}`;
+      console.log(`[process-posts] Instagram publishing via URL: ${publicUrl}`);
       const result = await postFn(creds, content, publicUrl);
 
       if (result.success) {
@@ -396,6 +401,7 @@ async function publishToInstagram(
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error';
+    console.error('[process-posts] Instagram publishing error:', msg);
     return { success: false, error: msg };
   }
 }
@@ -484,7 +490,8 @@ function isInstagramTokenError(error?: string): boolean {
   return (
     error.includes('Invalid OAuth') ||
     error.includes('Session has expired') ||
-    error.includes('Error validating access token')
+    error.includes('Error validating access token') ||
+    error.includes('token expired')
   );
 }
 
