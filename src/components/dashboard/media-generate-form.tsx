@@ -13,6 +13,8 @@ import {
   getDefaultImageModel, getDefaultVideoModel,
   getDefaultParams,
 } from '@/lib/ai-models';
+import { MODEL_GUIDES } from '@/lib/ai-model-guides';
+import type { ModelGuide as ModelGuideType } from '@/lib/ai-model-guides';
 
 // ── Types ──
 
@@ -228,6 +230,82 @@ function ModelCard({
         </div>
       </div>
     </button>
+  );
+}
+
+// ── Model Guide Panel ──
+
+function ModelGuidePanel({ model }: { model: AIModel }) {
+  const [open, setOpen] = useState(true);
+  const guide = MODEL_GUIDES[model.id];
+  if (!guide) return null;
+
+  return (
+    <div className="rounded-lg border-2 border-amber-300 bg-amber-50/80 overflow-hidden">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-amber-100/50 transition-colors"
+      >
+        <Sparkles className="h-4 w-4 text-amber-600 shrink-0" />
+        <span className="text-xs font-bold text-amber-900 flex-1">
+          How to get the best results with {model.name}
+        </span>
+        {open
+          ? <ChevronUp className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+          : <ChevronDown className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+        }
+      </button>
+
+      {open && (
+        <div className="px-3 pb-3 max-h-[320px] overflow-y-auto space-y-3 text-xs text-amber-950">
+          {/* Best For */}
+          <div>
+            <p className="font-semibold text-amber-800 mb-0.5">Best for:</p>
+            <p className="text-[11px] leading-relaxed">{guide.bestFor}</p>
+          </div>
+
+          {/* Prompt Tips */}
+          <div>
+            <p className="font-semibold text-amber-800 mb-1">Prompt tips:</p>
+            <ul className="space-y-0.5 text-[11px] leading-relaxed">
+              {guide.promptTips.map((tip, i) => (
+                <li key={i} className="flex gap-1.5">
+                  <span className="text-amber-500 shrink-0 mt-[1px]">&#x2022;</span>
+                  <span>{tip}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Example Prompt */}
+          <div>
+            <p className="font-semibold text-amber-800 mb-1">Example prompt:</p>
+            <div className="rounded-md bg-white/70 border border-amber-200 px-2.5 py-2 text-[11px] leading-relaxed italic text-amber-900">
+              &ldquo;{guide.examplePrompt}&rdquo;
+            </div>
+          </div>
+
+          {/* Settings Guide */}
+          {model.params.length > 0 && Object.keys(guide.settings).length > 0 && (
+            <div>
+              <p className="font-semibold text-amber-800 mb-1">Settings explained:</p>
+              <div className="space-y-1.5">
+                {model.params.map(param => {
+                  const tip = guide.settings[param.key];
+                  if (!tip) return null;
+                  return (
+                    <div key={param.key} className="rounded bg-white/60 border border-amber-200/60 px-2 py-1.5">
+                      <span className="font-medium text-amber-900">{param.label}:</span>{' '}
+                      <span className="text-[11px] text-amber-800">{tip}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -612,6 +690,9 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
           ))}
         </div>
       </div>
+
+      {/* Model Guide */}
+      <ModelGuidePanel model={currentModel} />
 
       {/* Platform + Prompt */}
       <div className="space-y-3">
