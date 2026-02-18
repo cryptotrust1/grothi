@@ -48,6 +48,15 @@ import { existsSync } from 'fs';
 /** Base directory for uploaded media files. */
 const UPLOAD_DIR = path.join(process.cwd(), 'data', 'uploads');
 
+/**
+ * Direct media URL base for Meta platforms (Instagram, Threads, Facebook).
+ * When set (e.g., "http://89.167.18.92:8787/media"), media files are served
+ * directly via Nginx on the server IP, bypassing Cloudflare entirely.
+ * This is needed because Cloudflare's bot protection blocks Meta's crawlers
+ * from downloading images, causing Instagram error code 2.
+ */
+const MEDIA_DIRECT_BASE = process.env.MEDIA_DIRECT_BASE;
+
 const CRON_SECRET = process.env.CRON_SECRET;
 
 /** Max posts to process per invocation (prevents long-running requests). */
@@ -403,41 +412,52 @@ async function publishToInstagram(
       return { success: false, error: result.error };
     }
 
-    // Verify file exists on disk before constructing public URL
-    const absMediaPath = path.resolve(path.join(UPLOAD_DIR, mediaPath));
-    if (!existsSync(absMediaPath)) {
-      console.error(`[process-posts] Instagram: media file NOT FOUND on disk: ${absMediaPath}`);
-      return { success: false, error: `Media file not found on disk: ${mediaPath}` };
-    }
-    console.log(`[process-posts] Instagram: media file verified on disk: ${absMediaPath}`);
+    // Build a publicly accessible media URL for Instagram's servers.
+    //
+    // PRIORITY: Use direct server URL (bypasses Cloudflare) if MEDIA_DIRECT_BASE is set.
+    // Cloudflare's bot protection blocks Meta's crawlers from downloading images,
+    // causing error code 2. The direct URL serves files via Nginx on the server IP.
+    //
+    // FALLBACK: Use the API endpoint through Cloudflare (only works if bot protection is disabled).
+    let publicUrl: string;
 
-    // For local files, construct a public URL via the media serve endpoint
-    const baseUrl = process.env.NEXTAUTH_URL || 'https://grothi.com';
-
-    // Use the media ID directly if available (avoids extra DB lookup)
-    const resolvedMediaId = mediaId || (await db.media.findFirst({
-      where: { filePath: mediaPath },
-      select: { id: true },
-    }))?.id;
-
-    if (resolvedMediaId) {
-      const publicUrl = `${baseUrl}/api/media/${encodeURIComponent(resolvedMediaId)}`;
-      console.log(`[process-posts] Instagram publishing via URL: ${publicUrl}`);
-      const result = await postFn(creds, content, publicUrl);
-
-      if (result.success) {
-        return { success: true, externalId: result.mediaId };
+    if (MEDIA_DIRECT_BASE && mediaPath) {
+      // Direct path: Nginx serves the file from disk at http://<server-ip>:8787/media/<filePath>
+      // Verify the file exists on disk first
+      const absPath = path.resolve(path.join(UPLOAD_DIR, mediaPath));
+      if (!existsSync(absPath)) {
+        console.error(`[process-posts] Instagram: media file NOT FOUND: ${absPath}`);
+        return { success: false, error: `Media file not found on disk: ${mediaPath}` };
       }
-      if (isInstagramTokenError(result.error)) {
-        await markConnectionError(conn.id, 'Token expired. Please reconnect Instagram.');
+      publicUrl = `${MEDIA_DIRECT_BASE}/${mediaPath}`;
+      console.log(`[process-posts] Instagram publishing via DIRECT URL (bypasses Cloudflare): ${publicUrl}`);
+    } else {
+      // Fallback: API endpoint through Cloudflare
+      const baseUrl = process.env.NEXTAUTH_URL || 'https://grothi.com';
+      const resolvedMediaId = mediaId || (await db.media.findFirst({
+        where: { filePath: mediaPath },
+        select: { id: true },
+      }))?.id;
+
+      if (!resolvedMediaId) {
+        return {
+          success: false,
+          error: 'Could not find media record for Instagram publishing. Set MEDIA_DIRECT_BASE to bypass Cloudflare.',
+        };
       }
-      return { success: false, error: result.error };
+      publicUrl = `${baseUrl}/api/media/${encodeURIComponent(resolvedMediaId)}`;
+      console.log(`[process-posts] Instagram publishing via API URL (through Cloudflare): ${publicUrl}`);
     }
 
-    return {
-      success: false,
-      error: 'Could not find media record for Instagram publishing. Instagram requires a publicly accessible URL.',
-    };
+    const result = await postFn(creds, content, publicUrl);
+
+    if (result.success) {
+      return { success: true, externalId: result.mediaId };
+    }
+    if (isInstagramTokenError(result.error)) {
+      await markConnectionError(conn.id, 'Token expired. Please reconnect Instagram.');
+    }
+    return { success: false, error: result.error };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error';
     console.error('[process-posts] Instagram publishing error:', msg);
@@ -477,8 +497,17 @@ async function publishToThreads(
 
       if (mediaPath.startsWith('http://') || mediaPath.startsWith('https://')) {
         mediaUrl = mediaPath;
+      } else if (MEDIA_DIRECT_BASE) {
+        // Direct path: Nginx serves the file from disk, bypasses Cloudflare
+        const absPath = path.resolve(path.join(UPLOAD_DIR, mediaPath));
+        if (!existsSync(absPath)) {
+          console.error(`[process-posts] Threads: media file NOT FOUND: ${absPath}`);
+          return { success: false, error: `Media file not found on disk: ${mediaPath}` };
+        }
+        mediaUrl = `${MEDIA_DIRECT_BASE}/${mediaPath}`;
+        console.log(`[process-posts] Threads publishing via DIRECT URL (bypasses Cloudflare): ${mediaUrl}`);
       } else {
-        // Construct public URL from media record
+        // Fallback: API endpoint through Cloudflare
         const baseUrl = process.env.NEXTAUTH_URL || 'https://grothi.com';
         const media = await db.media.findFirst({
           where: { filePath: mediaPath },
@@ -488,11 +517,12 @@ async function publishToThreads(
         if (!media) {
           return {
             success: false,
-            error: 'Could not find media record for Threads publishing. Threads requires a publicly accessible URL.',
+            error: 'Could not find media record for Threads publishing. Set MEDIA_DIRECT_BASE to bypass Cloudflare.',
           };
         }
 
         mediaUrl = `${baseUrl}/api/media/${encodeURIComponent(media.id)}`;
+        console.log(`[process-posts] Threads publishing via API URL (through Cloudflare): ${mediaUrl}`);
       }
 
       // Use correct posting function based on media type
