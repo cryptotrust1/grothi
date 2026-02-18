@@ -222,27 +222,41 @@ describe('postImage', () => {
     expect(result.error).toBe('Instagram rate limit reached. Posts will resume automatically.');
   });
 
-  it('handles network errors from pre-check', async () => {
-    // Pre-check fails with network error
+  it('proceeds to Instagram API when pre-check has network error', async () => {
+    // Pre-check fails with network error — should warn but continue
     (global.fetch as jest.Mock)
       .mockRejectedValueOnce(new Error('Connection refused'));
+    // Container creation succeeds despite pre-check failure
+    mockFetchSuccess({ id: 'container_123' });
+    // Status check
+    mockFetchSuccess({ status_code: 'FINISHED' });
+    // Publish
+    mockFetchSuccess({ id: 'media_456' });
 
     const result = await postImage(makeCreds(), 'Test', 'https://example.com/img.jpg');
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('Connection refused');
-  }, 30000);
+    // Pre-check failure should NOT block posting — Instagram API still tried and succeeded
+    expect(result.success).toBe(true);
+    expect(result.mediaId).toBe('media_456');
+  });
 
-  it('returns error when media URL is not accessible', async () => {
-    // Pre-check returns non-200
+  it('proceeds to Instagram API when media URL returns 403', async () => {
+    // Pre-check returns 403 — should warn but continue
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: false,
       status: 403,
       headers: new Headers({ 'content-type': 'text/html' }),
     });
+    // Container creation succeeds despite pre-check 403
+    mockFetchSuccess({ id: 'container_123' });
+    // Status check
+    mockFetchSuccess({ status_code: 'FINISHED' });
+    // Publish
+    mockFetchSuccess({ id: 'media_456' });
 
     const result = await postImage(makeCreds(), 'Test', 'https://example.com/blocked.jpg');
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('HTTP 403');
+    // Pre-check failure should NOT block posting
+    expect(result.success).toBe(true);
+    expect(result.mediaId).toBe('media_456');
   });
 });
 
