@@ -49,6 +49,28 @@ function parseFormBody(body: string): Record<string, string> {
   return obj;
 }
 
+/**
+ * Mock a successful HEAD pre-check (verifyMediaUrlAccessible).
+ * Must be called BEFORE mockFetchSuccess for actual API calls,
+ * because the pre-check runs first.
+ */
+function mockMediaUrlPreCheck() {
+  (global.fetch as jest.Mock).mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    headers: new Headers({ 'content-type': 'image/jpeg' }),
+  });
+}
+
+/** Mock a successful HEAD pre-check for video URLs. */
+function mockVideoUrlPreCheck() {
+  (global.fetch as jest.Mock).mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    headers: new Headers({ 'content-type': 'video/mp4' }),
+  });
+}
+
 // ── Setup ──────────────────────────────────────────────────────
 
 beforeAll(() => {
@@ -124,6 +146,8 @@ describe('validateToken', () => {
 
 describe('postImage', () => {
   it('creates container and publishes successfully', async () => {
+    // Pre-check HEAD request
+    mockMediaUrlPreCheck();
     // Step 1: Create container
     mockFetchSuccess({ id: 'container_123' });
     // Step 2: Check container status
@@ -136,14 +160,15 @@ describe('postImage', () => {
   });
 
   it('sends correct container creation request', async () => {
+    mockMediaUrlPreCheck();
     mockFetchSuccess({ id: 'container_123' });
     mockFetchSuccess({ status_code: 'FINISHED' });
     mockFetchSuccess({ id: 'media_456' });
 
     await postImage(makeCreds(), 'My caption', 'https://cdn.example.com/photo.jpg');
 
-    // Verify container creation call
-    const [url, options] = (global.fetch as jest.Mock).mock.calls[0];
+    // Verify container creation call (index 1 because index 0 is the pre-check HEAD)
+    const [url, options] = (global.fetch as jest.Mock).mock.calls[1];
     expect(url).toContain('/v22.0/17841400000000/media');
     expect(options.method).toBe('POST');
     const body = parseFormBody(options.body);
@@ -153,20 +178,22 @@ describe('postImage', () => {
   });
 
   it('sends correct publish request with creation_id', async () => {
+    mockMediaUrlPreCheck();
     mockFetchSuccess({ id: 'container_999' });
     mockFetchSuccess({ status_code: 'FINISHED' });
     mockFetchSuccess({ id: 'media_888' });
 
     await postImage(makeCreds(), 'Caption', 'https://example.com/img.jpg');
 
-    // Verify publish call (3rd fetch call)
-    const [url, options] = (global.fetch as jest.Mock).mock.calls[2];
+    // Verify publish call (index 3 because index 0 is the pre-check HEAD)
+    const [url, options] = (global.fetch as jest.Mock).mock.calls[3];
     expect(url).toContain('/v22.0/17841400000000/media_publish');
     const body = parseFormBody(options.body);
     expect(body.creation_id).toBe('container_999');
   });
 
   it('returns error if container creation fails', async () => {
+    mockMediaUrlPreCheck();
     mockFetchError('Invalid image URL', 100);
 
     const result = await postImage(makeCreds(), 'Test', 'https://example.com/bad.jpg');
@@ -175,6 +202,7 @@ describe('postImage', () => {
   });
 
   it('returns error if container processing fails', async () => {
+    mockMediaUrlPreCheck();
     mockFetchSuccess({ id: 'container_123' });
     mockFetchSuccess({ status_code: 'ERROR', status: 'Image too small' });
 
@@ -184,6 +212,7 @@ describe('postImage', () => {
   });
 
   it('returns error if publish fails', async () => {
+    mockMediaUrlPreCheck();
     mockFetchSuccess({ id: 'container_123' });
     mockFetchSuccess({ status_code: 'FINISHED' });
     mockFetchError('Rate limit exceeded', 4);
@@ -193,17 +222,28 @@ describe('postImage', () => {
     expect(result.error).toBe('Instagram rate limit reached. Posts will resume automatically.');
   });
 
-  it('handles network errors', async () => {
-    // Must reject all 3 attempts (initial + 2 retries) to exhaust retry logic
+  it('handles network errors from pre-check', async () => {
+    // Pre-check fails with network error
     (global.fetch as jest.Mock)
-      .mockRejectedValueOnce(new Error('Connection refused'))
-      .mockRejectedValueOnce(new Error('Connection refused'))
       .mockRejectedValueOnce(new Error('Connection refused'));
 
     const result = await postImage(makeCreds(), 'Test', 'https://example.com/img.jpg');
     expect(result.success).toBe(false);
-    expect(result.error).toBe('Connection refused');
+    expect(result.error).toContain('Connection refused');
   }, 30000);
+
+  it('returns error when media URL is not accessible', async () => {
+    // Pre-check returns non-200
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      headers: new Headers({ 'content-type': 'text/html' }),
+    });
+
+    const result = await postImage(makeCreds(), 'Test', 'https://example.com/blocked.jpg');
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('HTTP 403');
+  });
 });
 
 describe('postCarousel', () => {
@@ -221,6 +261,9 @@ describe('postCarousel', () => {
   });
 
   it('creates child containers, carousel, and publishes', async () => {
+    // Pre-check HEAD requests for each image URL
+    mockMediaUrlPreCheck();
+    mockMediaUrlPreCheck();
     // 2 child containers
     mockFetchSuccess({ id: 'child_1' });
     mockFetchSuccess({ id: 'child_2' });
@@ -242,12 +285,12 @@ describe('postCarousel', () => {
 
     expect(result).toEqual({ success: true, mediaId: 'published_1' });
 
-    // Verify child containers have is_carousel_item
-    const firstChildBody = parseFormBody((global.fetch as jest.Mock).mock.calls[0][1].body);
+    // Verify child containers have is_carousel_item (index 2 because 0,1 are pre-checks)
+    const firstChildBody = parseFormBody((global.fetch as jest.Mock).mock.calls[2][1].body);
     expect(firstChildBody.is_carousel_item).toBe('true');
 
-    // Verify carousel container has children (comma-separated in form-urlencoded)
-    const carouselBody = parseFormBody((global.fetch as jest.Mock).mock.calls[4][1].body);
+    // Verify carousel container has children (index 6 because 0,1 are pre-checks)
+    const carouselBody = parseFormBody((global.fetch as jest.Mock).mock.calls[6][1].body);
     expect(carouselBody.media_type).toBe('CAROUSEL');
     expect(carouselBody.children).toBe('child_1,child_2');
   });
@@ -255,6 +298,8 @@ describe('postCarousel', () => {
 
 describe('postReel', () => {
   it('creates video container and publishes', async () => {
+    // Pre-check HEAD request
+    mockVideoUrlPreCheck();
     mockFetchSuccess({ id: 'video_container_1' });
     mockFetchSuccess({ status_code: 'FINISHED' });
     mockFetchSuccess({ id: 'reel_media_1' });
@@ -267,8 +312,8 @@ describe('postReel', () => {
 
     expect(result).toEqual({ success: true, mediaId: 'reel_media_1' });
 
-    // Verify container uses REELS media_type
-    const body = parseFormBody((global.fetch as jest.Mock).mock.calls[0][1].body);
+    // Verify container uses REELS media_type (index 1 because index 0 is the pre-check HEAD)
+    const body = parseFormBody((global.fetch as jest.Mock).mock.calls[1][1].body);
     expect(body.media_type).toBe('REELS');
     expect(body.video_url).toBe('https://example.com/video.mp4');
   });
