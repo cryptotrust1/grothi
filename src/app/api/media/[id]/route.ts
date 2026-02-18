@@ -22,11 +22,16 @@ export async function GET(
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
+  // Detect if request is from Meta's servers (Instagram/Facebook/Threads).
+  // Meta crawlers use user-agents like "facebookexternalhit/1.1" and "Instagram".
+  const userAgent = request.headers.get('user-agent') || '';
+  const isMetaCrawler = /facebookexternalhit|Instagram|Facebot/i.test(userAgent);
+
   // Auth: if user is logged in, verify ownership.
   // If no user (external access from Instagram/Threads/Facebook servers), allow access.
   // The CUID media ID is unguessable (25+ random chars) so it acts as a secret token.
   // This is required because Instagram Graph API fetches the image URL server-side.
-  const user = await getCurrentUser();
+  const user = isMetaCrawler ? null : await getCurrentUser();
   if (user && media.bot.userId !== user.id) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
@@ -102,14 +107,16 @@ export async function GET(
 
     // No Range header — return full video with Accept-Ranges
     const buffer = await readFile(filePath);
+    const videoCacheControl = isMetaCrawler ? 'public, max-age=86400' : 'private, max-age=86400';
     return new NextResponse(buffer, {
       headers: {
         'Content-Type': media.mimeType,
         'Content-Length': String(fileSize),
         'Accept-Ranges': 'bytes',
-        'Cache-Control': 'private, max-age=86400',
+        'Cache-Control': videoCacheControl,
         'Content-Disposition': `inline; filename="${safeFilename}"`,
         'X-Content-Type-Options': 'nosniff',
+        'Access-Control-Allow-Origin': '*',
       },
     });
   }
@@ -117,14 +124,19 @@ export async function GET(
   // Non-video files: serve as before
   const buffer = await readFile(filePath);
 
+  // Use public cache for Meta crawlers so Cloudflare doesn't interfere.
+  // For logged-in users, keep private caching.
+  const cacheControl = isMetaCrawler ? 'public, max-age=86400' : 'private, max-age=86400';
+
   return new NextResponse(buffer, {
     headers: {
       'Content-Type': media.mimeType,
       'Content-Length': String(media.fileSize),
-      'Cache-Control': 'private, max-age=86400',
+      'Cache-Control': cacheControl,
       'Content-Disposition': `${disposition}; filename="${safeFilename}"`,
       'X-Content-Type-Options': 'nosniff',
       'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'",
+      'Access-Control-Allow-Origin': '*',
     },
   });
 }

@@ -30,6 +30,7 @@ import {
   postImage as igPostImage,
   postReel as igPostReel,
   postLocalImage as igPostLocalImage,
+  isTokenNearExpiry as igIsTokenNearExpiry,
   type InstagramPostResult,
 } from '@/lib/instagram';
 import {
@@ -349,6 +350,15 @@ async function publishToInstagram(
 ): Promise<{ success: boolean; externalId?: string; error?: string }> {
   try {
     const creds = decryptInstagramCredentials(conn);
+    const config = (conn.config || {}) as Record<string, unknown>;
+
+    // Check if token is near expiry and log warning (same as Threads)
+    if (igIsTokenNearExpiry(config)) {
+      console.warn(
+        `[process-posts] Instagram token for connection ${conn.id} is near expiry. ` +
+        `Expires at: ${config.tokenExpiresAt}. Consider refreshing.`
+      );
+    }
 
     if (!mediaPath) {
       return {

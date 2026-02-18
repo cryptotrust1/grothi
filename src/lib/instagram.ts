@@ -233,17 +233,20 @@ function isTokenError(data: any): boolean {
 
 /**
  * Check if a Graph API error is transient and worth retrying.
- * Code 2 = "Temporary issue" — Meta recommends retrying 1-2 times.
+ * Code 1 = "Unknown error" — transient server issue.
+ * Code 2 = "Temporary issue" — Meta recommends retrying.
+ * Note: Code 4 (rate limit) is NOT retried here — it requires longer waits
+ * and is handled by the 429/throttle logic in graphFetch.
  */
 function isTransientError(data: any): boolean {
   if (!isGraphError(data)) return false;
-  return data.error.code === 2;
+  return data.error.code === 1 || data.error.code === 2;
 }
 
-/** Max retries for transient errors (code 2). */
-const TRANSIENT_MAX_RETRIES = 2;
-/** Delay between retries (ms). */
-const TRANSIENT_RETRY_DELAY = 5_000;
+/** Max retries for transient errors (code 1, 2). */
+const TRANSIENT_MAX_RETRIES = 4;
+/** Base delay between retries (ms). Uses exponential backoff: 5s, 10s, 20s, 40s. */
+const TRANSIENT_RETRY_BASE_DELAY = 5_000;
 
 // ── Token Validation ───────────────────────────────────────────
 
@@ -349,6 +352,62 @@ export function isTokenNearExpiry(config: Record<string, unknown>): boolean {
   return expiresAt < warningThreshold;
 }
 
+// ── Image URL Pre-Validation ──────────────────────────────────
+
+/**
+ * Verify that an image/video URL is publicly accessible before
+ * sending it to Instagram's Container API.
+ *
+ * Instagram's servers download media from the provided URL.
+ * If Cloudflare bot protection, WAF rules, or server issues block
+ * the fetch, the container creation fails with error code 2.
+ *
+ * This pre-check catches accessibility issues early with a clear error message.
+ */
+async function verifyMediaUrlAccessible(url: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
+
+    const res = await fetch(url, {
+      method: 'HEAD',
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'facebookexternalhit/1.1',
+      },
+    });
+    clearTimeout(timer);
+
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: `Media URL returned HTTP ${res.status}. Instagram cannot download the image. Check Cloudflare/Nginx config.`,
+      };
+    }
+
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.startsWith('image/') && !contentType.startsWith('video/')) {
+      return {
+        ok: false,
+        error: `Media URL returned content-type "${contentType}" instead of image/video. Cloudflare may be returning a challenge page.`,
+      };
+    }
+
+    return { ok: true };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    if (msg.includes('AbortError') || msg.includes('aborted')) {
+      return { ok: false, error: 'Media URL timed out (15s). Server may be unreachable from itself.' };
+    }
+    return { ok: false, error: `Media URL not accessible: ${msg}` };
+  }
+}
+
+/** Calculate exponential backoff delay: base * 2^(attempt-1). */
+function getRetryDelay(attempt: number): number {
+  return TRANSIENT_RETRY_BASE_DELAY * Math.pow(2, attempt - 1);
+}
+
 // ── Container Status Check ─────────────────────────────────────
 
 /**
@@ -411,11 +470,19 @@ export async function postImage(
   caption: string,
   imageUrl: string
 ): Promise<InstagramPostResult> {
+  // Pre-validate: verify image URL is accessible before calling Instagram API
+  const urlCheck = await verifyMediaUrlAccessible(imageUrl);
+  if (!urlCheck.ok) {
+    console.error('[instagram] postImage: media URL pre-check failed:', urlCheck.error);
+    return { success: false, error: urlCheck.error };
+  }
+
   for (let attempt = 0; attempt <= TRANSIENT_MAX_RETRIES; attempt++) {
     try {
       if (attempt > 0) {
-        console.log(`[instagram] postImage: retry ${attempt}/${TRANSIENT_MAX_RETRIES}`);
-        await new Promise((r) => setTimeout(r, TRANSIENT_RETRY_DELAY * attempt));
+        const delay = getRetryDelay(attempt);
+        console.log(`[instagram] postImage: retry ${attempt}/${TRANSIENT_MAX_RETRIES}, waiting ${delay}ms`);
+        await new Promise((r) => setTimeout(r, delay));
       }
       console.log('[instagram] postImage: creating container for', imageUrl.substring(0, 80));
       // Step 1: Create media container
@@ -508,83 +575,123 @@ export async function postCarousel(
     return { success: false, error: 'Carousel requires 2-10 images' };
   }
 
-  try {
-    // Step 1: Create containers for each image
-    const childContainerIds: string[] = [];
+  // Pre-validate: verify all image URLs are accessible
+  for (const url of imageUrls) {
+    const urlCheck = await verifyMediaUrlAccessible(url);
+    if (!urlCheck.ok) {
+      console.error('[instagram] postCarousel: media URL pre-check failed:', urlCheck.error);
+      return { success: false, error: urlCheck.error };
+    }
+  }
 
-    for (const imageUrl of imageUrls) {
-      const containerUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.accountId)}/media`;
+  for (let attempt = 0; attempt <= TRANSIENT_MAX_RETRIES; attempt++) {
+    try {
+      if (attempt > 0) {
+        const delay = getRetryDelay(attempt);
+        console.log(`[instagram] postCarousel: retry ${attempt}/${TRANSIENT_MAX_RETRIES}, waiting ${delay}ms`);
+        await new Promise((r) => setTimeout(r, delay));
+      }
 
-      const { data: containerData } = await graphFetch(containerUrl, {
+      // Step 1: Create containers for each image
+      const childContainerIds: string[] = [];
+
+      for (const imageUrl of imageUrls) {
+        const containerUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.accountId)}/media`;
+
+        const { data: containerData } = await graphFetch(containerUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            image_url: imageUrl,
+            is_carousel_item: 'true',
+            access_token: creds.accessToken,
+          }).toString(),
+        });
+
+        if (isGraphError(containerData)) {
+          if (isTransientError(containerData) && attempt < TRANSIENT_MAX_RETRIES) {
+            console.warn('[instagram] Transient error creating carousel item, will retry:', containerData.error.message);
+            childContainerIds.length = 0; // Reset for retry
+            break;
+          }
+          return { success: false, error: `Carousel item failed: ${friendlyIgError(containerData)}` };
+        }
+
+        childContainerIds.push(containerData.id);
+      }
+
+      // If we broke out of the inner loop due to transient error, retry
+      if (childContainerIds.length !== imageUrls.length) continue;
+
+      // Step 2: Wait for all child containers to finish
+      let childFailed = false;
+      for (const childId of childContainerIds) {
+        const status = await waitForContainer(childId, creds.accessToken);
+        if (status.status !== 'FINISHED') {
+          return { success: false, error: `Carousel item processing failed: ${status.error}` };
+        }
+      }
+
+      // Step 3: Create carousel container
+      const carouselUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.accountId)}/media`;
+
+      const { data: carouselData } = await graphFetch(carouselUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
-          image_url: imageUrl,
-          is_carousel_item: 'true',
+          media_type: 'CAROUSEL',
+          caption,
+          children: childContainerIds.join(','),
           access_token: creds.accessToken,
         }).toString(),
       });
 
-      if (isGraphError(containerData)) {
-        return { success: false, error: `Carousel item failed: ${friendlyIgError(containerData)}` };
+      if (isGraphError(carouselData)) {
+        if (isTransientError(carouselData) && attempt < TRANSIENT_MAX_RETRIES) {
+          console.warn('[instagram] Transient error creating carousel container, will retry:', carouselData.error.message);
+          continue;
+        }
+        return { success: false, error: friendlyIgError(carouselData) };
       }
 
-      childContainerIds.push(containerData.id);
-    }
-
-    // Step 2: Wait for all child containers to finish
-    for (const childId of childContainerIds) {
-      const status = await waitForContainer(childId, creds.accessToken);
-      if (status.status !== 'FINISHED') {
-        return { success: false, error: `Carousel item processing failed: ${status.error}` };
+      // Step 4: Wait for carousel container
+      const carouselStatus = await waitForContainer(carouselData.id, creds.accessToken);
+      if (carouselStatus.status !== 'FINISHED') {
+        return { success: false, error: carouselStatus.error || 'Carousel processing failed' };
       }
+
+      // Step 5: Publish
+      const publishUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.accountId)}/media_publish`;
+
+      const { data: publishData } = await graphFetch(publishUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          creation_id: carouselData.id,
+          access_token: creds.accessToken,
+        }).toString(),
+      });
+
+      if (isGraphError(publishData)) {
+        if (isTransientError(publishData) && attempt < TRANSIENT_MAX_RETRIES) {
+          console.warn('[instagram] Transient error publishing carousel, will retry:', publishData.error.message);
+          continue;
+        }
+        return { success: false, error: friendlyIgError(publishData) };
+      }
+
+      return { success: true, mediaId: publishData.id };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Network error';
+      if (attempt < TRANSIENT_MAX_RETRIES) {
+        console.warn(`[instagram] postCarousel error, will retry: ${msg}`);
+        continue;
+      }
+      return { success: false, error: msg };
     }
-
-    // Step 3: Create carousel container
-    const carouselUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.accountId)}/media`;
-
-    const { data: carouselData } = await graphFetch(carouselUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        media_type: 'CAROUSEL',
-        caption,
-        children: childContainerIds.join(','),
-        access_token: creds.accessToken,
-      }).toString(),
-    });
-
-    if (isGraphError(carouselData)) {
-      return { success: false, error: friendlyIgError(carouselData) };
-    }
-
-    // Step 4: Wait for carousel container
-    const carouselStatus = await waitForContainer(carouselData.id, creds.accessToken);
-    if (carouselStatus.status !== 'FINISHED') {
-      return { success: false, error: carouselStatus.error || 'Carousel processing failed' };
-    }
-
-    // Step 5: Publish
-    const publishUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.accountId)}/media_publish`;
-
-    const { data: publishData } = await graphFetch(publishUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        creation_id: carouselData.id,
-        access_token: creds.accessToken,
-      }).toString(),
-    });
-
-    if (isGraphError(publishData)) {
-      return { success: false, error: friendlyIgError(publishData) };
-    }
-
-    return { success: true, mediaId: publishData.id };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Network error';
-    return { success: false, error: msg };
   }
+
+  return { success: false, error: 'Instagram carousel publishing failed after retries' };
 }
 
 // ── Publishing: Reel (Video) ──────────────────────────────────
@@ -599,11 +706,19 @@ export async function postReel(
   caption: string,
   videoUrl: string
 ): Promise<InstagramPostResult> {
+  // Pre-validate: verify video URL is accessible before calling Instagram API
+  const urlCheck = await verifyMediaUrlAccessible(videoUrl);
+  if (!urlCheck.ok) {
+    console.error('[instagram] postReel: media URL pre-check failed:', urlCheck.error);
+    return { success: false, error: urlCheck.error };
+  }
+
   for (let attempt = 0; attempt <= TRANSIENT_MAX_RETRIES; attempt++) {
     try {
       if (attempt > 0) {
-        console.log(`[instagram] postReel: retry ${attempt}/${TRANSIENT_MAX_RETRIES}`);
-        await new Promise((r) => setTimeout(r, TRANSIENT_RETRY_DELAY * attempt));
+        const delay = getRetryDelay(attempt);
+        console.log(`[instagram] postReel: retry ${attempt}/${TRANSIENT_MAX_RETRIES}, waiting ${delay}ms`);
+        await new Promise((r) => setTimeout(r, delay));
       }
       console.log('[instagram] postReel: creating container for', videoUrl.substring(0, 80));
       // Step 1: Create video container
