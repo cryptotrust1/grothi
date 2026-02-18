@@ -223,7 +223,7 @@ describe('postImage', () => {
   });
 
   it('proceeds to Instagram API when pre-check has network error', async () => {
-    // Pre-check fails with network error — should warn but continue
+    // Pre-check fails with network error — should warn but still try Instagram API
     (global.fetch as jest.Mock)
       .mockRejectedValueOnce(new Error('Connection refused'));
     // Container creation succeeds despite pre-check failure
@@ -234,13 +234,12 @@ describe('postImage', () => {
     mockFetchSuccess({ id: 'media_456' });
 
     const result = await postImage(makeCreds(), 'Test', 'https://example.com/img.jpg');
-    // Pre-check failure should NOT block posting — Instagram API still tried and succeeded
     expect(result.success).toBe(true);
     expect(result.mediaId).toBe('media_456');
   });
 
   it('proceeds to Instagram API when media URL returns 403', async () => {
-    // Pre-check returns 403 — should warn but continue
+    // Pre-check returns 403 — should warn but still try Instagram API
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: false,
       status: 403,
@@ -254,7 +253,6 @@ describe('postImage', () => {
     mockFetchSuccess({ id: 'media_456' });
 
     const result = await postImage(makeCreds(), 'Test', 'https://example.com/blocked.jpg');
-    // Pre-check failure should NOT block posting
     expect(result.success).toBe(true);
     expect(result.mediaId).toBe('media_456');
   });

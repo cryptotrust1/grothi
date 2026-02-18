@@ -173,7 +173,6 @@ async function graphFetch(
     try {
       data = await res.json();
     } catch {
-      // Instagram may return HTML (maintenance page, Cloudflare challenge, etc.)
       const text = await res.text().catch(() => '(empty body)');
       console.error('[instagram] Non-JSON API response:', {
         status: res.status,
@@ -493,10 +492,9 @@ export async function postImage(
   caption: string,
   imageUrl: string
 ): Promise<InstagramPostResult> {
-  // Pre-validate: check URL accessibility from this server.
-  // NOTE: This is a diagnostic check only — NOT a hard failure.
-  // The server checking its own URL through Cloudflare may get different results
-  // than Instagram's servers (Cloudflare Bot Fight Mode treats IPs differently).
+  // Pre-validate: check URL accessibility from this server (diagnostic only).
+  // NOTE: NOT a hard failure — server checking its own URL through Cloudflare
+  // is unreliable. With MEDIA_DIRECT_BASE, images bypass Cloudflare entirely.
   const urlCheck = await verifyMediaUrlAccessible(imageUrl);
   if (!urlCheck.ok) {
     console.warn('[instagram] postImage: media URL pre-check FAILED (will try Instagram API anyway):', urlCheck.error);
@@ -562,7 +560,6 @@ export async function postImage(
       });
 
       if (isGraphError(publishData)) {
-        // Retry on transient errors (code 2) at publish step
         if (isTransientError(publishData) && attempt < TRANSIENT_MAX_RETRIES) {
           console.warn('[instagram] Transient error at PUBLISH step, will retry:', publishData.error.message);
           continue;
