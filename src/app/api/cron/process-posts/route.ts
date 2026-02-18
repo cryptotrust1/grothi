@@ -43,6 +43,7 @@ import {
 } from '@/lib/threads';
 import type { PlatformType } from '@prisma/client';
 import path from 'path';
+import { existsSync } from 'fs';
 
 /** Base directory for uploaded media files. */
 const UPLOAD_DIR = path.join(process.cwd(), 'data', 'uploads');
@@ -268,7 +269,7 @@ async function publishToPlatform(
       return publishToFacebook(conn, content, mediaPath, mediaType);
 
     case 'INSTAGRAM':
-      return publishToInstagram(conn, content, mediaPath, mediaType, mediaId);
+      return publishToInstagram(conn, content, mediaPath, mediaType, mediaId, mediaMimeType);
 
     case 'THREADS':
       return publishToThreads(conn, content, mediaPath, mediaType);
@@ -346,11 +347,19 @@ async function publishToInstagram(
   content: string,
   mediaPath: string | null,
   mediaType: 'IMAGE' | 'VIDEO' | 'GIF' | null,
-  mediaId: string | null
+  mediaId: string | null,
+  mediaMimeType: string | null = null
 ): Promise<{ success: boolean; externalId?: string; error?: string }> {
   try {
     const creds = decryptInstagramCredentials(conn);
     const config = (conn.config || {}) as Record<string, unknown>;
+
+    console.log(`[process-posts] Instagram: starting publish for connection ${conn.id}`, {
+      mediaType,
+      mediaMimeType,
+      hasMediaPath: !!mediaPath,
+      hasMediaId: !!mediaId,
+    });
 
     // Check if token is near expiry and log warning (same as Threads)
     if (igIsTokenNearExpiry(config)) {
@@ -367,11 +376,23 @@ async function publishToInstagram(
       };
     }
 
+    // Instagram only supports JPEG and PNG for images. Warn about unsupported formats.
+    if (mediaType === 'IMAGE' && mediaMimeType) {
+      const supportedImageTypes = ['image/jpeg', 'image/png'];
+      if (!supportedImageTypes.includes(mediaMimeType)) {
+        console.warn(
+          `[process-posts] Instagram image format warning: ${mediaMimeType} may not be supported. ` +
+          `Instagram officially supports only JPEG and PNG.`
+        );
+      }
+    }
+
     // Determine the correct posting function based on media type
     const postFn = mediaType === 'VIDEO' ? igPostReel : igPostImage;
 
     // Check if mediaPath is already a URL
     if (mediaPath.startsWith('http://') || mediaPath.startsWith('https://')) {
+      console.log(`[process-posts] Instagram: posting with external URL: ${mediaPath.substring(0, 100)}`);
       const result = await postFn(creds, content, mediaPath);
       if (result.success) {
         return { success: true, externalId: result.mediaId };
@@ -381,6 +402,14 @@ async function publishToInstagram(
       }
       return { success: false, error: result.error };
     }
+
+    // Verify file exists on disk before constructing public URL
+    const absMediaPath = path.resolve(path.join(UPLOAD_DIR, mediaPath));
+    if (!existsSync(absMediaPath)) {
+      console.error(`[process-posts] Instagram: media file NOT FOUND on disk: ${absMediaPath}`);
+      return { success: false, error: `Media file not found on disk: ${mediaPath}` };
+    }
+    console.log(`[process-posts] Instagram: media file verified on disk: ${absMediaPath}`);
 
     // For local files, construct a public URL via the media serve endpoint
     const baseUrl = process.env.NEXTAUTH_URL || 'https://grothi.com';

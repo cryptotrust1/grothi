@@ -169,7 +169,25 @@ async function graphFetch(
       return { data, rateLimits };
     }
 
-    const data = await res.json();
+    let data;
+    try {
+      data = await res.json();
+    } catch {
+      // Instagram may return HTML (maintenance page, Cloudflare challenge, etc.)
+      const text = await res.text().catch(() => '(empty body)');
+      console.error('[instagram] Non-JSON API response:', {
+        status: res.status,
+        url: url.toString().substring(0, 100),
+        body: text.substring(0, 500),
+      });
+      data = {
+        error: {
+          message: `Instagram returned non-JSON response (HTTP ${res.status}). May indicate API maintenance or WAF block.`,
+          type: 'ParseError',
+          code: 2,
+        },
+      };
+    }
 
     if (rateLimits.shouldThrottle) {
       await new Promise((r) => setTimeout(r, 30_000));
@@ -393,6 +411,11 @@ async function verifyMediaUrlAccessible(url: string): Promise<{ ok: boolean; err
       };
     }
 
+    console.log('[instagram] Media URL pre-check passed:', {
+      url: url.substring(0, 80),
+      status: res.status,
+      contentType: contentType.substring(0, 50),
+    });
     return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error';
@@ -470,11 +493,13 @@ export async function postImage(
   caption: string,
   imageUrl: string
 ): Promise<InstagramPostResult> {
-  // Pre-validate: verify image URL is accessible before calling Instagram API
+  // Pre-validate: check URL accessibility from this server.
+  // NOTE: This is a diagnostic check only — NOT a hard failure.
+  // The server checking its own URL through Cloudflare may get different results
+  // than Instagram's servers (Cloudflare Bot Fight Mode treats IPs differently).
   const urlCheck = await verifyMediaUrlAccessible(imageUrl);
   if (!urlCheck.ok) {
-    console.error('[instagram] postImage: media URL pre-check failed:', urlCheck.error);
-    return { success: false, error: urlCheck.error };
+    console.warn('[instagram] postImage: media URL pre-check FAILED (will try Instagram API anyway):', urlCheck.error);
   }
 
   for (let attempt = 0; attempt <= TRANSIENT_MAX_RETRIES; attempt++) {
@@ -484,7 +509,7 @@ export async function postImage(
         console.log(`[instagram] postImage: retry ${attempt}/${TRANSIENT_MAX_RETRIES}, waiting ${delay}ms`);
         await new Promise((r) => setTimeout(r, delay));
       }
-      console.log('[instagram] postImage: creating container for', imageUrl.substring(0, 80));
+      console.log(`[instagram] postImage: step 1/3 — creating container for ${imageUrl.substring(0, 100)}`);
       // Step 1: Create media container
       const containerUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.accountId)}/media`;
 
@@ -510,16 +535,21 @@ export async function postImage(
 
       const containerId = containerData.id;
       if (!containerId) {
+        console.error('[instagram] postImage: no container ID in response:', JSON.stringify(containerData));
         return { success: false, error: 'No container ID returned from Instagram' };
       }
 
+      console.log(`[instagram] postImage: step 2/3 — container created (id=${containerId}), polling status...`);
+
       // Step 2: Wait for container to finish processing
       const containerStatus = await waitForContainer(containerId, creds.accessToken);
+      console.log(`[instagram] postImage: container status=${containerStatus.status}${containerStatus.error ? `, error=${containerStatus.error}` : ''}`);
       if (containerStatus.status !== 'FINISHED') {
         return { success: false, error: containerStatus.error || 'Container processing failed' };
       }
 
       // Step 3: Publish the container
+      console.log(`[instagram] postImage: step 3/3 — publishing container ${containerId}...`);
       const publishUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.accountId)}/media_publish`;
 
       const { data: publishData } = await graphFetch(publishUrl, {
@@ -534,12 +564,13 @@ export async function postImage(
       if (isGraphError(publishData)) {
         // Retry on transient errors (code 2) at publish step
         if (isTransientError(publishData) && attempt < TRANSIENT_MAX_RETRIES) {
-          console.warn('[instagram] Transient error publishing, will retry:', publishData.error.message);
+          console.warn('[instagram] Transient error at PUBLISH step, will retry:', publishData.error.message);
           continue;
         }
         return { success: false, error: friendlyIgError(publishData) };
       }
 
+      console.log(`[instagram] postImage: SUCCESS — mediaId=${publishData.id}`);
       return { success: true, mediaId: publishData.id };
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Network error';
@@ -575,12 +606,11 @@ export async function postCarousel(
     return { success: false, error: 'Carousel requires 2-10 images' };
   }
 
-  // Pre-validate: verify all image URLs are accessible
+  // Pre-validate: check URL accessibility (diagnostic only, not a hard failure)
   for (const url of imageUrls) {
     const urlCheck = await verifyMediaUrlAccessible(url);
     if (!urlCheck.ok) {
-      console.error('[instagram] postCarousel: media URL pre-check failed:', urlCheck.error);
-      return { success: false, error: urlCheck.error };
+      console.warn('[instagram] postCarousel: media URL pre-check FAILED (will try anyway):', urlCheck.error);
     }
   }
 
@@ -706,11 +736,10 @@ export async function postReel(
   caption: string,
   videoUrl: string
 ): Promise<InstagramPostResult> {
-  // Pre-validate: verify video URL is accessible before calling Instagram API
+  // Pre-validate: check URL accessibility (diagnostic only, not a hard failure)
   const urlCheck = await verifyMediaUrlAccessible(videoUrl);
   if (!urlCheck.ok) {
-    console.error('[instagram] postReel: media URL pre-check failed:', urlCheck.error);
-    return { success: false, error: urlCheck.error };
+    console.warn('[instagram] postReel: media URL pre-check FAILED (will try Instagram API anyway):', urlCheck.error);
   }
 
   for (let attempt = 0; attempt <= TRANSIENT_MAX_RETRIES; attempt++) {
@@ -720,7 +749,7 @@ export async function postReel(
         console.log(`[instagram] postReel: retry ${attempt}/${TRANSIENT_MAX_RETRIES}, waiting ${delay}ms`);
         await new Promise((r) => setTimeout(r, delay));
       }
-      console.log('[instagram] postReel: creating container for', videoUrl.substring(0, 80));
+      console.log(`[instagram] postReel: step 1/3 — creating container for ${videoUrl.substring(0, 100)}`);
       // Step 1: Create video container
       const containerUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.accountId)}/media`;
 
@@ -745,16 +774,21 @@ export async function postReel(
 
       const containerId = containerData.id;
       if (!containerId) {
+        console.error('[instagram] postReel: no container ID in response:', JSON.stringify(containerData));
         return { success: false, error: 'No container ID returned from Instagram' };
       }
 
+      console.log(`[instagram] postReel: step 2/3 — container created (id=${containerId}), polling status...`);
+
       // Step 2: Wait for video processing (uses extended timeout)
       const containerStatus = await waitForContainer(containerId, creds.accessToken, true);
+      console.log(`[instagram] postReel: container status=${containerStatus.status}${containerStatus.error ? `, error=${containerStatus.error}` : ''}`);
       if (containerStatus.status !== 'FINISHED') {
         return { success: false, error: containerStatus.error || 'Video processing failed' };
       }
 
       // Step 3: Publish
+      console.log(`[instagram] postReel: step 3/3 — publishing container ${containerId}...`);
       const publishUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.accountId)}/media_publish`;
 
       const { data: publishData } = await graphFetch(publishUrl, {
@@ -768,12 +802,13 @@ export async function postReel(
 
       if (isGraphError(publishData)) {
         if (isTransientError(publishData) && attempt < TRANSIENT_MAX_RETRIES) {
-          console.warn('[instagram] Transient error publishing reel, will retry:', publishData.error.message);
+          console.warn('[instagram] Transient error at PUBLISH step for reel, will retry:', publishData.error.message);
           continue;
         }
         return { success: false, error: friendlyIgError(publishData) };
       }
 
+      console.log(`[instagram] postReel: SUCCESS — mediaId=${publishData.id}`);
       return { success: true, mediaId: publishData.id };
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Network error';
