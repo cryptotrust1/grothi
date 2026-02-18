@@ -156,8 +156,20 @@ export async function POST(request: NextRequest) {
       }, { status: 500 });
     }
 
-    // Download the generated image
-    const imageResponse = await fetch(imageUrl);
+    // Download the generated image (60s timeout)
+    const dlController = new AbortController();
+    const dlTimeout = setTimeout(() => dlController.abort(), 60000);
+    let imageResponse: Response;
+    try {
+      imageResponse = await fetch(imageUrl, { signal: dlController.signal });
+    } catch (dlErr) {
+      clearTimeout(dlTimeout);
+      if (dlErr instanceof DOMException && dlErr.name === 'AbortError') {
+        return NextResponse.json({ error: 'Image download timed out. Try generating again.' }, { status: 504 });
+      }
+      throw dlErr;
+    }
+    clearTimeout(dlTimeout);
     if (!imageResponse.ok) {
       return NextResponse.json({
         error: `Failed to download generated image from Replicate (HTTP ${imageResponse.status}). The image URL may have expired. Try generating again.`,

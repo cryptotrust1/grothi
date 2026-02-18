@@ -84,11 +84,16 @@ export async function GET(request: NextRequest) {
   const redirectUri = `${origin}/api/oauth/instagram/callback`;
 
   try {
+    // 30-second timeout for all OAuth API calls
+    const oauthController = new AbortController();
+    const oauthTimeout = setTimeout(() => oauthController.abort(), 30000);
+
     // Step 1: Exchange authorization code for short-lived token
     // Instagram Direct Login uses api.instagram.com (NOT graph.facebook.com)
     // and requires application/x-www-form-urlencoded body
     const tokenRes = await fetch('https://api.instagram.com/oauth/access_token', {
       method: 'POST',
+      signal: oauthController.signal,
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         client_id: appId,
@@ -124,7 +129,7 @@ export async function GET(request: NextRequest) {
     longLivedUrl.searchParams.set('client_secret', appSecret);
     longLivedUrl.searchParams.set('access_token', shortLivedToken);
 
-    const longLivedRes = await fetch(longLivedUrl.toString());
+    const longLivedRes = await fetch(longLivedUrl.toString(), { signal: oauthController.signal });
     const longLivedData = await longLivedRes.json();
 
     if (longLivedData.error) {
@@ -141,7 +146,8 @@ export async function GET(request: NextRequest) {
     profileUrl.searchParams.set('fields', 'user_id,username,name,profile_picture_url');
     profileUrl.searchParams.set('access_token', longLivedToken);
 
-    const profileRes = await fetch(profileUrl.toString());
+    const profileRes = await fetch(profileUrl.toString(), { signal: oauthController.signal });
+    clearTimeout(oauthTimeout);
     let igUsername = 'unknown';
     if (profileRes.ok) {
       const profileData = await profileRes.json();
@@ -188,7 +194,10 @@ export async function GET(request: NextRequest) {
       )
     );
   } catch (e) {
-    const message = e instanceof Error ? e.message : 'Instagram OAuth failed';
+    const isTimeout = e instanceof DOMException && e.name === 'AbortError';
+    const message = isTimeout
+      ? 'Instagram OAuth timed out. Please try again.'
+      : e instanceof Error ? e.message : 'Instagram OAuth failed';
     return NextResponse.redirect(
       new URL(
         `/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(message)}`,

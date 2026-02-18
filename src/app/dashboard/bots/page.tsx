@@ -30,6 +30,7 @@ export default async function BotsPage() {
       _count: { select: { activities: true } },
     },
     orderBy: { createdAt: 'desc' },
+    take: 100,
   });
 
   return (

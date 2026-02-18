@@ -1,0 +1,9 @@
+# Grothi.com - AI Marketing Bot Platform
+User-agent: *
+Allow: /
+Disallow: /dashboard/
+Disallow: /admin/
+Disallow: /auth/
+Disallow: /api/
+
+Sitemap: https://grothi.com/sitemap.xml

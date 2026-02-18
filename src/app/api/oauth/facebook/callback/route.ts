@@ -96,6 +96,10 @@ export async function GET(request: NextRequest) {
   const redirectUri = `${origin}/api/oauth/facebook/callback`;
 
   try {
+    // 30-second timeout for all OAuth API calls
+    const oauthController = new AbortController();
+    const oauthTimeout = setTimeout(() => oauthController.abort(), 30000);
+
     // Step 1: Exchange authorization code for short-lived user access token
     const tokenUrl = new URL(`${GRAPH_BASE}/oauth/access_token`);
     tokenUrl.searchParams.set('client_id', appId);
@@ -103,10 +107,11 @@ export async function GET(request: NextRequest) {
     tokenUrl.searchParams.set('redirect_uri', redirectUri);
     tokenUrl.searchParams.set('code', code);
 
-    const tokenRes = await fetch(tokenUrl.toString());
+    const tokenRes = await fetch(tokenUrl.toString(), { signal: oauthController.signal });
     const tokenData = await tokenRes.json();
 
     if (tokenData.error) {
+      clearTimeout(oauthTimeout);
       const msg = tokenData.error.message || 'Failed to get access token';
       return NextResponse.redirect(
         new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(msg)}`, origin)
@@ -114,6 +119,12 @@ export async function GET(request: NextRequest) {
     }
 
     const shortLivedToken = tokenData.access_token as string;
+    if (!shortLivedToken) {
+      clearTimeout(oauthTimeout);
+      return NextResponse.redirect(
+        new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent('Invalid token response from Facebook')}`, origin)
+      );
+    }
 
     // Step 2: Exchange for long-lived user access token (60 days)
     // Page tokens derived from long-lived user tokens are permanent (never expire).
@@ -124,10 +135,11 @@ export async function GET(request: NextRequest) {
     longLivedUrl.searchParams.set('client_secret', appSecret);
     longLivedUrl.searchParams.set('fb_exchange_token', shortLivedToken);
 
-    const longLivedRes = await fetch(longLivedUrl.toString());
+    const longLivedRes = await fetch(longLivedUrl.toString(), { signal: oauthController.signal });
     const longLivedData = await longLivedRes.json();
 
     if (longLivedData.error) {
+      clearTimeout(oauthTimeout);
       const msg = longLivedData.error.message || 'Failed to get long-lived token';
       return NextResponse.redirect(
         new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(msg)}`, origin)
@@ -135,6 +147,12 @@ export async function GET(request: NextRequest) {
     }
 
     const longLivedUserToken = longLivedData.access_token as string;
+    if (!longLivedUserToken) {
+      clearTimeout(oauthTimeout);
+      return NextResponse.redirect(
+        new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent('Invalid long-lived token response from Facebook')}`, origin)
+      );
+    }
 
     // Step 3: Fetch Pages the user manages
     // Page tokens returned here are automatically permanent when derived from long-lived user token
@@ -142,8 +160,9 @@ export async function GET(request: NextRequest) {
     pagesUrl.searchParams.set('access_token', longLivedUserToken);
     pagesUrl.searchParams.set('fields', 'id,name,access_token,category');
 
-    const pagesRes = await fetch(pagesUrl.toString());
+    const pagesRes = await fetch(pagesUrl.toString(), { signal: oauthController.signal });
     const pagesData = await pagesRes.json();
+    clearTimeout(oauthTimeout);
 
     if (pagesData.error) {
       const msg = pagesData.error.message || 'Failed to fetch pages';
@@ -197,7 +216,10 @@ export async function GET(request: NextRequest) {
       )
     );
   } catch (e) {
-    const message = e instanceof Error ? e.message : 'Facebook OAuth failed';
+    const isTimeout = e instanceof DOMException && e.name === 'AbortError';
+    const message = isTimeout
+      ? 'Facebook OAuth timed out. Please try again.'
+      : e instanceof Error ? e.message : 'Facebook OAuth failed';
     return NextResponse.redirect(
       new URL(
         `/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(message)}`,

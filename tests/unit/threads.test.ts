@@ -376,8 +376,8 @@ describe('isTokenNearExpiry', () => {
     expect(isTokenNearExpiry(config)).toBe(true);
   });
 
-  it('returns false when tokenExpiresAt is not set', () => {
-    expect(isTokenNearExpiry({})).toBe(false);
+  it('returns true when tokenExpiresAt is not set (safe default: assume refresh needed)', () => {
+    expect(isTokenNearExpiry({})).toBe(true);
   });
 });
 

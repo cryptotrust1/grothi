@@ -4,7 +4,7 @@ import { db } from '@/lib/db';
 import { deductCredits, getActionCost } from '@/lib/credits';
 import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 
 const UPLOAD_DIR = join(process.cwd(), 'data', 'uploads');
 
@@ -73,7 +73,13 @@ export async function POST(
     );
   }
 
-  const filePath = join(UPLOAD_DIR, media.filePath);
+  const filePath = resolve(join(UPLOAD_DIR, media.filePath));
+
+  // Prevent path traversal — ensure resolved path is within UPLOAD_DIR
+  if (!filePath.startsWith(resolve(UPLOAD_DIR))) {
+    return NextResponse.json({ error: 'Invalid file path' }, { status: 400 });
+  }
+
   if (!existsSync(filePath)) {
     return NextResponse.json({ error: 'File not found on disk' }, { status: 404 });
   }
@@ -153,8 +159,13 @@ Return ONLY valid JSON, no markdown code blocks.`;
                        media.mimeType === 'image/webp' ? 'image/webp' :
                        media.mimeType === 'image/png' ? 'image/png' : 'image/jpeg';
 
+    // 60-second timeout for AI generation
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
+
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': apiKey,
@@ -185,6 +196,8 @@ Return ONLY valid JSON, no markdown code blocks.`;
         ],
       }),
     });
+
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -242,10 +255,20 @@ Return ONLY valid JSON, no markdown code blocks.`;
       captions: parsed.captions,
     });
   } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      return NextResponse.json(
+        { error: 'AI generation timed out. Please try again.' },
+        { status: 504 }
+      );
+    }
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('AI generation error:', message);
+    // Sanitize error message — never expose API keys or internal details
+    const safeMessage = message.includes('api') || message.includes('key') || message.includes('token')
+      ? 'AI service error. Please try again.'
+      : message;
     return NextResponse.json(
-      { error: 'AI generation failed: ' + message },
+      { error: 'AI generation failed: ' + safeMessage },
       { status: 500 }
     );
   }

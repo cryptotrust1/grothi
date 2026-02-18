@@ -84,6 +84,26 @@ export default async function BotSettingsPage({
       .filter((k) => k.length > 0)
       .slice(0, 50);
 
+    // Validate enum fields server-side
+    const validSafetyLevels = ['CONSERVATIVE', 'MODERATE', 'AGGRESSIVE'];
+    const validGoals = ['TRAFFIC', 'SALES', 'ENGAGEMENT', 'BRAND_AWARENESS', 'LEADS', 'COMMUNITY'];
+
+    const rawSafety = formData.get('safetyLevel') as string;
+    const safetyLevel = validSafetyLevels.includes(rawSafety) ? rawSafety : currentBot.safetyLevel;
+
+    const rawGoal = formData.get('goal') as string;
+    const goal = validGoals.includes(rawGoal) ? rawGoal : currentBot.goal;
+
+    const rawTimezone = (formData.get('timezone') as string) || 'UTC';
+    const timezone = TIMEZONES.includes(rawTimezone) ? rawTimezone : 'UTC';
+
+    // Validate integer bounds
+    const rawMaxPosts = parseInt(formData.get('maxPostsPerDay') as string, 10);
+    const maxPostsPerDay = isNaN(rawMaxPosts) ? 10 : Math.max(1, Math.min(50, rawMaxPosts));
+
+    const rawMaxReplies = parseInt(formData.get('maxRepliesPerDay') as string, 10);
+    const maxRepliesPerDay = isNaN(rawMaxReplies) ? 20 : Math.max(0, Math.min(100, rawMaxReplies));
+
     await db.bot.update({
       where: { id },
       data: {
@@ -92,15 +112,15 @@ export default async function BotSettingsPage({
         description: formData.get('description') as string,
         instructions: (formData.get('instructions') as string) || currentBot.instructions,
         brandKnowledge: formData.get('brandKnowledge') as string,
-        safetyLevel: (formData.get('safetyLevel') as 'CONSERVATIVE' | 'MODERATE' | 'AGGRESSIVE') || currentBot.safetyLevel,
-        goal: (formData.get('goal') as any) || currentBot.goal,
+        safetyLevel: safetyLevel as 'CONSERVATIVE' | 'MODERATE' | 'AGGRESSIVE',
+        goal: goal as any,
         targetUrl: (formData.get('targetUrl') as string) || null,
         keywords: keywordsArr.length > 0 ? keywordsArr : [],
         utmSource: (formData.get('utmSource') as string) || 'grothi',
         utmMedium: (formData.get('utmMedium') as string) || 'social',
         gaPropertyId: (formData.get('gaPropertyId') as string) || null,
         postingSchedule: formData.get('postingSchedule') as string,
-        timezone: (formData.get('timezone') as string) || 'UTC',
+        timezone,
         rssFeeds: feeds,
         reactorState: {
           ...currentReactor,
@@ -108,8 +128,8 @@ export default async function BotSettingsPage({
           toneStyles: selectedTones.length > 0 ? selectedTones : ['professional'],
           hashtagPatterns: selectedHashtags.length > 0 ? selectedHashtags : ['moderate'],
           selfLearning: formData.get('selfLearning') === 'on',
-          maxPostsPerDay: parseInt(formData.get('maxPostsPerDay') as string) || 10,
-          maxRepliesPerDay: parseInt(formData.get('maxRepliesPerDay') as string) || 20,
+          maxPostsPerDay,
+          maxRepliesPerDay,
         },
       },
     });

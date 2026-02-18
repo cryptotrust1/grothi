@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
   const cronSecret = authHeader?.replace('Bearer ', '');
 
-  if (CRON_SECRET && cronSecret !== CRON_SECRET) {
+  if (!CRON_SECRET || cronSecret !== CRON_SECRET) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -162,7 +162,9 @@ export async function POST(request: NextRequest) {
         }
 
         collected++;
-      } catch {
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        console.error(`[collect-engagement] Failed for post ${post.id}, platform ${platform}:`, msg);
         errors++;
       }
 

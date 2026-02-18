@@ -49,6 +49,7 @@ model Session {
 
   @@index([token])
   @@index([userId])
+  @@index([expiresAt])
 }
 
 enum UserRole {
@@ -424,6 +425,7 @@ model ScheduledPost {
   media Media? @relation(fields: [mediaId], references: [id], onDelete: SetNull)
 
   @@index([botId, status])
+  @@index([botId, scheduledAt])
   @@index([scheduledAt])
   @@index([status, scheduledAt])
 }

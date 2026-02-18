@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
   const cronSecret = authHeader?.replace('Bearer ', '');
 
-  if (CRON_SECRET && cronSecret !== CRON_SECRET) {
+  if (!CRON_SECRET || cronSecret !== CRON_SECRET) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -87,6 +87,19 @@ export async function POST(request: NextRequest) {
   }> = [];
 
   for (const post of duePosts) {
+    // Skip posts for non-active bots
+    if (post.bot.status !== 'ACTIVE') {
+      await db.scheduledPost.update({
+        where: { id: post.id },
+        data: {
+          status: 'FAILED',
+          error: `Bot is ${post.bot.status}. Activate the bot to publish posts.`,
+        },
+      });
+      results.push({ postId: post.id, status: 'FAILED', platforms: {} });
+      continue;
+    }
+
     // Mark as PUBLISHING
     await db.scheduledPost.update({
       where: { id: post.id },
@@ -99,68 +112,76 @@ export async function POST(request: NextRequest) {
     let anySucceeded = false;
 
     for (const platform of platforms) {
-      // Check credit balance before posting
-      const hasCreds = await hasEnoughCredits(post.bot.userId, await getActionCost('POST'));
-      if (!hasCreds) {
-        platformResults[platform] = {
-          success: false,
-          error: 'Insufficient credits. Buy more credits to continue posting.',
-        };
-        allSucceeded = false;
-        continue;
-      }
+      try {
+        // Check credit balance before posting
+        const hasCreds = await hasEnoughCredits(post.bot.userId, await getActionCost('POST'));
+        if (!hasCreds) {
+          platformResults[platform] = {
+            success: false,
+            error: 'Insufficient credits. Buy more credits to continue posting.',
+          };
+          allSucceeded = false;
+          continue;
+        }
 
-      const result = await publishToPlatform(
-        platform as PlatformType,
-        post.botId,
-        post.content,
-        post.media?.filePath || null,
-        (post.media?.type as 'IMAGE' | 'VIDEO' | 'GIF' | null) || null,
-        post.media?.mimeType || null
-      );
+        const result = await publishToPlatform(
+          platform as PlatformType,
+          post.botId,
+          post.content,
+          post.media?.filePath || null,
+          (post.media?.type as 'IMAGE' | 'VIDEO' | 'GIF' | null) || null,
+          post.media?.mimeType || null
+        );
 
-      platformResults[platform] = result;
+        platformResults[platform] = result;
 
-      if (result.success) {
-        anySucceeded = true;
-        // Deduct credits on successful post
-        const cost = await getActionCost('POST');
-        await deductCredits(post.bot.userId, cost, `Post to ${platform}`, post.botId);
-      } else {
-        allSucceeded = false;
-      }
+        if (result.success) {
+          anySucceeded = true;
+          // Deduct credits on successful post
+          const cost = await getActionCost('POST');
+          await deductCredits(post.bot.userId, cost, `Post to ${platform}`, post.botId);
+        } else {
+          allSucceeded = false;
+        }
 
-      // Record activity
-      const cost = result.success ? await getActionCost('POST') : 0;
-      await db.botActivity.create({
-        data: {
-          botId: post.botId,
-          platform: platform as PlatformType,
-          action: 'POST',
-          content: post.content.slice(0, 500),
-          postId: result.externalId || null,
-          contentType: post.contentType || 'custom',
-          success: result.success,
-          error: result.error || null,
-          creditsUsed: cost,
-        },
-      });
-
-      // Update connection last post time
-      if (result.success) {
-        await db.platformConnection.updateMany({
-          where: { botId: post.botId, platform: platform as PlatformType },
+        // Record activity
+        const cost = result.success ? await getActionCost('POST') : 0;
+        await db.botActivity.create({
           data: {
-            lastPostAt: now,
-            postsToday: { increment: 1 },
-            lastError: null,
+            botId: post.botId,
+            platform: platform as PlatformType,
+            action: 'POST',
+            content: post.content.slice(0, 500),
+            postId: result.externalId || null,
+            contentType: post.contentType || 'custom',
+            success: result.success,
+            error: result.error || null,
+            creditsUsed: cost,
           },
         });
-      } else if (result.error) {
-        await db.platformConnection.updateMany({
-          where: { botId: post.botId, platform: platform as PlatformType },
-          data: { lastError: result.error.slice(0, 500) },
-        });
+
+        // Update connection last post time
+        if (result.success) {
+          await db.platformConnection.updateMany({
+            where: { botId: post.botId, platform: platform as PlatformType },
+            data: {
+              lastPostAt: now,
+              postsToday: { increment: 1 },
+              lastError: null,
+            },
+          });
+        } else if (result.error) {
+          await db.platformConnection.updateMany({
+            where: { botId: post.botId, platform: platform as PlatformType },
+            data: { lastError: result.error.slice(0, 500) },
+          });
+        }
+      } catch (error) {
+        // Catch unexpected errors per platform so other platforms still get processed
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        console.error(`[process-posts] Platform ${platform} failed for post ${post.id}:`, msg);
+        platformResults[platform] = { success: false, error: msg.slice(0, 500) };
+        allSucceeded = false;
       }
     }
 
@@ -270,9 +291,14 @@ async function publishToFacebook(
 
     if (mediaPath) {
       // Resolve to absolute path — filePath in DB is relative to data/uploads/
-      const absPath = path.isAbsolute(mediaPath)
-        ? mediaPath
-        : path.join(UPLOAD_DIR, mediaPath);
+      const absPath = path.resolve(
+        path.isAbsolute(mediaPath) ? mediaPath : path.join(UPLOAD_DIR, mediaPath)
+      );
+
+      // Prevent path traversal — ensure resolved path is within UPLOAD_DIR
+      if (!absPath.startsWith(path.resolve(UPLOAD_DIR))) {
+        return { success: false, error: 'Invalid media path' };
+      }
 
       if (mediaType === 'VIDEO') {
         result = await fbPostWithVideo(creds, content, absPath);
