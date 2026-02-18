@@ -97,6 +97,13 @@ export async function POST(request: NextRequest) {
     const Replicate = (await import('replicate')).default;
     const replicate = new Replicate({ auth: apiKey });
 
+    // Validate required reference image for image-to-video models
+    if (model.requiresReferenceImage && !referenceImage) {
+      return NextResponse.json({
+        error: `${model.name} requires a reference image. Upload an image first, then generate.`,
+      }, { status: 400 });
+    }
+
     // Build input from model params
     const parsedParams: Record<string, unknown> = userParams && typeof userParams === 'object' ? userParams : {};
     const replicateInput = buildModelInput(model, fullPrompt, parsedParams, referenceImage, negativePrompt);
@@ -140,8 +147,11 @@ export async function POST(request: NextRequest) {
       }, { status: 502 });
     }
     if (message.includes('rate limit') || message.includes('429')) {
+      const isLowBalance = message.includes('less than $5') || message.includes('credit');
       return NextResponse.json({
-        error: `Rate limit reached. Wait a moment and try again. Error: ${message}`,
+        error: isLowBalance
+          ? `Replicate rate limit: Your Replicate account has low balance (under $5). Top up at replicate.com/account/billing to remove rate limits. Error: ${message}`
+          : `Rate limit reached. Wait a moment and try again. Error: ${message}`,
       }, { status: 429 });
     }
 
@@ -299,15 +309,20 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ status: 'failed', error: `Invalid video URL from Replicate: ${videoUrl}` });
       }
 
-      // Extract model name from filename
-      const modelName = media.filename.replace('ai-', '').split('-')[0] || 'Replicate';
-      // Extract credit cost from model registry
+      // Extract credit cost and model name from model registry
       const videoModel = VIDEO_MODELS.find(m => media.filename.includes(m.id));
+      const modelName = videoModel?.name || 'Replicate';
       const creditCost = videoModel?.creditCost ?? 8;
+
+      // Extract platform from filename: ai-{modelId}-{PLATFORM}.mp4
+      // Platform is always the LAST uppercase segment before .mp4
+      const nameWithoutExt = media.filename.replace('.mp4', '');
+      const lastDash = nameWithoutExt.lastIndexOf('-');
+      const extractedPlatform = lastDash >= 0 ? nameWithoutExt.substring(lastDash + 1) : 'TIKTOK';
 
       return await finalizeVideo(
         videoUrl, 'replicate', user.id, media.botId,
-        media.filename.replace(/^ai-[^-]+-/, '').replace('.mp4', '') || 'TIKTOK',
+        extractedPlatform,
         media.aiDescription || '', media.id, modelName, creditCost
       );
     }
@@ -361,6 +376,13 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: `Failed to cancel: ${message}` }, { status: 500 });
   }
 }
+
+// Valid PlatformType enum values from Prisma schema
+const VALID_PLATFORMS = new Set([
+  'MASTODON', 'FACEBOOK', 'TELEGRAM', 'MOLTBOOK', 'DISCORD', 'TWITTER',
+  'BLUESKY', 'REDDIT', 'DEVTO', 'LINKEDIN', 'INSTAGRAM', 'TIKTOK',
+  'PINTEREST', 'THREADS', 'MEDIUM', 'YOUTUBE', 'NOSTR',
+]);
 
 // ── Shared: Download video, save to disk, deduct credits, update media record ──
 async function finalizeVideo(
@@ -457,11 +479,12 @@ async function finalizeVideo(
     });
   }
 
-  // Log activity
+  // Log activity — validate platform is a valid PlatformType enum
+  const activityPlatform = VALID_PLATFORMS.has(platform) ? platform : 'FACEBOOK';
   await db.botActivity.create({
     data: {
       botId,
-      platform: platform as any,
+      platform: activityPlatform as any,
       action: 'GENERATE_VIDEO',
       content: `[${modelName}] ${fullPrompt.slice(0, 480)}`,
       success: true,

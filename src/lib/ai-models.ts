@@ -44,6 +44,8 @@ export interface AIModel {
   creditCost: number;
   /** Supports reference/input image */
   supportsReferenceImage: boolean;
+  /** Reference image is REQUIRED (image-to-video only models) */
+  requiresReferenceImage?: boolean;
   /** The key name for reference image in API input */
   referenceImageKey?: string;
   /** Supports negative prompt */
@@ -1497,6 +1499,7 @@ export const VIDEO_MODELS: AIModel[] = [
     category: 'video',
     creditCost: 8,
     supportsReferenceImage: true,
+    requiresReferenceImage: true,
     referenceImageKey: 'first_frame_image',
     supportsNegativePrompt: false,
     provider: 'replicate',
@@ -1526,6 +1529,7 @@ export const VIDEO_MODELS: AIModel[] = [
     category: 'video',
     creditCost: 10,
     supportsReferenceImage: true,
+    requiresReferenceImage: true,
     referenceImageKey: 'start_image',
     supportsNegativePrompt: true,
     provider: 'replicate',
@@ -1649,6 +1653,37 @@ export function getDefaultVideoModel(): AIModel {
   return VIDEO_MODELS[0]; // MiniMax Hailuo
 }
 
+/**
+ * Coerce a param value to the correct type for the Replicate API.
+ * Select params with all-integer options need integer values (not strings).
+ * Number-type params always need numeric values.
+ */
+function coerceParamValue(param: ModelParam, value: unknown): unknown {
+  if (value === undefined || value === null || value === '') return value;
+
+  // Number-type params: always send as number
+  if (param.type === 'number' && typeof value === 'string') {
+    const num = Number(value);
+    return isNaN(num) ? value : num;
+  }
+
+  // Select params: if ALL option values are integers, convert to integer
+  // e.g. duration: ['5','10'] → API expects integer 5 or 10
+  // but aspect_ratio: ['16:9','9:16'] → API expects string
+  if (param.type === 'select' && param.options && typeof value === 'string') {
+    const allIntegerOptions = param.options.every(opt => {
+      const n = Number(opt.value);
+      return !isNaN(n) && Number.isInteger(n);
+    });
+    if (allIntegerOptions) {
+      const num = Number(value);
+      if (!isNaN(num) && Number.isInteger(num)) return num;
+    }
+  }
+
+  return value;
+}
+
 /** Build the input object for Replicate API from user-selected params */
 export function buildModelInput(
   model: AIModel,
@@ -1659,13 +1694,13 @@ export function buildModelInput(
 ): Record<string, unknown> {
   const input: Record<string, unknown> = { prompt };
 
-  // Add user-configured params (only if they differ from undefined/empty)
+  // Add user-configured params with proper type coercion
   for (const param of model.params) {
-    const value = userParams[param.key];
-    if (value !== undefined && value !== '' && value !== null) {
-      input[param.key] = value;
+    const rawValue = userParams[param.key];
+    if (rawValue !== undefined && rawValue !== '' && rawValue !== null) {
+      input[param.key] = coerceParamValue(param, rawValue);
     } else if (param.default !== undefined) {
-      input[param.key] = param.default;
+      input[param.key] = coerceParamValue(param, param.default);
     }
   }
 

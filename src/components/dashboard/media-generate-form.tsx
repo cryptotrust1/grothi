@@ -57,7 +57,7 @@ const PLATFORMS = [
 ];
 
 const POLL_INTERVAL = 5000;
-const MAX_POLLS = 60;
+const MAX_POLLS = 120; // 10 minutes max for longer video models
 
 // ── Parameter Control Component ──
 
@@ -388,7 +388,7 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
 
     setResults(prev => prev.map(r => {
       if (r.predictionId === predictionId && r.status === 'generating') {
-        return { ...r, status: 'error', error: 'Video generation timed out after 5 minutes. Check the Media Library.' };
+        return { ...r, status: 'error', error: 'Video generation timed out after 10 minutes. Check the Media Library — it may still complete.' };
       }
       return r;
     }));
@@ -545,6 +545,9 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
 
   const isGeneratingImage = results.some(r => r.type === 'image' && r.status === 'generating');
   const isGeneratingVideo = results.some(r => r.type === 'video' && r.status === 'generating');
+  const missingRequiredImage = activeTab === 'video'
+    && selectedVideoModel.requiresReferenceImage
+    && !videoRef;
 
   const currentModel = activeTab === 'image' ? selectedImageModel : selectedVideoModel;
   const models = activeTab === 'image' ? IMAGE_MODELS : VIDEO_MODELS;
@@ -759,10 +762,18 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
         </div>
       )}
 
+      {/* Required image warning */}
+      {missingRequiredImage && (
+        <div className="rounded-md border border-orange-200 bg-orange-50 p-3 text-xs text-orange-800">
+          <p className="font-medium">{currentModel.name} requires a reference image</p>
+          <p className="mt-0.5 text-[11px]">This is an image-to-video model. Upload an image above before generating.</p>
+        </div>
+      )}
+
       {/* Generate Button */}
       <Button
         onClick={activeTab === 'image' ? generateImage : generateVideo}
-        disabled={activeTab === 'image' ? isGeneratingImage : isGeneratingVideo}
+        disabled={(activeTab === 'image' ? isGeneratingImage : isGeneratingVideo) || missingRequiredImage}
         className="w-full gap-2"
         size="sm"
       >
