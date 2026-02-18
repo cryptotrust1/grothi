@@ -729,262 +729,55 @@ export const IMAGE_MODELS: AIModel[] = [
 // All video models use Replicate API exclusively.
 // Model IDs and parameters verified against Replicate API schemas.
 // Schema source: https://replicate.com/api/models/{owner}/{name}/versions
+// Duration defaults set to MAXIMUM allowed by each model's API.
 
 export const VIDEO_MODELS: AIModel[] = [
-  // ── Google Veo 3.1 (latest, premium, with audio) ──
-  // Schema: google/veo-3.1 v ed5b1767b711
+  // ── Kling V3 Video (longest duration: 3-15 seconds) ──
+  // Schema: kwaivgi/kling-v3-video — duration: integer min 3, max 15, default 5
   {
-    id: 'google-veo-3.1',
-    replicateId: 'google/veo-3.1',
-    name: 'Google Veo 3.1',
-    brand: 'Google DeepMind',
-    description: 'Latest Google video model. Higher-fidelity video with context-aware audio. Supports reference images, last frame, and frame-to-frame generation.',
+    id: 'kling-v3-video',
+    replicateId: 'kwaivgi/kling-v3-video',
+    name: 'Kling V3 Video',
+    brand: 'Kuaishou (Kling)',
+    description: 'Longest AI video: up to 15 seconds. Multi-shot mode with up to 6 scenes. Native audio, 720p/1080p. Best for narrative content.',
     category: 'video',
     creditCost: 15,
-    supportsReferenceImage: true,
-    referenceImageKey: 'image',
-    supportsNegativePrompt: true,
-    provider: 'replicate',
-    estimatedTime: '~3-5 minutes',
-    badge: 'Premium + Audio',
-    async: true,
-    params: [
-      {
-        key: 'duration',
-        label: 'Duration',
-        type: 'select',
-        description: 'Video length in seconds.',
-        options: [
-          { value: '4', label: '4 seconds' },
-          { value: '6', label: '6 seconds' },
-          { value: '8', label: '8 seconds' },
-        ],
-        default: '8',
-        group: 'basic',
-      },
-      {
-        key: 'aspect_ratio',
-        label: 'Aspect Ratio',
-        type: 'select',
-        description: 'Video dimensions ratio.',
-        options: [
-          { value: '16:9', label: '16:9 (Landscape)' },
-          { value: '9:16', label: '9:16 (Vertical/TikTok)' },
-        ],
-        default: '16:9',
-        group: 'basic',
-      },
-      {
-        key: 'resolution',
-        label: 'Resolution',
-        type: 'select',
-        description: 'Video resolution.',
-        options: [
-          { value: '720p', label: '720p (Standard)' },
-          { value: '1080p', label: '1080p (HD)' },
-        ],
-        default: '1080p',
-        group: 'basic',
-      },
-      {
-        key: 'generate_audio',
-        label: 'Generate Audio',
-        type: 'boolean',
-        description: 'Generate synchronized audio with the video.',
-        default: true,
-        group: 'basic',
-      },
-      {
-        key: 'negative_prompt',
-        label: 'Negative Prompt',
-        type: 'string',
-        description: 'Description of what to exclude from the generated video.',
-        group: 'advanced',
-      },
-      {
-        key: 'seed',
-        label: 'Seed',
-        type: 'number',
-        description: 'Random seed for reproducible results. Omit for random.',
-        min: 0,
-        max: 4294967295,
-        step: 1,
-        group: 'advanced',
-      },
-    ],
-  },
-
-  // ── Google Veo 3 (flagship, with audio) ──
-  // Schema: google/veo-3 v 5e80c73750ff
-  {
-    id: 'google-veo-3',
-    replicateId: 'google/veo-3',
-    name: 'Google Veo 3',
-    brand: 'Google DeepMind',
-    description: 'Google flagship text-to-video with native audio and dialogue lip-sync. Cinematic quality.',
-    category: 'video',
-    creditCost: 12,
-    supportsReferenceImage: true,
-    referenceImageKey: 'image',
-    supportsNegativePrompt: true,
-    provider: 'replicate',
-    estimatedTime: '~3-5 minutes',
-    badge: 'Flagship + Audio',
-    async: true,
-    params: [
-      {
-        key: 'duration',
-        label: 'Duration',
-        type: 'select',
-        description: 'Video length in seconds.',
-        options: [
-          { value: '4', label: '4 seconds' },
-          { value: '6', label: '6 seconds' },
-          { value: '8', label: '8 seconds' },
-        ],
-        default: '8',
-        group: 'basic',
-      },
-      {
-        key: 'aspect_ratio',
-        label: 'Aspect Ratio',
-        type: 'select',
-        description: 'Video dimensions ratio.',
-        options: [
-          { value: '16:9', label: '16:9 (Landscape)' },
-          { value: '9:16', label: '9:16 (Vertical/TikTok)' },
-        ],
-        default: '16:9',
-        group: 'basic',
-      },
-      {
-        key: 'resolution',
-        label: 'Resolution',
-        type: 'select',
-        description: 'Video resolution.',
-        options: [
-          { value: '720p', label: '720p (Standard)' },
-          { value: '1080p', label: '1080p (HD)' },
-        ],
-        default: '1080p',
-        group: 'basic',
-      },
-      {
-        key: 'generate_audio',
-        label: 'Generate Audio',
-        type: 'boolean',
-        description: 'Generate synchronized audio with the video.',
-        default: true,
-        group: 'basic',
-      },
-      {
-        key: 'negative_prompt',
-        label: 'Negative Prompt',
-        type: 'string',
-        description: 'Description of what to exclude from the generated video.',
-        group: 'advanced',
-      },
-      {
-        key: 'seed',
-        label: 'Seed',
-        type: 'number',
-        description: 'Random seed for reproducible results. Omit for random.',
-        min: 0,
-        max: 4294967295,
-        step: 1,
-        group: 'advanced',
-      },
-    ],
-  },
-
-  // ── MiniMax Hailuo 2.3 (latest MiniMax, high fidelity) ──
-  // Schema: minimax/hailuo-2.3 v 23a02633b5a4
-  {
-    id: 'minimax-hailuo-2.3',
-    replicateId: 'minimax/hailuo-2.3',
-    name: 'MiniMax Hailuo 2.3',
-    brand: 'MiniMax',
-    description: 'Latest MiniMax model. Realistic human motion, cinematic VFX, camera movement control. 6s or 10s clips up to 1080p.',
-    category: 'video',
-    creditCost: 10,
-    supportsReferenceImage: true,
-    referenceImageKey: 'first_frame_image',
-    supportsNegativePrompt: false,
-    provider: 'replicate',
-    estimatedTime: '~1-3 minutes',
-    badge: 'Latest',
-    async: true,
-    params: [
-      {
-        key: 'duration',
-        label: 'Duration',
-        type: 'select',
-        description: 'Video length in seconds. 10s only available at 768p.',
-        options: [
-          { value: '6', label: '6 seconds' },
-          { value: '10', label: '10 seconds (768p only)' },
-        ],
-        default: '6',
-        group: 'basic',
-      },
-      {
-        key: 'resolution',
-        label: 'Resolution',
-        type: 'select',
-        description: 'Video resolution. 1080p supports only 6-second duration.',
-        options: [
-          { value: '768p', label: '768p (Standard)' },
-          { value: '1080p', label: '1080p (HD, 6s only)' },
-        ],
-        default: '768p',
-        group: 'basic',
-      },
-      {
-        key: 'prompt_optimizer',
-        label: 'Prompt Optimizer',
-        type: 'boolean',
-        description: 'Automatically optimize prompt for better results. Disable for exact prompt control.',
-        default: true,
-        group: 'basic',
-      },
-    ],
-  },
-
-  // ── Kling V2.1 Master (premium, T2V+I2V) ──
-  // Schema: kwaivgi/kling-v2.1-master v 6a190b5a360f
-  {
-    id: 'kling-v2.1-master',
-    replicateId: 'kwaivgi/kling-v2.1-master',
-    name: 'Kling V2.1 Master',
-    brand: 'Kuaishou (Kling)',
-    description: 'Premium Kling model. Superb dynamics and prompt adherence. 5s and 10s videos from text or image.',
-    category: 'video',
-    creditCost: 12,
     supportsReferenceImage: true,
     referenceImageKey: 'start_image',
     supportsNegativePrompt: true,
     provider: 'replicate',
-    estimatedTime: '~3-5 minutes',
-    badge: 'Premium',
+    estimatedTime: '~3-6 minutes',
+    badge: 'Longest',
     async: true,
     params: [
       {
         key: 'duration',
         label: 'Duration',
+        type: 'number',
+        description: 'Video length in seconds (3-15). The longest AI video available.',
+        min: 3,
+        max: 15,
+        step: 1,
+        default: 15,
+        group: 'basic',
+      },
+      {
+        key: 'mode',
+        label: 'Quality Mode',
         type: 'select',
-        description: 'Video length in seconds.',
+        description: 'Standard = 720p. Pro = 1080p.',
         options: [
-          { value: '5', label: '5 seconds' },
-          { value: '10', label: '10 seconds' },
+          { value: 'standard', label: 'Standard (720p)' },
+          { value: 'pro', label: 'Pro (1080p)' },
         ],
-        default: '5',
+        default: 'pro',
         group: 'basic',
       },
       {
         key: 'aspect_ratio',
         label: 'Aspect Ratio',
         type: 'select',
-        description: 'Video dimensions ratio. Ignored if start_image is provided.',
+        description: 'Video dimensions ratio. Ignored when start_image is provided.',
         options: [
           { value: '16:9', label: '16:9 (Landscape)' },
           { value: '9:16', label: '9:16 (Vertical/TikTok)' },
@@ -994,23 +787,31 @@ export const VIDEO_MODELS: AIModel[] = [
         group: 'basic',
       },
       {
+        key: 'generate_audio',
+        label: 'Generate Audio',
+        type: 'boolean',
+        description: 'Generate native audio for the video.',
+        default: false,
+        group: 'basic',
+      },
+      {
         key: 'negative_prompt',
         label: 'Negative Prompt',
         type: 'string',
-        description: 'Things you do not want to see in the video.',
+        description: 'Things you do not want to see in the video. Max 2500 characters.',
         group: 'advanced',
       },
     ],
   },
 
-  // ── xAI Grok Imagine Video ──
-  // Schema: xai/grok-imagine-video v 3eef53664ae0
+  // ── xAI Grok Imagine Video (1-15 seconds, flexible) ──
+  // Schema: xai/grok-imagine-video — duration: integer min 1, max 15, default 5
   {
     id: 'grok-imagine-video',
     replicateId: 'xai/grok-imagine-video',
     name: 'Grok Imagine Video',
     brand: 'xAI (Grok)',
-    description: 'xAI video generation with native audio. Image-to-video and text-to-video. 1-15 second clips with synchronized sound.',
+    description: 'Up to 15 seconds. Image-to-video and text-to-video. Any duration from 1 to 15 seconds.',
     category: 'video',
     creditCost: 10,
     supportsReferenceImage: true,
@@ -1018,18 +819,18 @@ export const VIDEO_MODELS: AIModel[] = [
     supportsNegativePrompt: false,
     provider: 'replicate',
     estimatedTime: '~2-4 minutes',
-    badge: 'Audio + I2V',
+    badge: 'Flexible',
     async: true,
     params: [
       {
         key: 'duration',
         label: 'Duration',
         type: 'number',
-        description: 'Video length in seconds (1-15). Ignored when editing a video.',
+        description: 'Video length in seconds (1-15). Set any duration you want.',
         min: 1,
         max: 15,
         step: 1,
-        default: 5,
+        default: 15,
         group: 'basic',
       },
       {
@@ -1064,14 +865,546 @@ export const VIDEO_MODELS: AIModel[] = [
     ],
   },
 
-  // ── Luma Ray 2 720p ──
-  // Schema: luma/ray-2-720p v 3ca2bc3597e1
+  // ── OpenAI Sora 2 (4-12 seconds) ──
+  // Schema: openai/sora-2 — seconds: enum [4, 8, 12], default 4
+  {
+    id: 'openai-sora-2',
+    replicateId: 'openai/sora-2',
+    name: 'OpenAI Sora 2',
+    brand: 'OpenAI',
+    description: 'OpenAI video generation. Up to 12 seconds with synchronized audio. Portrait (720x1280) or landscape (1280x720).',
+    category: 'video',
+    creditCost: 12,
+    supportsReferenceImage: true,
+    referenceImageKey: 'input_reference',
+    supportsNegativePrompt: false,
+    provider: 'replicate',
+    estimatedTime: '~3-5 minutes',
+    badge: 'OpenAI',
+    async: true,
+    params: [
+      {
+        key: 'seconds',
+        label: 'Duration',
+        type: 'select',
+        description: 'Video length in seconds.',
+        options: [
+          { value: '4', label: '4 seconds' },
+          { value: '8', label: '8 seconds' },
+          { value: '12', label: '12 seconds' },
+        ],
+        default: '12',
+        group: 'basic',
+      },
+      {
+        key: 'aspect_ratio',
+        label: 'Aspect Ratio',
+        type: 'select',
+        description: 'Portrait is 720x1280, landscape is 1280x720.',
+        options: [
+          { value: 'landscape', label: 'Landscape (1280x720)' },
+          { value: 'portrait', label: 'Portrait (720x1280)' },
+        ],
+        default: 'landscape',
+        group: 'basic',
+      },
+    ],
+  },
+
+  // ── ByteDance Seedance 1 Pro (2-12 seconds, 1080p) ──
+  // Schema: bytedance/seedance-1-pro — duration: integer min 2, max 12, default 5
+  {
+    id: 'seedance-1-pro',
+    replicateId: 'bytedance/seedance-1-pro',
+    name: 'Seedance 1 Pro',
+    brand: 'ByteDance',
+    description: 'Up to 12 seconds at 1080p. Flexible duration from 2-12s. Image-to-video with first/last frame control.',
+    category: 'video',
+    creditCost: 10,
+    supportsReferenceImage: true,
+    referenceImageKey: 'image',
+    supportsNegativePrompt: false,
+    provider: 'replicate',
+    estimatedTime: '~2-4 minutes',
+    badge: 'Versatile',
+    async: true,
+    params: [
+      {
+        key: 'duration',
+        label: 'Duration',
+        type: 'number',
+        description: 'Video length in seconds (2-12).',
+        min: 2,
+        max: 12,
+        step: 1,
+        default: 12,
+        group: 'basic',
+      },
+      {
+        key: 'resolution',
+        label: 'Resolution',
+        type: 'select',
+        description: 'Video resolution.',
+        options: [
+          { value: '480p', label: '480p (Fast)' },
+          { value: '720p', label: '720p (HD)' },
+          { value: '1080p', label: '1080p (Full HD)' },
+        ],
+        default: '1080p',
+        group: 'basic',
+      },
+      {
+        key: 'aspect_ratio',
+        label: 'Aspect Ratio',
+        type: 'select',
+        description: 'Video dimensions ratio. Ignored if an image is provided.',
+        options: [
+          { value: '16:9', label: '16:9 (Landscape)' },
+          { value: '9:16', label: '9:16 (Vertical/TikTok)' },
+          { value: '1:1', label: '1:1 (Square)' },
+          { value: '4:3', label: '4:3 (Classic)' },
+          { value: '3:4', label: '3:4 (Portrait)' },
+          { value: '21:9', label: '21:9 (Cinematic)' },
+          { value: '9:21', label: '9:21 (Ultra Tall)' },
+        ],
+        default: '16:9',
+        group: 'basic',
+      },
+      {
+        key: 'camera_fixed',
+        label: 'Fixed Camera',
+        type: 'boolean',
+        description: 'Lock camera position for stable shots.',
+        default: false,
+        group: 'advanced',
+      },
+      {
+        key: 'seed',
+        label: 'Seed',
+        type: 'number',
+        description: 'Random seed for reproducible results.',
+        min: 0,
+        max: 2147483647,
+        step: 1,
+        group: 'advanced',
+      },
+    ],
+  },
+
+  // ── Kling V2.6 (5-10 seconds, native audio) ──
+  // Schema: kwaivgi/kling-v2.6 — duration: enum [5, 10], default 5
+  {
+    id: 'kling-v2.6',
+    replicateId: 'kwaivgi/kling-v2.6',
+    name: 'Kling V2.6',
+    brand: 'Kuaishou (Kling)',
+    description: 'Up to 10 seconds with native synchronized audio. Cinematic quality with excellent motion.',
+    category: 'video',
+    creditCost: 10,
+    supportsReferenceImage: true,
+    referenceImageKey: 'start_image',
+    supportsNegativePrompt: true,
+    provider: 'replicate',
+    estimatedTime: '~3-5 minutes',
+    badge: 'Audio',
+    async: true,
+    params: [
+      {
+        key: 'duration',
+        label: 'Duration',
+        type: 'select',
+        description: 'Video length in seconds.',
+        options: [
+          { value: '5', label: '5 seconds' },
+          { value: '10', label: '10 seconds' },
+        ],
+        default: '10',
+        group: 'basic',
+      },
+      {
+        key: 'aspect_ratio',
+        label: 'Aspect Ratio',
+        type: 'select',
+        description: 'Video dimensions ratio. Ignored if start_image is provided.',
+        options: [
+          { value: '16:9', label: '16:9 (Landscape)' },
+          { value: '9:16', label: '9:16 (Vertical/TikTok)' },
+          { value: '1:1', label: '1:1 (Square)' },
+        ],
+        default: '16:9',
+        group: 'basic',
+      },
+      {
+        key: 'generate_audio',
+        label: 'Generate Audio',
+        type: 'boolean',
+        description: 'Generate synchronized audio based on video content.',
+        default: true,
+        group: 'basic',
+      },
+      {
+        key: 'negative_prompt',
+        label: 'Negative Prompt',
+        type: 'string',
+        description: 'Things you do not want to see in the video.',
+        group: 'advanced',
+      },
+    ],
+  },
+
+  // ── Google Veo 3.1 (max 8s, premium, with audio) ──
+  // Schema: google/veo-3.1 — duration: enum [4, 6, 8], default 8
+  {
+    id: 'google-veo-3.1',
+    replicateId: 'google/veo-3.1',
+    name: 'Google Veo 3.1',
+    brand: 'Google DeepMind',
+    description: 'Latest Google model. Up to 8 seconds with context-aware audio. 1080p. Reference image support.',
+    category: 'video',
+    creditCost: 15,
+    supportsReferenceImage: true,
+    referenceImageKey: 'image',
+    supportsNegativePrompt: true,
+    provider: 'replicate',
+    estimatedTime: '~3-5 minutes',
+    badge: 'Premium + Audio',
+    async: true,
+    params: [
+      {
+        key: 'duration',
+        label: 'Duration',
+        type: 'select',
+        description: 'Video length in seconds. Max 8s.',
+        options: [
+          { value: '4', label: '4 seconds' },
+          { value: '6', label: '6 seconds' },
+          { value: '8', label: '8 seconds (max)' },
+        ],
+        default: '8',
+        group: 'basic',
+      },
+      {
+        key: 'aspect_ratio',
+        label: 'Aspect Ratio',
+        type: 'select',
+        description: 'Video dimensions ratio.',
+        options: [
+          { value: '16:9', label: '16:9 (Landscape)' },
+          { value: '9:16', label: '9:16 (Vertical/TikTok)' },
+        ],
+        default: '16:9',
+        group: 'basic',
+      },
+      {
+        key: 'resolution',
+        label: 'Resolution',
+        type: 'select',
+        description: 'Video resolution.',
+        options: [
+          { value: '720p', label: '720p (Standard)' },
+          { value: '1080p', label: '1080p (HD)' },
+        ],
+        default: '1080p',
+        group: 'basic',
+      },
+      {
+        key: 'generate_audio',
+        label: 'Generate Audio',
+        type: 'boolean',
+        description: 'Generate synchronized audio with the video.',
+        default: true,
+        group: 'basic',
+      },
+      {
+        key: 'negative_prompt',
+        label: 'Negative Prompt',
+        type: 'string',
+        description: 'Description of what to exclude from the generated video.',
+        group: 'advanced',
+      },
+      {
+        key: 'seed',
+        label: 'Seed',
+        type: 'number',
+        description: 'Random seed for reproducible results. Omit for random.',
+        min: 0,
+        max: 4294967295,
+        step: 1,
+        group: 'advanced',
+      },
+    ],
+  },
+
+  // ── Google Veo 3 (max 8s, flagship, with audio) ──
+  // Schema: google/veo-3 — duration: enum [4, 6, 8], default 8
+  {
+    id: 'google-veo-3',
+    replicateId: 'google/veo-3',
+    name: 'Google Veo 3',
+    brand: 'Google DeepMind',
+    description: 'Flagship text-to-video with native audio and dialogue lip-sync. Up to 8 seconds. Cinematic quality.',
+    category: 'video',
+    creditCost: 12,
+    supportsReferenceImage: true,
+    referenceImageKey: 'image',
+    supportsNegativePrompt: true,
+    provider: 'replicate',
+    estimatedTime: '~3-5 minutes',
+    badge: 'Flagship + Audio',
+    async: true,
+    params: [
+      {
+        key: 'duration',
+        label: 'Duration',
+        type: 'select',
+        description: 'Video length in seconds. Max 8s.',
+        options: [
+          { value: '4', label: '4 seconds' },
+          { value: '6', label: '6 seconds' },
+          { value: '8', label: '8 seconds (max)' },
+        ],
+        default: '8',
+        group: 'basic',
+      },
+      {
+        key: 'aspect_ratio',
+        label: 'Aspect Ratio',
+        type: 'select',
+        description: 'Video dimensions ratio.',
+        options: [
+          { value: '16:9', label: '16:9 (Landscape)' },
+          { value: '9:16', label: '9:16 (Vertical/TikTok)' },
+        ],
+        default: '16:9',
+        group: 'basic',
+      },
+      {
+        key: 'resolution',
+        label: 'Resolution',
+        type: 'select',
+        description: 'Video resolution.',
+        options: [
+          { value: '720p', label: '720p (Standard)' },
+          { value: '1080p', label: '1080p (HD)' },
+        ],
+        default: '1080p',
+        group: 'basic',
+      },
+      {
+        key: 'generate_audio',
+        label: 'Generate Audio',
+        type: 'boolean',
+        description: 'Generate synchronized audio with the video.',
+        default: true,
+        group: 'basic',
+      },
+      {
+        key: 'negative_prompt',
+        label: 'Negative Prompt',
+        type: 'string',
+        description: 'Description of what to exclude from the generated video.',
+        group: 'advanced',
+      },
+      {
+        key: 'seed',
+        label: 'Seed',
+        type: 'number',
+        description: 'Random seed for reproducible results. Omit for random.',
+        min: 0,
+        max: 4294967295,
+        step: 1,
+        group: 'advanced',
+      },
+    ],
+  },
+
+  // ── MiniMax Hailuo 2.3 (max 10s at 768p) ──
+  // Schema: minimax/hailuo-2.3 — duration: enum [6, 10], default 6
+  {
+    id: 'minimax-hailuo-2.3',
+    replicateId: 'minimax/hailuo-2.3',
+    name: 'MiniMax Hailuo 2.3',
+    brand: 'MiniMax',
+    description: 'Up to 10 seconds at 768p. Realistic human motion, cinematic VFX, camera movement control.',
+    category: 'video',
+    creditCost: 10,
+    supportsReferenceImage: true,
+    referenceImageKey: 'first_frame_image',
+    supportsNegativePrompt: false,
+    provider: 'replicate',
+    estimatedTime: '~1-3 minutes',
+    badge: 'MiniMax Latest',
+    async: true,
+    params: [
+      {
+        key: 'duration',
+        label: 'Duration',
+        type: 'select',
+        description: 'Video length in seconds. 10s only available at 768p.',
+        options: [
+          { value: '6', label: '6 seconds' },
+          { value: '10', label: '10 seconds (max, 768p only)' },
+        ],
+        default: '10',
+        group: 'basic',
+      },
+      {
+        key: 'resolution',
+        label: 'Resolution',
+        type: 'select',
+        description: 'Video resolution. 1080p supports only 6-second duration.',
+        options: [
+          { value: '768p', label: '768p (Standard, 10s OK)' },
+          { value: '1080p', label: '1080p (HD, 6s only)' },
+        ],
+        default: '768p',
+        group: 'basic',
+      },
+      {
+        key: 'prompt_optimizer',
+        label: 'Prompt Optimizer',
+        type: 'boolean',
+        description: 'Automatically optimize prompt for better results. Disable for exact prompt control.',
+        default: true,
+        group: 'basic',
+      },
+    ],
+  },
+
+  // ── Kling V2.1 Master (max 10s, premium T2V+I2V) ──
+  // Schema: kwaivgi/kling-v2.1-master — duration: enum [5, 10], default 5
+  {
+    id: 'kling-v2.1-master',
+    replicateId: 'kwaivgi/kling-v2.1-master',
+    name: 'Kling V2.1 Master',
+    brand: 'Kuaishou (Kling)',
+    description: 'Premium Kling. Up to 10 seconds. Superb dynamics and prompt adherence. Text or image input.',
+    category: 'video',
+    creditCost: 12,
+    supportsReferenceImage: true,
+    referenceImageKey: 'start_image',
+    supportsNegativePrompt: true,
+    provider: 'replicate',
+    estimatedTime: '~3-5 minutes',
+    badge: 'Premium',
+    async: true,
+    params: [
+      {
+        key: 'duration',
+        label: 'Duration',
+        type: 'select',
+        description: 'Video length in seconds.',
+        options: [
+          { value: '5', label: '5 seconds' },
+          { value: '10', label: '10 seconds (max)' },
+        ],
+        default: '10',
+        group: 'basic',
+      },
+      {
+        key: 'aspect_ratio',
+        label: 'Aspect Ratio',
+        type: 'select',
+        description: 'Video dimensions ratio. Ignored if start_image is provided.',
+        options: [
+          { value: '16:9', label: '16:9 (Landscape)' },
+          { value: '9:16', label: '9:16 (Vertical/TikTok)' },
+          { value: '1:1', label: '1:1 (Square)' },
+        ],
+        default: '16:9',
+        group: 'basic',
+      },
+      {
+        key: 'negative_prompt',
+        label: 'Negative Prompt',
+        type: 'string',
+        description: 'Things you do not want to see in the video.',
+        group: 'advanced',
+      },
+    ],
+  },
+
+  // ── Wan 2.5 T2V (max 10s, 1080p, audio) ──
+  // Schema: wan-video/wan-2.5-t2v — duration: enum [5, 10], default 5
+  {
+    id: 'wan-2.5',
+    replicateId: 'wan-video/wan-2.5-t2v',
+    name: 'Wan 2.5',
+    brand: 'Alibaba (Wan)',
+    description: 'Up to 10 seconds at 1080p with audio sync. Voice/music synchronization. Major upgrade from Wan 2.1.',
+    category: 'video',
+    creditCost: 8,
+    supportsReferenceImage: false,
+    supportsNegativePrompt: true,
+    provider: 'replicate',
+    estimatedTime: '~2-3 minutes',
+    badge: 'Audio + HD',
+    async: true,
+    params: [
+      {
+        key: 'duration',
+        label: 'Duration',
+        type: 'select',
+        description: 'Video length in seconds.',
+        options: [
+          { value: '5', label: '5 seconds' },
+          { value: '10', label: '10 seconds (max)' },
+        ],
+        default: '10',
+        group: 'basic',
+      },
+      {
+        key: 'size',
+        label: 'Resolution',
+        type: 'select',
+        description: 'Video resolution and orientation.',
+        options: [
+          { value: '1280*720', label: '1280x720 (HD Landscape)' },
+          { value: '720*1280', label: '720x1280 (HD Portrait)' },
+          { value: '1920*1080', label: '1920x1080 (Full HD Landscape)' },
+          { value: '1080*1920', label: '1080x1920 (Full HD Portrait)' },
+          { value: '832*480', label: '832x480 (Fast Landscape)' },
+          { value: '480*832', label: '480x832 (Fast Portrait)' },
+        ],
+        default: '1280*720',
+        group: 'basic',
+      },
+      {
+        key: 'enable_prompt_expansion',
+        label: 'Prompt Optimizer',
+        type: 'boolean',
+        description: 'Automatically enhance prompt for better results.',
+        default: true,
+        group: 'basic',
+      },
+      {
+        key: 'negative_prompt',
+        label: 'Negative Prompt',
+        type: 'string',
+        description: 'What to avoid in the video.',
+        group: 'advanced',
+      },
+      {
+        key: 'seed',
+        label: 'Seed',
+        type: 'number',
+        description: 'Random seed for reproducible results.',
+        min: 0,
+        max: 2147483647,
+        step: 1,
+        group: 'advanced',
+      },
+    ],
+  },
+
+  // ── Luma Ray 2 720p (max 9s) ──
+  // Schema: luma/ray-2-720p — duration: enum [5, 9], default 5
   {
     id: 'luma-ray-2',
     replicateId: 'luma/ray-2-720p',
     name: 'Luma Ray 2',
     brand: 'Luma AI',
-    description: 'Cinematic quality video generation. Photorealistic output with smooth camera motion. 5s or 9s clips at 720p.',
+    description: 'Up to 9 seconds. Cinematic quality with smooth camera motion. Photorealistic at 720p.',
     category: 'video',
     creditCost: 10,
     supportsReferenceImage: true,
@@ -1089,9 +1422,9 @@ export const VIDEO_MODELS: AIModel[] = [
         description: 'Video length in seconds.',
         options: [
           { value: '5', label: '5 seconds' },
-          { value: '9', label: '9 seconds' },
+          { value: '9', label: '9 seconds (max)' },
         ],
-        default: '5',
+        default: '9',
         group: 'basic',
       },
       {
@@ -1122,14 +1455,16 @@ export const VIDEO_MODELS: AIModel[] = [
     ],
   },
 
-  // ── MiniMax Hailuo video-01 (text-to-video + I2V) ──
-  // Schema: minimax/video-01 v 5aa835260ff7
+  // ── Google Veo 3.1 (max 8s, premium, with audio) ── duplicate removed, kept above
+
+  // ── MiniMax Hailuo video-01 (fixed 6s) ──
+  // Schema: minimax/video-01 — NO duration parameter, fixed ~6 seconds
   {
     id: 'minimax-video-01',
     replicateId: 'minimax/video-01',
     name: 'MiniMax Hailuo',
     brand: 'MiniMax',
-    description: 'High quality text-to-video and image-to-video. Good motion, diverse styles. 6 second clips at 720p/25fps.',
+    description: 'Fixed 6 seconds at 720p/25fps. Reliable text-to-video and image-to-video. Good motion quality.',
     category: 'video',
     creditCost: 8,
     supportsReferenceImage: true,
@@ -1137,7 +1472,7 @@ export const VIDEO_MODELS: AIModel[] = [
     supportsNegativePrompt: false,
     provider: 'replicate',
     estimatedTime: '~2-3 minutes',
-    badge: 'Recommended',
+    badge: 'Reliable',
     async: true,
     params: [
       {
@@ -1151,14 +1486,14 @@ export const VIDEO_MODELS: AIModel[] = [
     ],
   },
 
-  // ── MiniMax Hailuo video-01-live (image-to-video) ──
-  // Schema: minimax/video-01-live
+  // ── MiniMax Hailuo video-01-live (fixed ~6s, image-to-video) ──
+  // Schema: minimax/video-01-live — NO duration parameter, fixed duration
   {
     id: 'minimax-video-01-live',
     replicateId: 'minimax/video-01-live',
     name: 'MiniMax Hailuo Live',
     brand: 'MiniMax',
-    description: 'Image-to-video animation. Bring your images to life with motion. Optimized for Live2D and animation. Requires reference image.',
+    description: 'Fixed ~6 seconds. Image-to-video animation. Optimized for Live2D and animation. Requires reference image.',
     category: 'video',
     creditCost: 8,
     supportsReferenceImage: true,
@@ -1180,14 +1515,14 @@ export const VIDEO_MODELS: AIModel[] = [
     ],
   },
 
-  // ── Kling V2.1 (image-to-video, start_image required) ──
-  // Schema: kwaivgi/kling-v2.1 v daad218feb71
+  // ── Kling V2.1 (max 10s, I2V, start_image required) ──
+  // Schema: kwaivgi/kling-v2.1 — duration: enum [5, 10], default 5
   {
     id: 'kling-v2.1',
     replicateId: 'kwaivgi/kling-v2.1',
     name: 'Kling V2.1',
     brand: 'Kuaishou (Kling)',
-    description: 'High quality image-to-video. 5s or 10s clips in 720p or 1080p. Requires a starting image.',
+    description: 'Up to 10 seconds. Image-to-video at 720p or 1080p. Requires a starting image.',
     category: 'video',
     creditCost: 10,
     supportsReferenceImage: true,
@@ -1195,7 +1530,7 @@ export const VIDEO_MODELS: AIModel[] = [
     supportsNegativePrompt: true,
     provider: 'replicate',
     estimatedTime: '~3-5 minutes',
-    badge: 'High Quality',
+    badge: 'I2V',
     async: true,
     params: [
       {
@@ -1205,9 +1540,9 @@ export const VIDEO_MODELS: AIModel[] = [
         description: 'Video length in seconds.',
         options: [
           { value: '5', label: '5 seconds' },
-          { value: '10', label: '10 seconds' },
+          { value: '10', label: '10 seconds (max)' },
         ],
-        default: '5',
+        default: '10',
         group: 'basic',
       },
       {
@@ -1232,14 +1567,14 @@ export const VIDEO_MODELS: AIModel[] = [
     ],
   },
 
-  // ── Google Veo 2 (mature model) ──
-  // Schema: google/veo-2 v af8ebddc406d
+  // ── Google Veo 2 (max 8s) ──
+  // Schema: google/veo-2 — duration: enum [5, 6, 7, 8], default 5
   {
     id: 'google-veo-2',
     replicateId: 'google/veo-2',
     name: 'Google Veo 2',
     brand: 'Google DeepMind',
-    description: 'State-of-the-art video generation with realistic motion and high-quality output. 5-8 second clips.',
+    description: 'Up to 8 seconds. Realistic motion, high-quality output. Mature and stable model.',
     category: 'video',
     creditCost: 8,
     supportsReferenceImage: true,
@@ -1247,7 +1582,7 @@ export const VIDEO_MODELS: AIModel[] = [
     supportsNegativePrompt: false,
     provider: 'replicate',
     estimatedTime: '~2-4 minutes',
-    badge: 'Reliable',
+    badge: 'Stable',
     async: true,
     params: [
       {
@@ -1259,9 +1594,9 @@ export const VIDEO_MODELS: AIModel[] = [
           { value: '5', label: '5 seconds' },
           { value: '6', label: '6 seconds' },
           { value: '7', label: '7 seconds' },
-          { value: '8', label: '8 seconds' },
+          { value: '8', label: '8 seconds (max)' },
         ],
-        default: '5',
+        default: '8',
         group: 'basic',
       },
       {
@@ -1283,90 +1618,6 @@ export const VIDEO_MODELS: AIModel[] = [
         description: 'Random seed for reproducible results. Omit for random.',
         min: 0,
         max: 4294967295,
-        step: 1,
-        group: 'advanced',
-      },
-    ],
-  },
-
-  // ── Wan 2.1 T2V (WaveSpeed accelerated) ──
-  // Schema: wavespeedai/wan-2.1-t2v-480p v 7677a619127e
-  {
-    id: 'wan-2.1',
-    replicateId: 'wavespeedai/wan-2.1-t2v-480p',
-    name: 'Wan 2.1',
-    brand: 'Alibaba (Wan)',
-    description: 'Fast and affordable video generation at 480p. Great for quick drafts and social content.',
-    category: 'video',
-    creditCost: 5,
-    supportsReferenceImage: false,
-    supportsNegativePrompt: true,
-    provider: 'replicate',
-    estimatedTime: '~1-2 minutes',
-    badge: 'Budget',
-    async: true,
-    params: [
-      {
-        key: 'aspect_ratio',
-        label: 'Aspect Ratio',
-        type: 'select',
-        description: 'Aspect ratio of the output video.',
-        options: [
-          { value: '16:9', label: '16:9 (Landscape)' },
-          { value: '9:16', label: '9:16 (Vertical/TikTok)' },
-        ],
-        default: '16:9',
-        group: 'basic',
-      },
-      {
-        key: 'fast_mode',
-        label: 'Speed Mode',
-        type: 'select',
-        description: 'Speed up generation. Faster modes may slightly reduce quality.',
-        options: [
-          { value: 'Off', label: 'Off (Best Quality)' },
-          { value: 'Balanced', label: 'Balanced' },
-          { value: 'Fast', label: 'Fast' },
-        ],
-        default: 'Balanced',
-        group: 'basic',
-      },
-      {
-        key: 'sample_steps',
-        label: 'Inference Steps',
-        type: 'number',
-        description: 'Number of inference steps (1-40). More steps = higher quality.',
-        min: 1,
-        max: 40,
-        step: 1,
-        default: 30,
-        group: 'advanced',
-      },
-      {
-        key: 'sample_guide_scale',
-        label: 'Guidance Scale',
-        type: 'number',
-        description: 'Prompt adherence (1-10). Higher = follows prompt more closely.',
-        min: 1,
-        max: 10,
-        step: 0.5,
-        default: 5,
-        group: 'advanced',
-      },
-      {
-        key: 'negative_prompt',
-        label: 'Negative Prompt',
-        type: 'string',
-        description: 'What to avoid in the video.',
-        group: 'advanced',
-      },
-      {
-        key: 'seed',
-        label: 'Seed',
-        type: 'number',
-        description: 'Random seed for reproducible results.',
-        min: 0,
-        max: 2147483647,
         step: 1,
         group: 'advanced',
       },

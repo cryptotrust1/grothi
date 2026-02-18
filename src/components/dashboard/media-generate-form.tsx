@@ -194,20 +194,25 @@ function ModelCard({
                 model.badge === 'Recommended' ? 'bg-emerald-100 text-emerald-700' :
                 model.badge === 'Best Quality' ? 'bg-purple-100 text-purple-700' :
                 model.badge === 'Fastest' ? 'bg-yellow-100 text-yellow-700' :
-                model.badge === 'Budget' ? 'bg-blue-100 text-blue-700' :
                 model.badge === 'Most Control' ? 'bg-orange-100 text-orange-700' :
                 model.badge === 'Design' ? 'bg-pink-100 text-pink-700' :
                 model.badge === 'Best Text' ? 'bg-cyan-100 text-cyan-700' :
                 model.badge === 'Classic' ? 'bg-gray-100 text-gray-700' :
-                model.badge === 'Cinematic' ? 'bg-violet-100 text-violet-700' :
-                model.badge === 'High Quality' ? 'bg-indigo-100 text-indigo-700' :
-                model.badge === 'Image to Video' ? 'bg-teal-100 text-teal-700' :
+                model.badge === 'Longest' ? 'bg-red-100 text-red-700' :
+                model.badge === 'Flexible' ? 'bg-orange-100 text-orange-700' :
+                model.badge === 'OpenAI' ? 'bg-emerald-100 text-emerald-700' :
+                model.badge === 'Versatile' ? 'bg-cyan-100 text-cyan-700' :
+                model.badge === 'Audio' ? 'bg-amber-100 text-amber-700' :
                 model.badge === 'Premium + Audio' ? 'bg-amber-100 text-amber-700' :
                 model.badge === 'Flagship + Audio' ? 'bg-amber-100 text-amber-700' :
-                model.badge === 'Audio + I2V' ? 'bg-amber-100 text-amber-700' :
-                model.badge === 'Latest' ? 'bg-emerald-100 text-emerald-700' :
+                model.badge === 'Audio + HD' ? 'bg-amber-100 text-amber-700' :
+                model.badge === 'MiniMax Latest' ? 'bg-emerald-100 text-emerald-700' :
                 model.badge === 'Premium' ? 'bg-purple-100 text-purple-700' :
+                model.badge === 'Cinematic' ? 'bg-violet-100 text-violet-700' :
+                model.badge === 'Image to Video' ? 'bg-teal-100 text-teal-700' :
                 model.badge === 'Reliable' ? 'bg-blue-100 text-blue-700' :
+                model.badge === 'I2V' ? 'bg-teal-100 text-teal-700' :
+                model.badge === 'Stable' ? 'bg-blue-100 text-blue-700' :
                 'bg-gray-100 text-gray-700'
               }`}>
                 {model.badge}
