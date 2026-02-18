@@ -3,7 +3,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { deductCredits } from '@/lib/credits';
 import { getModelById, getDefaultVideoModel, buildModelInput, VIDEO_MODELS } from '@/lib/ai-models';
-import { getActiveVideoProvider, getProviderApiKey } from '@/lib/video-provider';
+import { getProviderApiKey } from '@/lib/video-provider';
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, resolve } from 'path';
@@ -54,23 +54,12 @@ export async function POST(request: NextRequest) {
     // Dynamic credit cost from model
     const creditCost = model.creditCost;
 
-    // Check provider config based on model
-    let apiKey: string | null = null;
-
-    if (model.provider === 'runway') {
-      apiKey = await getProviderApiKey('runway');
-      if (!apiKey) {
-        return NextResponse.json({
-          error: 'Runway API not configured. RUNWAYML_API_SECRET is missing. Set it in Admin Settings or .env file. Get a key at https://app.runwayml.com/settings/api-keys',
-        }, { status: 503 });
-      }
-    } else {
-      apiKey = await getProviderApiKey('replicate');
-      if (!apiKey) {
-        return NextResponse.json({
-          error: 'Video generation not configured. REPLICATE_API_TOKEN is missing. Set it in Admin Settings or .env file. Get a token at https://replicate.com/account/api-tokens',
-        }, { status: 503 });
-      }
+    // All models use Replicate API
+    const apiKey = await getProviderApiKey('replicate');
+    if (!apiKey) {
+      return NextResponse.json({
+        error: 'Video generation not configured. REPLICATE_API_TOKEN is missing. Set it in Admin Settings or .env file. Get a token at https://replicate.com/account/api-tokens',
+      }, { status: 503 });
     }
 
     // Check credits
@@ -104,19 +93,9 @@ export async function POST(request: NextRequest) {
 
     const targetPlatform = platform || 'TIKTOK';
 
-    if (model.provider === 'runway') {
-      // Runway: synchronous path
-      const parsedParams: Record<string, unknown> = userParams && typeof userParams === 'object' ? userParams : {};
-      const duration = Number(parsedParams.duration) || 6;
-      const ratio = (parsedParams.ratio as string) || '1280:720';
-
-      const result = await generateWithRunway(fullPrompt, apiKey!, duration, ratio);
-      return await finalizeVideo(result.videoUrl, 'runway', user.id, botId, targetPlatform, fullPrompt, null, model.name, creditCost);
-    }
-
     // Replicate: async prediction path
     const Replicate = (await import('replicate')).default;
-    const replicate = new Replicate({ auth: apiKey! });
+    const replicate = new Replicate({ auth: apiKey });
 
     // Build input from model params
     const parsedParams: Record<string, unknown> = userParams && typeof userParams === 'object' ? userParams : {};
@@ -504,29 +483,3 @@ async function finalizeVideo(
   });
 }
 
-// ── Runway provider (synchronous) ──
-async function generateWithRunway(
-  prompt: string,
-  apiKey: string,
-  duration: number,
-  ratio: string,
-): Promise<{ videoUrl: string }> {
-  const RunwayML = (await import('@runwayml/sdk')).default;
-
-  const client = new RunwayML({ apiKey });
-
-  const task = await client.textToVideo
-    .create({
-      model: 'veo3.1_fast',
-      promptText: prompt.slice(0, 1000),
-      ratio: ratio as any,
-      duration: duration as any,
-    })
-    .waitForTaskOutput();
-
-  if (!task.output || task.output.length === 0) {
-    throw new Error('Runway returned no video output');
-  }
-
-  return { videoUrl: task.output[0] };
-}
