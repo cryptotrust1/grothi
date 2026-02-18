@@ -31,6 +31,7 @@ import {
   postReel as igPostReel,
   postLocalImage as igPostLocalImage,
   isTokenNearExpiry as igIsTokenNearExpiry,
+  debugToken as igDebugToken,
   type InstagramPostResult,
 } from '@/lib/instagram';
 import {
@@ -368,6 +369,8 @@ async function publishToInstagram(
       mediaMimeType,
       hasMediaPath: !!mediaPath,
       hasMediaId: !!mediaId,
+      accountId: creds.accountId,
+      tokenLength: creds.accessToken.length,
     });
 
     // Check if token is near expiry and log warning (same as Threads)
@@ -377,6 +380,43 @@ async function publishToInstagram(
         `Expires at: ${config.tokenExpiresAt}. Consider refreshing.`
       );
     }
+
+    // Debug token permissions before attempting publish
+    const tokenInfo = await igDebugToken(creds.accessToken);
+    console.log(`[process-posts] Instagram token debug:`, {
+      isValid: tokenInfo.isValid,
+      appId: tokenInfo.appId,
+      userId: tokenInfo.userId,
+      scopes: tokenInfo.scopes,
+      expiresAt: tokenInfo.expiresAt,
+      error: tokenInfo.error,
+    });
+
+    if (!tokenInfo.isValid) {
+      await markConnectionError(conn.id, 'Token is invalid. Please reconnect Instagram.');
+      return {
+        success: false,
+        error: 'Instagram token is invalid. Please reconnect Instagram in Platform settings.',
+      };
+    }
+
+    const hasPublishPermission = tokenInfo.scopes?.some(
+      (s) => s === 'instagram_business_content_publish' || s === 'business_content_publish'
+    ) ?? false;
+
+    if (!hasPublishPermission) {
+      const errorMsg =
+        'MISSING PERMISSION: instagram_business_content_publish. ' +
+        'Token scopes: [' + (tokenInfo.scopes?.join(', ') || 'none') + ']. ' +
+        'Go to Meta Developer Dashboard > App > Use Cases > Instagram > Permissions ' +
+        'and ensure instagram_business_content_publish is added and approved. ' +
+        'If app is in Development mode, add the IG account owner as Admin/Developer.';
+      console.error(`[process-posts] ${errorMsg}`);
+      await markConnectionError(conn.id, errorMsg);
+      return { success: false, error: errorMsg };
+    }
+
+    console.log('[process-posts] Instagram: token permissions verified OK, proceeding with publish');
 
     if (!mediaPath) {
       return {
