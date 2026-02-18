@@ -3,18 +3,18 @@
 import { useState, useCallback, useRef, useEffect, type ChangeEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Loader2, Sparkles, ImageIcon, Film, CheckCircle, AlertCircle, XCircle, Upload, X } from 'lucide-react';
+import {
+  Loader2, Sparkles, ImageIcon, Film, CheckCircle, AlertCircle,
+  XCircle, Upload, X, ChevronDown, ChevronUp, Settings2, Zap,
+} from 'lucide-react';
+import type { AIModel, ModelParam } from '@/lib/ai-models';
+import {
+  IMAGE_MODELS, VIDEO_MODELS,
+  getDefaultImageModel, getDefaultVideoModel,
+  getDefaultParams,
+} from '@/lib/ai-models';
 
-const PLATFORMS = [
-  { value: 'INSTAGRAM', label: 'Instagram (1080x1080)' },
-  { value: 'FACEBOOK', label: 'Facebook (1200x630)' },
-  { value: 'TWITTER', label: 'X / Twitter (1200x675)' },
-  { value: 'LINKEDIN', label: 'LinkedIn (1200x627)' },
-  { value: 'TIKTOK', label: 'TikTok (1080x1920)' },
-  { value: 'YOUTUBE', label: 'YouTube (1280x720)' },
-  { value: 'PINTEREST', label: 'Pinterest (1000x1500)' },
-  { value: 'THREADS', label: 'Threads (1080x1080)' },
-];
+// ── Types ──
 
 interface GenerateResult {
   type: 'image' | 'video';
@@ -26,6 +26,7 @@ interface GenerateResult {
   httpStatus?: number;
   progress?: string;
   predictionId?: string;
+  modelName?: string;
 }
 
 interface PendingMedia {
@@ -36,23 +37,250 @@ interface PendingMedia {
   createdAt: string;
 }
 
+const PLATFORMS = [
+  { value: 'INSTAGRAM', label: 'Instagram' },
+  { value: 'FACEBOOK', label: 'Facebook' },
+  { value: 'TWITTER', label: 'X / Twitter' },
+  { value: 'LINKEDIN', label: 'LinkedIn' },
+  { value: 'TIKTOK', label: 'TikTok' },
+  { value: 'YOUTUBE', label: 'YouTube' },
+  { value: 'PINTEREST', label: 'Pinterest' },
+  { value: 'THREADS', label: 'Threads' },
+  { value: 'MASTODON', label: 'Mastodon' },
+  { value: 'BLUESKY', label: 'Bluesky' },
+  { value: 'TELEGRAM', label: 'Telegram' },
+  { value: 'DISCORD', label: 'Discord' },
+  { value: 'REDDIT', label: 'Reddit' },
+  { value: 'MEDIUM', label: 'Medium' },
+  { value: 'DEVTO', label: 'Dev.to' },
+  { value: 'NOSTR', label: 'Nostr' },
+];
+
 const POLL_INTERVAL = 5000;
-const MAX_POLLS = 60; // 5 minutes
+const MAX_POLLS = 60;
+
+// ── Parameter Control Component ──
+
+function ParamControl({
+  param,
+  value,
+  onChange,
+}: {
+  param: ModelParam;
+  value: unknown;
+  onChange: (key: string, value: unknown) => void;
+}) {
+  if (param.type === 'select' && param.options) {
+    return (
+      <div className="space-y-1">
+        <label className="text-xs font-medium text-foreground">{param.label}</label>
+        <select
+          value={String(value ?? param.default ?? '')}
+          onChange={e => onChange(param.key, e.target.value)}
+          className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+        >
+          {param.options.map(opt => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+        <p className="text-[10px] text-muted-foreground">{param.description}</p>
+      </div>
+    );
+  }
+
+  if (param.type === 'number') {
+    const numValue = value !== undefined && value !== '' ? Number(value) : '';
+    const hasRange = param.min !== undefined && param.max !== undefined;
+
+    return (
+      <div className="space-y-1">
+        <div className="flex items-center justify-between">
+          <label className="text-xs font-medium text-foreground">{param.label}</label>
+          {numValue !== '' && <span className="text-[10px] text-muted-foreground font-mono">{numValue}</span>}
+        </div>
+        {hasRange && (param.max! - param.min!) <= 200 ? (
+          <input
+            type="range"
+            min={param.min}
+            max={param.max}
+            step={param.step || 1}
+            value={numValue !== '' ? numValue : Number(param.default ?? param.min ?? 0)}
+            onChange={e => onChange(param.key, Number(e.target.value))}
+            className="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-primary bg-muted"
+          />
+        ) : (
+          <input
+            type="number"
+            min={param.min}
+            max={param.max}
+            step={param.step || 1}
+            value={numValue !== '' ? String(numValue) : ''}
+            onChange={e => onChange(param.key, e.target.value ? Number(e.target.value) : undefined)}
+            placeholder={param.default !== undefined ? `Default: ${param.default}` : 'Optional'}
+            className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+          />
+        )}
+        <p className="text-[10px] text-muted-foreground">{param.description}</p>
+      </div>
+    );
+  }
+
+  if (param.type === 'boolean') {
+    const checked = value !== undefined ? Boolean(value) : Boolean(param.default);
+    return (
+      <div className="space-y-1">
+        <label className="flex items-center gap-2 cursor-pointer group">
+          <div className="relative">
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={e => onChange(param.key, e.target.checked)}
+              className="sr-only peer"
+            />
+            <div className="w-8 h-4 bg-muted rounded-full peer-checked:bg-primary transition-colors" />
+            <div className="absolute left-0.5 top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform peer-checked:translate-x-4" />
+          </div>
+          <span className="text-xs font-medium text-foreground">{param.label}</span>
+        </label>
+        <p className="text-[10px] text-muted-foreground ml-10">{param.description}</p>
+      </div>
+    );
+  }
+
+  if (param.type === 'string') {
+    return (
+      <div className="space-y-1">
+        <label className="text-xs font-medium text-foreground">{param.label}</label>
+        <textarea
+          value={String(value ?? param.default ?? '')}
+          onChange={e => onChange(param.key, e.target.value)}
+          placeholder={param.description}
+          rows={2}
+          className="flex min-h-[50px] w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-y"
+        />
+      </div>
+    );
+  }
+
+  return null;
+}
+
+// ── Model Selector Card ──
+
+function ModelCard({
+  model,
+  selected,
+  onClick,
+}: {
+  model: AIModel;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`text-left p-2.5 rounded-lg border transition-all ${
+        selected
+          ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
+          : 'border-input hover:border-primary/40 hover:bg-muted/50'
+      }`}
+    >
+      <div className="flex items-start justify-between gap-1">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-xs font-semibold truncate">{model.name}</span>
+            {model.badge && (
+              <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${
+                model.badge === 'Recommended' ? 'bg-emerald-100 text-emerald-700' :
+                model.badge === 'Best Quality' ? 'bg-purple-100 text-purple-700' :
+                model.badge === 'Fastest' ? 'bg-yellow-100 text-yellow-700' :
+                model.badge === 'Budget' ? 'bg-blue-100 text-blue-700' :
+                model.badge === 'Most Control' ? 'bg-orange-100 text-orange-700' :
+                model.badge === 'Design' ? 'bg-pink-100 text-pink-700' :
+                model.badge === 'Best Text' ? 'bg-cyan-100 text-cyan-700' :
+                model.badge === 'Classic' ? 'bg-gray-100 text-gray-700' :
+                model.badge === 'Cinematic' ? 'bg-violet-100 text-violet-700' :
+                model.badge === 'High Quality' ? 'bg-indigo-100 text-indigo-700' :
+                model.badge === 'Image to Video' ? 'bg-teal-100 text-teal-700' :
+                model.badge === 'Premium + Audio' ? 'bg-amber-100 text-amber-700' :
+                'bg-gray-100 text-gray-700'
+              }`}>
+                {model.badge}
+              </span>
+            )}
+          </div>
+          <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">{model.description}</p>
+        </div>
+        <div className="text-right shrink-0">
+          <span className="text-[10px] font-bold text-primary">{model.creditCost} cr</span>
+          <p className="text-[9px] text-muted-foreground">{model.estimatedTime}</p>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+// ── Main Form ──
 
 export function MediaGenerateForm({ botId }: { botId: string }) {
+  // Tab state
+  const [activeTab, setActiveTab] = useState<'image' | 'video'>('image');
+
+  // Model selection
+  const [selectedImageModel, setSelectedImageModel] = useState<AIModel>(getDefaultImageModel());
+  const [selectedVideoModel, setSelectedVideoModel] = useState<AIModel>(getDefaultVideoModel());
+
+  // Params state per model
+  const [imageParams, setImageParams] = useState<Record<string, unknown>>(getDefaultParams(getDefaultImageModel()));
+  const [videoParams, setVideoParams] = useState<Record<string, unknown>>(getDefaultParams(getDefaultVideoModel()));
+
+  // Prompts
   const [imagePrompt, setImagePrompt] = useState('');
-  const [imagePlatform, setImagePlatform] = useState('INSTAGRAM');
+  const [imageNegativePrompt, setImageNegativePrompt] = useState('');
   const [videoPrompt, setVideoPrompt] = useState('');
+  const [videoNegativePrompt, setVideoNegativePrompt] = useState('');
+
+  // Platform
+  const [imagePlatform, setImagePlatform] = useState('INSTAGRAM');
   const [videoPlatform, setVideoPlatform] = useState('TIKTOK');
-  const [results, setResults] = useState<GenerateResult[]>([]);
-  const abortRefs = useRef<Map<string, AbortController>>(new Map());
+
+  // Reference images
   const [imageRef, setImageRef] = useState<string | null>(null);
-  const [imageRefName, setImageRefName] = useState<string>('');
+  const [imageRefName, setImageRefName] = useState('');
   const [videoRef, setVideoRef] = useState<string | null>(null);
-  const [videoRefName, setVideoRefName] = useState<string>('');
+  const [videoRefName, setVideoRefName] = useState('');
   const imageFileRef = useRef<HTMLInputElement>(null);
   const videoFileRef = useRef<HTMLInputElement>(null);
+
+  // Advanced settings
+  const [showImageAdvanced, setShowImageAdvanced] = useState(false);
+  const [showVideoAdvanced, setShowVideoAdvanced] = useState(false);
+
+  // Results
+  const [results, setResults] = useState<GenerateResult[]>([]);
+  const abortRefs = useRef<Map<string, AbortController>>(new Map());
   const hasResumed = useRef(false);
+
+  // When model changes, reset params to new defaults
+  const handleImageModelChange = useCallback((model: AIModel) => {
+    setSelectedImageModel(model);
+    setImageParams(getDefaultParams(model));
+    setShowImageAdvanced(false);
+  }, []);
+
+  const handleVideoModelChange = useCallback((model: AIModel) => {
+    setSelectedVideoModel(model);
+    setVideoParams(getDefaultParams(model));
+    setShowVideoAdvanced(false);
+  }, []);
+
+  const updateImageParam = useCallback((key: string, value: unknown) => {
+    setImageParams(prev => ({ ...prev, [key]: value }));
+  }, []);
+
+  const updateVideoParam = useCallback((key: string, value: unknown) => {
+    setVideoParams(prev => ({ ...prev, [key]: value }));
+  }, []);
 
   // Resume polling for pending generations on mount
   useEffect(() => {
@@ -69,7 +297,6 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
         for (const p of pending) {
           if (!p.replicatePredictionId) continue;
 
-          // Add as generating result
           const result: GenerateResult = {
             type: 'video',
             status: 'generating',
@@ -78,12 +305,10 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
             prompt: p.aiDescription || undefined,
           };
           setResults(prev => [result, ...prev]);
-
-          // Start polling
           pollPrediction(p.replicatePredictionId, pending.indexOf(p));
         }
       } catch {
-        // Silently ignore — not critical
+        // Silently ignore
       }
     }
 
@@ -95,12 +320,10 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
   const pollPrediction = useCallback(async (predictionId: string, resultIndex?: number) => {
     const controller = new AbortController();
     abortRefs.current.set(predictionId, controller);
-
     const idx = resultIndex ?? 0;
 
     for (let poll = 0; poll < MAX_POLLS; poll++) {
       await new Promise(r => setTimeout(r, POLL_INTERVAL));
-
       if (controller.signal.aborted) return;
 
       try {
@@ -139,7 +362,6 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
           return;
         }
 
-        // Still processing
         const elapsed = Math.round((poll + 1) * POLL_INTERVAL / 1000);
         setResults(prev => prev.map((r, i) => {
           if (r.predictionId === predictionId || (i === idx && r.status === 'generating')) {
@@ -153,10 +375,9 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
       }
     }
 
-    // Timeout
     setResults(prev => prev.map(r => {
       if (r.predictionId === predictionId && r.status === 'generating') {
-        return { ...r, status: 'error', error: 'Video generation timed out after 5 minutes. Check the Media Library — the video may still appear.' };
+        return { ...r, status: 'error', error: 'Video generation timed out after 5 minutes. Check the Media Library.' };
       }
       return r;
     }));
@@ -167,13 +388,10 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
   const handleRefFile = useCallback((e: ChangeEvent<HTMLInputElement>, type: 'image' | 'video') => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    // Max 10MB for reference images
     if (file.size > 10 * 1024 * 1024) {
       alert('Reference file must be under 10MB');
       return;
     }
-
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result as string;
@@ -188,8 +406,13 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
     reader.readAsDataURL(file);
   }, []);
 
+  // Generate Image
   const generateImage = useCallback(async () => {
-    const result: GenerateResult = { type: 'image', status: 'generating' };
+    const result: GenerateResult = {
+      type: 'image',
+      status: 'generating',
+      modelName: selectedImageModel.name,
+    };
     setResults(prev => [result, ...prev]);
 
     try {
@@ -201,6 +424,9 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
           platform: imagePlatform,
           prompt: imagePrompt || undefined,
           referenceImage: imageRef || undefined,
+          modelId: selectedImageModel.id,
+          params: imageParams,
+          negativePrompt: imageNegativePrompt || undefined,
         }),
       });
 
@@ -218,18 +444,23 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
         mediaId: data.id,
         mediaUrl: data.url,
         prompt: data.prompt,
+        modelName: data.model,
       } : r));
     } catch {
       setResults(prev => prev.map((r, i) => i === 0 ? {
-        ...r,
-        status: 'error',
-        error: 'Network error — check your internet connection and try again.',
+        ...r, status: 'error', error: 'Network error — check your internet connection.',
       } : r));
     }
-  }, [botId, imagePlatform, imagePrompt, imageRef]);
+  }, [botId, imagePlatform, imagePrompt, imageRef, selectedImageModel, imageParams, imageNegativePrompt]);
 
+  // Generate Video
   const generateVideo = useCallback(async () => {
-    const result: GenerateResult = { type: 'video', status: 'generating', progress: 'Starting video generation...' };
+    const result: GenerateResult = {
+      type: 'video',
+      status: 'generating',
+      progress: 'Starting video generation...',
+      modelName: selectedVideoModel.name,
+    };
     setResults(prev => [result, ...prev]);
 
     try {
@@ -241,6 +472,9 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
           platform: videoPlatform,
           prompt: videoPrompt || undefined,
           referenceImage: videoRef || undefined,
+          modelId: selectedVideoModel.id,
+          params: videoParams,
+          negativePrompt: videoNegativePrompt || undefined,
         }),
       });
 
@@ -253,14 +487,9 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
 
       const data = await res.json();
 
-      // If response already has final result (Runway synchronous path)
       if (data.status === 'succeeded') {
         setResults(prev => prev.map((r, i) => i === 0 ? {
-          ...r,
-          status: 'success',
-          mediaId: data.id,
-          mediaUrl: data.url,
-          prompt: data.prompt,
+          ...r, status: 'success', mediaId: data.id, mediaUrl: data.url, prompt: data.prompt, modelName: data.model,
         } : r));
         return;
       }
@@ -268,218 +497,285 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
       const predictionId = data.predictionId;
       if (!predictionId) {
         setResults(prev => prev.map((r, i) => i === 0 ? {
-          ...r,
-          status: 'error',
-          error: 'Server did not return a prediction ID. Check server logs.',
+          ...r, status: 'error', error: 'Server did not return a prediction ID.',
         } : r));
         return;
       }
 
-      // Store predictionId on the result for cancel functionality
       setResults(prev => prev.map((r, i) => i === 0 ? {
         ...r,
         predictionId,
-        progress: 'Video generation started. This takes 1-3 minutes...',
+        progress: `${selectedVideoModel.name}: Video generation started. ${selectedVideoModel.estimatedTime}...`,
       } : r));
 
-      // Start polling
       pollPrediction(predictionId, 0);
-    } catch (err) {
+    } catch {
       setResults(prev => prev.map((r, i) => i === 0 ? {
-        ...r,
-        status: 'error',
-        error: 'Network error — check your internet connection and try again.',
+        ...r, status: 'error', error: 'Network error — check your internet connection.',
       } : r));
     }
-  }, [botId, videoPlatform, videoPrompt, videoRef, pollPrediction]);
+  }, [botId, videoPlatform, videoPrompt, videoRef, selectedVideoModel, videoParams, videoNegativePrompt, pollPrediction]);
 
   const cancelGeneration = useCallback(async (predictionId: string) => {
-    // Abort client-side polling
     const controller = abortRefs.current.get(predictionId);
     if (controller) controller.abort();
     abortRefs.current.delete(predictionId);
-
-    // Cancel on server (DELETE /api/generate/video?predictionId=xxx)
     try {
-      await fetch(`/api/generate/video?predictionId=${encodeURIComponent(predictionId)}`, {
-        method: 'DELETE',
-      });
-    } catch {
-      // Ignore cancel errors
-    }
-
-    // Remove from results
+      await fetch(`/api/generate/video?predictionId=${encodeURIComponent(predictionId)}`, { method: 'DELETE' });
+    } catch { /* ignore */ }
     setResults(prev => prev.filter(r => r.predictionId !== predictionId));
   }, []);
 
   const clearResults = () => {
-    // Abort all ongoing polls
-    Array.from(abortRefs.current.values()).forEach(controller => controller.abort());
+    Array.from(abortRefs.current.values()).forEach(c => c.abort());
     abortRefs.current.clear();
     setResults(prev => prev.filter(r => r.status === 'generating'));
   };
 
   const isGeneratingImage = results.some(r => r.type === 'image' && r.status === 'generating');
   const isGeneratingVideo = results.some(r => r.type === 'video' && r.status === 'generating');
-  const isGenerating = isGeneratingImage || isGeneratingVideo;
+
+  const currentModel = activeTab === 'image' ? selectedImageModel : selectedVideoModel;
+  const models = activeTab === 'image' ? IMAGE_MODELS : VIDEO_MODELS;
+
+  const basicParams = currentModel.params.filter(p => p.group === 'basic');
+  const advancedParams = currentModel.params.filter(p => p.group === 'advanced');
+  const showAdvanced = activeTab === 'image' ? showImageAdvanced : showVideoAdvanced;
+  const toggleAdvanced = activeTab === 'image'
+    ? () => setShowImageAdvanced(v => !v)
+    : () => setShowVideoAdvanced(v => !v);
 
   return (
-    <div className="space-y-6">
-      <div className="grid gap-6 md:grid-cols-2">
-        {/* Generate Image */}
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <ImageIcon className="h-4 w-4 text-emerald-500" />
-            <Label className="font-medium">Generate Image</Label>
-            <span className="text-xs text-muted-foreground ml-auto">3 credits</span>
-          </div>
-          <div className="space-y-2">
-            <select
-              value={imagePlatform}
-              onChange={e => setImagePlatform(e.target.value)}
-              className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-            >
-              {PLATFORMS.map(p => (
-                <option key={p.value} value={p.value}>{p.label}</option>
-              ))}
-            </select>
-            <textarea
-              placeholder="Describe the image you want to generate. Be specific about subjects, style, colors, composition. Leave empty to use your Creative Style preferences."
-              value={imagePrompt}
-              onChange={e => setImagePrompt(e.target.value)}
-              rows={3}
-              className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-y"
-            />
+    <div className="space-y-4">
+      {/* Tab Switcher */}
+      <div className="flex gap-1 p-1 bg-muted rounded-lg">
+        <button
+          onClick={() => setActiveTab('image')}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-md text-xs font-medium transition-all ${
+            activeTab === 'image'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <ImageIcon className="h-3.5 w-3.5" />
+          Generate Image
+        </button>
+        <button
+          onClick={() => setActiveTab('video')}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-md text-xs font-medium transition-all ${
+            activeTab === 'video'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <Film className="h-3.5 w-3.5" />
+          Generate Video
+        </button>
+      </div>
 
-            {/* Reference image upload */}
-            <div>
-              <input
-                ref={imageFileRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/gif"
-                onChange={e => handleRefFile(e, 'image')}
-                className="hidden"
-              />
-              {imageRef ? (
-                <div className="flex items-center gap-2 p-2 rounded-md border border-input bg-muted/50 text-xs">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={imageRef} alt="Reference" className="h-10 w-10 object-cover rounded" />
-                  <span className="flex-1 truncate">{imageRefName}</span>
-                  <button
-                    onClick={() => { setImageRef(null); setImageRefName(''); }}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => imageFileRef.current?.click()}
-                  className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <Upload className="h-3 w-3" /> Add reference image (style guide)
-                </button>
-              )}
-            </div>
-
-            <Button
-              onClick={generateImage}
-              disabled={isGeneratingImage}
-              className="w-full gap-2"
-              size="sm"
-            >
-              {isGeneratingImage ? (
-                <><Loader2 className="h-4 w-4 animate-spin" /> Generating...</>
-              ) : (
-                <><Sparkles className="h-4 w-4" /> Generate Image</>
-              )}
-            </Button>
-          </div>
+      {/* Model Selector */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <Zap className="h-3.5 w-3.5 text-primary" />
+          <Label className="text-xs font-semibold">
+            Choose AI Model
+          </Label>
+          <span className="text-[10px] text-muted-foreground ml-auto">
+            {currentModel.creditCost} credits per generation
+          </span>
         </div>
-
-        {/* Generate Video */}
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Film className="h-4 w-4 text-violet-500" />
-            <Label className="font-medium">Generate Video</Label>
-            <span className="text-xs text-muted-foreground ml-auto">8 credits</span>
-          </div>
-          <div className="space-y-2">
-            <select
-              value={videoPlatform}
-              onChange={e => setVideoPlatform(e.target.value)}
-              className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-            >
-              {PLATFORMS.map(p => (
-                <option key={p.value} value={p.value}>{p.label}</option>
-              ))}
-            </select>
-            <textarea
-              placeholder="Describe the video you want to generate. Be specific about the action, scene, movement. Example: 'A cat dancing on a colorful stage with disco lights'. Leave empty to use your Creative Style preferences."
-              value={videoPrompt}
-              onChange={e => setVideoPrompt(e.target.value)}
-              rows={3}
-              className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-y"
+        <div className="grid gap-2 grid-cols-1 sm:grid-cols-2">
+          {models.map(model => (
+            <ModelCard
+              key={model.id}
+              model={model}
+              selected={currentModel.id === model.id}
+              onClick={() => activeTab === 'image'
+                ? handleImageModelChange(model)
+                : handleVideoModelChange(model)
+              }
             />
-
-            {/* Reference image upload for video (first frame) */}
-            <div>
-              <input
-                ref={videoFileRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                onChange={e => handleRefFile(e, 'video')}
-                className="hidden"
-              />
-              {videoRef ? (
-                <div className="flex items-center gap-2 p-2 rounded-md border border-input bg-muted/50 text-xs">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={videoRef} alt="Reference" className="h-10 w-10 object-cover rounded" />
-                  <span className="flex-1 truncate">{videoRefName}</span>
-                  <button
-                    onClick={() => { setVideoRef(null); setVideoRefName(''); }}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => videoFileRef.current?.click()}
-                  className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <Upload className="h-3 w-3" /> Add reference image (first frame)
-                </button>
-              )}
-            </div>
-
-            <Button
-              onClick={generateVideo}
-              disabled={isGeneratingVideo}
-              variant="secondary"
-              className="w-full gap-2"
-              size="sm"
-            >
-              {isGeneratingVideo ? (
-                <><Loader2 className="h-4 w-4 animate-spin" /> Generating (1-3 min)...</>
-              ) : (
-                <><Sparkles className="h-4 w-4" /> Generate Video</>
-              )}
-            </Button>
-          </div>
+          ))}
         </div>
       </div>
 
-      {/* Generation results */}
+      {/* Platform + Prompt */}
+      <div className="space-y-3">
+        <div className="space-y-1.5">
+          <Label className="text-xs font-medium">Target Platform</Label>
+          <select
+            value={activeTab === 'image' ? imagePlatform : videoPlatform}
+            onChange={e => activeTab === 'image'
+              ? setImagePlatform(e.target.value)
+              : setVideoPlatform(e.target.value)
+            }
+            className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+          >
+            {PLATFORMS.map(p => (
+              <option key={p.value} value={p.value}>{p.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label className="text-xs font-medium">Prompt</Label>
+          <textarea
+            placeholder={activeTab === 'image'
+              ? 'Describe the image you want. Be specific about subjects, style, colors, composition. Leave empty to use Creative Style preferences.'
+              : 'Describe the video you want. Be specific about action, scene, movement. Leave empty to use Creative Style preferences.'
+            }
+            value={activeTab === 'image' ? imagePrompt : videoPrompt}
+            onChange={e => activeTab === 'image'
+              ? setImagePrompt(e.target.value)
+              : setVideoPrompt(e.target.value)
+            }
+            rows={3}
+            className="flex min-h-[70px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-y"
+          />
+        </div>
+
+        {/* Negative Prompt (if model supports it) */}
+        {currentModel.supportsNegativePrompt && (
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium">Negative Prompt</Label>
+            <textarea
+              placeholder="What to avoid in the generation (e.g. blurry, low quality, distorted faces...)"
+              value={activeTab === 'image' ? imageNegativePrompt : videoNegativePrompt}
+              onChange={e => activeTab === 'image'
+                ? setImageNegativePrompt(e.target.value)
+                : setVideoNegativePrompt(e.target.value)
+              }
+              rows={2}
+              className="flex min-h-[50px] w-full rounded-md border border-input bg-background px-3 py-2 text-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-y"
+            />
+          </div>
+        )}
+
+        {/* Reference Image Upload */}
+        {currentModel.supportsReferenceImage && (
+          <div>
+            <input
+              ref={activeTab === 'image' ? imageFileRef : videoFileRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              onChange={e => handleRefFile(e, activeTab)}
+              className="hidden"
+            />
+            {(activeTab === 'image' ? imageRef : videoRef) ? (
+              <div className="flex items-center gap-2 p-2 rounded-md border border-input bg-muted/50 text-xs">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={(activeTab === 'image' ? imageRef : videoRef) || ''}
+                  alt="Reference"
+                  className="h-10 w-10 object-cover rounded"
+                />
+                <span className="flex-1 truncate">
+                  {activeTab === 'image' ? imageRefName : videoRefName}
+                </span>
+                <button
+                  onClick={() => {
+                    if (activeTab === 'image') {
+                      setImageRef(null);
+                      setImageRefName('');
+                    } else {
+                      setVideoRef(null);
+                      setVideoRefName('');
+                    }
+                  }}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => (activeTab === 'image' ? imageFileRef : videoFileRef).current?.click()}
+                className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Upload className="h-3 w-3" />
+                {activeTab === 'image'
+                  ? `Add reference image (${currentModel.referenceImageKey === 'image_prompt' ? 'style guide' : 'input image'})`
+                  : `Add reference image (${currentModel.referenceImageKey === 'first_frame_image' ? 'first frame' : 'input'})`
+                }
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Basic Parameters */}
+      {basicParams.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Settings2 className="h-3.5 w-3.5 text-muted-foreground" />
+            <Label className="text-xs font-semibold">Model Settings</Label>
+          </div>
+          <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
+            {basicParams.map(param => (
+              <ParamControl
+                key={param.key}
+                param={param}
+                value={activeTab === 'image' ? imageParams[param.key] : videoParams[param.key]}
+                onChange={activeTab === 'image' ? updateImageParam : updateVideoParam}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Advanced Parameters (collapsible) */}
+      {advancedParams.length > 0 && (
+        <div className="space-y-2">
+          <button
+            onClick={toggleAdvanced}
+            className="flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {showAdvanced ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            Advanced Settings ({advancedParams.length})
+          </button>
+          {showAdvanced && (
+            <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 pl-1 border-l-2 border-muted ml-1">
+              {advancedParams.map(param => (
+                <ParamControl
+                  key={param.key}
+                  param={param}
+                  value={activeTab === 'image' ? imageParams[param.key] : videoParams[param.key]}
+                  onChange={activeTab === 'image' ? updateImageParam : updateVideoParam}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Generate Button */}
+      <Button
+        onClick={activeTab === 'image' ? generateImage : generateVideo}
+        disabled={activeTab === 'image' ? isGeneratingImage : isGeneratingVideo}
+        className="w-full gap-2"
+        size="sm"
+      >
+        {(activeTab === 'image' ? isGeneratingImage : isGeneratingVideo) ? (
+          <>
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Generating with {currentModel.name}...
+          </>
+        ) : (
+          <>
+            <Sparkles className="h-4 w-4" />
+            Generate {activeTab === 'image' ? 'Image' : 'Video'} with {currentModel.name}
+            <span className="text-[10px] opacity-80">({currentModel.creditCost} credits)</span>
+          </>
+        )}
+      </Button>
+
+      {/* Generation Results */}
       {results.length > 0 && (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label className="text-xs text-muted-foreground">Generation Results</Label>
             {results.some(r => r.status !== 'generating') && (
-              <button
-                onClick={clearResults}
-                className="text-xs text-muted-foreground hover:text-foreground"
-              >
+              <button onClick={clearResults} className="text-xs text-muted-foreground hover:text-foreground">
                 Clear completed
               </button>
             )}
@@ -501,7 +797,7 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
                 )}
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-medium">
-                    {r.type === 'image' ? 'Image' : 'Video'} generation
+                    {r.modelName ? `${r.modelName} — ` : ''}{r.type === 'image' ? 'Image' : 'Video'}
                     {r.status === 'generating' && ' — in progress...'}
                     {r.status === 'success' && ' — completed!'}
                   </p>
@@ -518,17 +814,17 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
                           <p className="font-medium">Setup required:</p>
                           <ol className="list-decimal list-inside space-y-0.5">
                             <li>Get an API token from the provider mentioned above</li>
-                            <li>Add it to your <code className="bg-orange-100 px-1 rounded">.env</code> file on the server</li>
-                            <li>Restart the server: <code className="bg-orange-100 px-1 rounded">pm2 restart grothi</code></li>
+                            <li>Add it to your <code className="bg-orange-100 px-1 rounded">.env</code> file</li>
+                            <li>Restart: <code className="bg-orange-100 px-1 rounded">pm2 restart grothi</code></li>
                           </ol>
                         </div>
                       )}
                       {r.httpStatus === 502 && (
-                        <p className="text-[11px] text-orange-700">Check that your API token is valid and your account has billing enabled.</p>
+                        <p className="text-[11px] text-orange-700">Check that your API token is valid and billing is enabled.</p>
                       )}
                       {r.httpStatus === 402 && (
                         <p className="text-[11px] text-orange-700">
-                          <a href="/dashboard/credits/buy" className="underline">Buy more credits</a> to continue generating.
+                          <a href="/dashboard/credits/buy" className="underline">Buy more credits</a> to continue.
                         </p>
                       )}
                     </div>
@@ -578,9 +874,10 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
 
       {/* Provider info */}
       <p className="text-[10px] text-muted-foreground">
-        Images: Replicate (Flux 1.1 Pro). Videos: Replicate (MiniMax) or Runway (configurable in Admin Settings).
-        Requires REPLICATE_API_TOKEN in .env. Credits are only deducted on successful generation.
-        Video generation persists across page refresh — you can safely navigate away.
+        {activeTab === 'image'
+          ? `${IMAGE_MODELS.length} image models available via Replicate. Credits deducted only on success.`
+          : `${VIDEO_MODELS.length} video models available. Video generation persists across page refresh.`
+        }
       </p>
     </div>
   );

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { deductCredits } from '@/lib/credits';
-import { MODELS, PLATFORM_ASPECT_RATIOS, PLATFORM_IMAGE_DIMENSIONS, GENERATION_COSTS } from '@/lib/replicate';
+import { getModelById, getDefaultImageModel, buildModelInput, IMAGE_MODELS } from '@/lib/ai-models';
+import { PLATFORM_IMAGE_DIMENSIONS } from '@/lib/replicate';
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, resolve } from 'path';
@@ -20,7 +21,15 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { botId, platform, prompt, referenceImage } = body;
+    const {
+      botId,
+      platform,
+      prompt,
+      referenceImage,
+      modelId,
+      params: userParams,
+      negativePrompt,
+    } = body;
 
     if (!botId) {
       return NextResponse.json({ error: 'Bot ID required' }, { status: 400 });
@@ -32,6 +41,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Bot not found' }, { status: 404 });
     }
 
+    // Resolve model — user can pick any image model, defaults to FLUX 1.1 Pro
+    const model = modelId
+      ? IMAGE_MODELS.find(m => m.id === modelId)
+      : getDefaultImageModel();
+
+    if (!model) {
+      return NextResponse.json({ error: `Unknown image model: ${modelId}` }, { status: 400 });
+    }
+
     // Check Replicate API token
     const replicateToken = process.env.REPLICATE_API_TOKEN;
     if (!replicateToken) {
@@ -40,11 +58,14 @@ export async function POST(request: NextRequest) {
       }, { status: 503 });
     }
 
+    // Dynamic credit cost from model
+    const creditCost = model.creditCost;
+
     // Check credits
     const balance = await db.creditBalance.findUnique({ where: { userId: user.id } });
-    if (!balance || balance.balance < GENERATION_COSTS.GENERATE_IMAGE) {
+    if (!balance || balance.balance < creditCost) {
       return NextResponse.json({
-        error: `Insufficient credits. You need ${GENERATION_COSTS.GENERATE_IMAGE} credits to generate an image. Buy more credits in the Credits page.`,
+        error: `Insufficient credits. You need ${creditCost} credits to generate with ${model.name}. Buy more credits in the Credits page.`,
       }, { status: 402 });
     }
 
@@ -54,10 +75,8 @@ export async function POST(request: NextRequest) {
     let fullPrompt: string;
 
     if (prompt && prompt.trim()) {
-      // User provided explicit prompt — use it exactly as written
       fullPrompt = prompt.trim();
     } else {
-      // No user prompt — build from bot preferences
       const subjects = (prefs?.subjects as string) || '';
       const visualStyles = (prefs?.visualStyles as string[]) || ['minimalist'];
       const customInstructions = (prefs?.customInstructions as string) || '';
@@ -73,40 +92,27 @@ export async function POST(request: NextRequest) {
       ].filter(Boolean).join('. ');
     }
 
-    // Get platform-specific aspect ratio (Flux 1.1 Pro uses aspect_ratio, NOT width/height)
-    // https://replicate.com/black-forest-labs/flux-1.1-pro/api/schema
-    const aspectRatio = PLATFORM_ASPECT_RATIOS[platform || 'INSTAGRAM'] || '1:1';
-    const dims = PLATFORM_IMAGE_DIMENSIONS[platform || 'INSTAGRAM'] || { width: 1080, height: 1080 };
+    // Build model input from user params
+    const parsedParams: Record<string, unknown> = userParams && typeof userParams === 'object' ? userParams : {};
+    const replicateInput = buildModelInput(model, fullPrompt, parsedParams, referenceImage, negativePrompt);
+
+    // Determine output format for file extension
+    const outputFormat = (replicateInput.output_format as string) || 'png';
+    const fileExt = outputFormat === 'jpg' ? 'jpg' : outputFormat === 'webp' ? 'webp' : 'png';
+    const mimeType = outputFormat === 'jpg' ? 'image/jpeg' : outputFormat === 'webp' ? 'image/webp' : 'image/png';
 
     // Generate image via Replicate
     const Replicate = (await import('replicate')).default;
     const replicate = new Replicate({ auth: replicateToken });
 
-    // Build Replicate input — Flux 1.1 Pro API schema:
-    // Required: prompt (string)
-    // Optional: aspect_ratio, output_format, output_quality, safety_tolerance, prompt_upsampling
-    // NOTE: width/height and num_outputs are NOT valid params for Flux 1.1 Pro
-    const replicateInput: Record<string, unknown> = {
-      prompt: fullPrompt,
-      aspect_ratio: aspectRatio,
-      output_format: 'png',
-      prompt_upsampling: true,
-    };
-
-    // If reference image provided, use it as image_prompt (style reference)
-    // This passes the reference to the model for visual guidance
-    if (referenceImage && typeof referenceImage === 'string' && referenceImage.startsWith('data:')) {
-      replicateInput.image_prompt = referenceImage;
-    }
-
     let output: unknown;
     try {
-      output = await replicate.run(MODELS.IMAGE, {
+      output = await replicate.run(model.replicateId as `${string}/${string}`, {
         input: replicateInput,
       });
     } catch (apiError) {
       const apiMsg = apiError instanceof Error ? apiError.message : String(apiError);
-      console.error('Replicate API error:', apiMsg);
+      console.error(`Replicate API error (${model.name}):`, apiMsg);
 
       if (apiMsg.includes('Invalid token') || apiMsg.includes('Unauthenticated') || apiMsg.includes('401')) {
         return NextResponse.json({
@@ -130,7 +136,6 @@ export async function POST(request: NextRequest) {
     }
 
     // Get the image URL from output
-    // Replicate v1.4+ returns FileOutput objects, not strings
     const rawOutput = Array.isArray(output) ? output[0] : output;
     let imageUrl: string;
     if (typeof rawOutput === 'string') {
@@ -187,30 +192,33 @@ export async function POST(request: NextRequest) {
     }
 
     const uuid = randomUUID();
-    const filename = `${uuid}.png`;
+    const filename = `${uuid}.${fileExt}`;
     const filePath = join(botDir, filename);
     await writeFile(filePath, imageBuffer);
 
     // Deduct credits AFTER successful generation
     const deducted = await deductCredits(
       user.id,
-      GENERATION_COSTS.GENERATE_IMAGE,
-      `AI image generation for ${platform || 'general'}`,
+      creditCost,
+      `AI image (${model.name}) for ${platform || 'general'}`,
       botId
     );
     if (!deducted) {
       return NextResponse.json({
-        error: `Insufficient credits. You need ${GENERATION_COSTS.GENERATE_IMAGE} credits.`,
+        error: `Insufficient credits. You need ${creditCost} credits.`,
       }, { status: 402 });
     }
+
+    // Get dimensions for DB
+    const dims = PLATFORM_IMAGE_DIMENSIONS[platform || 'INSTAGRAM'] || { width: 1024, height: 1024 };
 
     // Save to database
     const media = await db.media.create({
       data: {
         botId,
         type: 'IMAGE',
-        filename: `ai-generated-${platform || 'general'}.png`,
-        mimeType: 'image/png',
+        filename: `ai-${model.id}-${platform || 'general'}.${fileExt}`,
+        mimeType,
         fileSize: imageBuffer.length,
         filePath: `${botId}/${filename}`,
         width: dims.width,
@@ -226,9 +234,9 @@ export async function POST(request: NextRequest) {
         botId,
         platform: (platform as any) || 'INSTAGRAM',
         action: 'GENERATE_IMAGE',
-        content: fullPrompt.slice(0, 500),
+        content: `[${model.name}] ${fullPrompt.slice(0, 480)}`,
         success: true,
-        creditsUsed: GENERATION_COSTS.GENERATE_IMAGE,
+        creditsUsed: creditCost,
       },
     });
 
@@ -241,6 +249,8 @@ export async function POST(request: NextRequest) {
       fileSize: media.fileSize,
       url: `/api/media/${media.id}`,
       prompt: fullPrompt,
+      model: model.name,
+      creditCost,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
