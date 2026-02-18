@@ -464,7 +464,7 @@ export function checkCampaignHealth(recentCampaigns: CampaignStats[]): HealthChe
     action = 'pause';
   } else if (bounceRate > 0.5) {
     warnings.push(`Bounce rate ${bounceRate.toFixed(2)}% is above recommended 0.5%. Consider cleaning your contact list.`);
-    if (action !== 'pause') action = 'warn';
+    action = 'warn';
   }
 
   // Complaint rate checks (Gmail publishes 0.1% as their threshold)
