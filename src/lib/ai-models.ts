@@ -727,21 +727,23 @@ export const IMAGE_MODELS: AIModel[] = [
 
 // ── VIDEO MODELS ──
 // All video models use Replicate API exclusively.
-// Model IDs verified against https://replicate.com/collections/text-to-video
+// Model IDs and parameters verified against Replicate API schemas.
+// Schema source: https://replicate.com/api/models/{owner}/{name}/versions
 
 export const VIDEO_MODELS: AIModel[] = [
   // ── Google Veo 3.1 (latest, premium, with audio) ──
+  // Schema: google/veo-3.1 v ed5b1767b711
   {
     id: 'google-veo-3.1',
     replicateId: 'google/veo-3.1',
     name: 'Google Veo 3.1',
     brand: 'Google DeepMind',
-    description: 'Latest Google video model. Higher-fidelity video with context-aware audio. Supports reference images and frame-to-frame generation.',
+    description: 'Latest Google video model. Higher-fidelity video with context-aware audio. Supports reference images, last frame, and frame-to-frame generation.',
     category: 'video',
     creditCost: 15,
     supportsReferenceImage: true,
     referenceImageKey: 'image',
-    supportsNegativePrompt: false,
+    supportsNegativePrompt: true,
     provider: 'replicate',
     estimatedTime: '~3-5 minutes',
     badge: 'Premium + Audio',
@@ -776,19 +778,34 @@ export const VIDEO_MODELS: AIModel[] = [
         key: 'resolution',
         label: 'Resolution',
         type: 'select',
-        description: 'Video resolution. 1080p for higher quality.',
+        description: 'Video resolution.',
         options: [
           { value: '720p', label: '720p (Standard)' },
           { value: '1080p', label: '1080p (HD)' },
         ],
-        default: '720p',
+        default: '1080p',
         group: 'basic',
+      },
+      {
+        key: 'generate_audio',
+        label: 'Generate Audio',
+        type: 'boolean',
+        description: 'Generate synchronized audio with the video.',
+        default: true,
+        group: 'basic',
+      },
+      {
+        key: 'negative_prompt',
+        label: 'Negative Prompt',
+        type: 'string',
+        description: 'Description of what to exclude from the generated video.',
+        group: 'advanced',
       },
       {
         key: 'seed',
         label: 'Seed',
         type: 'number',
-        description: 'Random seed for reproducible results.',
+        description: 'Random seed for reproducible results. Omit for random.',
         min: 0,
         max: 4294967295,
         step: 1,
@@ -798,6 +815,7 @@ export const VIDEO_MODELS: AIModel[] = [
   },
 
   // ── Google Veo 3 (flagship, with audio) ──
+  // Schema: google/veo-3 v 5e80c73750ff
   {
     id: 'google-veo-3',
     replicateId: 'google/veo-3',
@@ -808,7 +826,7 @@ export const VIDEO_MODELS: AIModel[] = [
     creditCost: 12,
     supportsReferenceImage: true,
     referenceImageKey: 'image',
-    supportsNegativePrompt: false,
+    supportsNegativePrompt: true,
     provider: 'replicate',
     estimatedTime: '~3-5 minutes',
     badge: 'Flagship + Audio',
@@ -848,14 +866,29 @@ export const VIDEO_MODELS: AIModel[] = [
           { value: '720p', label: '720p (Standard)' },
           { value: '1080p', label: '1080p (HD)' },
         ],
-        default: '720p',
+        default: '1080p',
         group: 'basic',
+      },
+      {
+        key: 'generate_audio',
+        label: 'Generate Audio',
+        type: 'boolean',
+        description: 'Generate synchronized audio with the video.',
+        default: true,
+        group: 'basic',
+      },
+      {
+        key: 'negative_prompt',
+        label: 'Negative Prompt',
+        type: 'string',
+        description: 'Description of what to exclude from the generated video.',
+        group: 'advanced',
       },
       {
         key: 'seed',
         label: 'Seed',
         type: 'number',
-        description: 'Random seed for reproducible results.',
+        description: 'Random seed for reproducible results. Omit for random.',
         min: 0,
         max: 4294967295,
         step: 1,
@@ -865,6 +898,7 @@ export const VIDEO_MODELS: AIModel[] = [
   },
 
   // ── MiniMax Hailuo 2.3 (latest MiniMax, high fidelity) ──
+  // Schema: minimax/hailuo-2.3 v 23a02633b5a4
   {
     id: 'minimax-hailuo-2.3',
     replicateId: 'minimax/hailuo-2.3',
@@ -885,7 +919,7 @@ export const VIDEO_MODELS: AIModel[] = [
         key: 'duration',
         label: 'Duration',
         type: 'select',
-        description: 'Video length in seconds. 10s not available at 1080p.',
+        description: 'Video length in seconds. 10s only available at 768p.',
         options: [
           { value: '6', label: '6 seconds' },
           { value: '10', label: '10 seconds (768p only)' },
@@ -897,12 +931,12 @@ export const VIDEO_MODELS: AIModel[] = [
         key: 'resolution',
         label: 'Resolution',
         type: 'select',
-        description: 'Video resolution. 1080p only available for 6s duration.',
+        description: 'Video resolution. 1080p supports only 6-second duration.',
         options: [
-          { value: '768P', label: '768p (Standard)' },
-          { value: '1080P', label: '1080p (HD, 6s only)' },
+          { value: '768p', label: '768p (Standard)' },
+          { value: '1080p', label: '1080p (HD, 6s only)' },
         ],
-        default: '768P',
+        default: '768p',
         group: 'basic',
       },
       {
@@ -916,13 +950,14 @@ export const VIDEO_MODELS: AIModel[] = [
     ],
   },
 
-  // ── Kling V2.1 Master (premium, T2V+I2V, 1080p) ──
+  // ── Kling V2.1 Master (premium, T2V+I2V) ──
+  // Schema: kwaivgi/kling-v2.1-master v 6a190b5a360f
   {
     id: 'kling-v2.1-master',
     replicateId: 'kwaivgi/kling-v2.1-master',
     name: 'Kling V2.1 Master',
     brand: 'Kuaishou (Kling)',
-    description: 'Premium Kling model. Superb dynamics and prompt adherence. 1080p 5s and 10s videos from text or image.',
+    description: 'Premium Kling model. Superb dynamics and prompt adherence. 5s and 10s videos from text or image.',
     category: 'video',
     creditCost: 12,
     supportsReferenceImage: true,
@@ -949,7 +984,7 @@ export const VIDEO_MODELS: AIModel[] = [
         key: 'aspect_ratio',
         label: 'Aspect Ratio',
         type: 'select',
-        description: 'Video dimensions ratio.',
+        description: 'Video dimensions ratio. Ignored if start_image is provided.',
         options: [
           { value: '16:9', label: '16:9 (Landscape)' },
           { value: '9:16', label: '9:16 (Vertical/TikTok)' },
@@ -959,37 +994,17 @@ export const VIDEO_MODELS: AIModel[] = [
         group: 'basic',
       },
       {
-        key: 'cfg_scale',
-        label: 'Guidance Scale',
-        type: 'number',
-        description: 'How closely to follow the prompt (0-1). Higher = more faithful.',
-        min: 0,
-        max: 1,
-        step: 0.05,
-        default: 0.5,
-        group: 'advanced',
-      },
-      {
         key: 'negative_prompt',
         label: 'Negative Prompt',
         type: 'string',
-        description: 'What to avoid in the video.',
-        group: 'advanced',
-      },
-      {
-        key: 'seed',
-        label: 'Seed',
-        type: 'number',
-        description: 'Random seed for reproducible results.',
-        min: 0,
-        max: 2147483647,
-        step: 1,
+        description: 'Things you do not want to see in the video.',
         group: 'advanced',
       },
     ],
   },
 
   // ── xAI Grok Imagine Video ──
+  // Schema: xai/grok-imagine-video v 3eef53664ae0
   {
     id: 'grok-imagine-video',
     replicateId: 'xai/grok-imagine-video',
@@ -999,7 +1014,7 @@ export const VIDEO_MODELS: AIModel[] = [
     category: 'video',
     creditCost: 10,
     supportsReferenceImage: true,
-    referenceImageKey: 'image_url',
+    referenceImageKey: 'image',
     supportsNegativePrompt: false,
     provider: 'replicate',
     estimatedTime: '~2-4 minutes',
@@ -1010,18 +1025,18 @@ export const VIDEO_MODELS: AIModel[] = [
         key: 'duration',
         label: 'Duration',
         type: 'number',
-        description: 'Video length in seconds (1-15).',
+        description: 'Video length in seconds (1-15). Ignored when editing a video.',
         min: 1,
         max: 15,
         step: 1,
-        default: 8,
+        default: 5,
         group: 'basic',
       },
       {
         key: 'aspect_ratio',
         label: 'Aspect Ratio',
         type: 'select',
-        description: 'Video dimensions ratio.',
+        description: 'Video dimensions ratio. Ignored when providing an input image.',
         options: [
           { value: '16:9', label: '16:9 (Landscape)' },
           { value: '9:16', label: '9:16 (Vertical/TikTok)' },
@@ -1050,6 +1065,7 @@ export const VIDEO_MODELS: AIModel[] = [
   },
 
   // ── Luma Ray 2 720p ──
+  // Schema: luma/ray-2-720p v 3ca2bc3597e1
   {
     id: 'luma-ray-2',
     replicateId: 'luma/ray-2-720p',
@@ -1058,7 +1074,8 @@ export const VIDEO_MODELS: AIModel[] = [
     description: 'Cinematic quality video generation. Photorealistic output with smooth camera motion. 5s or 9s clips at 720p.',
     category: 'video',
     creditCost: 10,
-    supportsReferenceImage: false,
+    supportsReferenceImage: true,
+    referenceImageKey: 'start_image',
     supportsNegativePrompt: false,
     provider: 'replicate',
     estimatedTime: '~3-5 minutes',
@@ -1069,12 +1086,12 @@ export const VIDEO_MODELS: AIModel[] = [
         key: 'duration',
         label: 'Duration',
         type: 'select',
-        description: 'Video length.',
+        description: 'Video length in seconds.',
         options: [
-          { value: '5s', label: '5 seconds' },
-          { value: '9s', label: '9 seconds' },
+          { value: '5', label: '5 seconds' },
+          { value: '9', label: '9 seconds' },
         ],
-        default: '5s',
+        default: '5',
         group: 'basic',
       },
       {
@@ -1098,24 +1115,15 @@ export const VIDEO_MODELS: AIModel[] = [
         key: 'loop',
         label: 'Loop',
         type: 'boolean',
-        description: 'Make the video loop seamlessly. Last frame matches first frame.',
+        description: 'Make the video loop seamlessly. Last frame matches first frame for continuous playback.',
         default: false,
         group: 'basic',
-      },
-      {
-        key: 'seed',
-        label: 'Seed',
-        type: 'number',
-        description: 'Random seed for reproducible results.',
-        min: 0,
-        max: 2147483647,
-        step: 1,
-        group: 'advanced',
       },
     ],
   },
 
-  // ── MiniMax Hailuo video-01 (text-to-video) ──
+  // ── MiniMax Hailuo video-01 (text-to-video + I2V) ──
+  // Schema: minimax/video-01 v 5aa835260ff7
   {
     id: 'minimax-video-01',
     replicateId: 'minimax/video-01',
@@ -1124,7 +1132,8 @@ export const VIDEO_MODELS: AIModel[] = [
     description: 'High quality text-to-video and image-to-video. Good motion, diverse styles. 6 second clips at 720p/25fps.',
     category: 'video',
     creditCost: 8,
-    supportsReferenceImage: false,
+    supportsReferenceImage: true,
+    referenceImageKey: 'first_frame_image',
     supportsNegativePrompt: false,
     provider: 'replicate',
     estimatedTime: '~2-3 minutes',
@@ -1136,13 +1145,14 @@ export const VIDEO_MODELS: AIModel[] = [
         label: 'Prompt Optimizer',
         type: 'boolean',
         description: 'Let MiniMax rewrite your prompt for better results. Disable for exact prompt control.',
-        default: false,
+        default: true,
         group: 'basic',
       },
     ],
   },
 
   // ── MiniMax Hailuo video-01-live (image-to-video) ──
+  // Schema: minimax/video-01-live
   {
     id: 'minimax-video-01-live',
     replicateId: 'minimax/video-01-live',
@@ -1164,19 +1174,20 @@ export const VIDEO_MODELS: AIModel[] = [
         label: 'Prompt Optimizer',
         type: 'boolean',
         description: 'Let MiniMax enhance your prompt.',
-        default: false,
+        default: true,
         group: 'basic',
       },
     ],
   },
 
-  // ── Kling V2.1 (image-to-video, 720p/1080p) ──
+  // ── Kling V2.1 (image-to-video, start_image required) ──
+  // Schema: kwaivgi/kling-v2.1 v daad218feb71
   {
     id: 'kling-v2.1',
     replicateId: 'kwaivgi/kling-v2.1',
     name: 'Kling V2.1',
     brand: 'Kuaishou (Kling)',
-    description: 'High quality AI video from images. 5s or 10s clips in 720p/1080p. Great motion and physics.',
+    description: 'High quality image-to-video. 5s or 10s clips in 720p or 1080p. Requires a starting image.',
     category: 'video',
     creditCost: 10,
     supportsReferenceImage: true,
@@ -1200,56 +1211,35 @@ export const VIDEO_MODELS: AIModel[] = [
         group: 'basic',
       },
       {
-        key: 'aspect_ratio',
-        label: 'Aspect Ratio',
+        key: 'mode',
+        label: 'Quality Mode',
         type: 'select',
-        description: 'Video dimensions ratio.',
+        description: 'Standard = 720p/24fps. Pro = 1080p/24fps.',
         options: [
-          { value: '16:9', label: '16:9 (Landscape)' },
-          { value: '9:16', label: '9:16 (Vertical/TikTok)' },
-          { value: '1:1', label: '1:1 (Square)' },
+          { value: 'standard', label: 'Standard (720p)' },
+          { value: 'pro', label: 'Pro (1080p)' },
         ],
-        default: '16:9',
+        default: 'standard',
         group: 'basic',
-      },
-      {
-        key: 'cfg_scale',
-        label: 'Guidance Scale',
-        type: 'number',
-        description: 'How closely to follow the prompt (0-1). Higher = more faithful.',
-        min: 0,
-        max: 1,
-        step: 0.05,
-        default: 0.5,
-        group: 'advanced',
       },
       {
         key: 'negative_prompt',
         label: 'Negative Prompt',
         type: 'string',
-        description: 'What to avoid in the video.',
-        group: 'advanced',
-      },
-      {
-        key: 'seed',
-        label: 'Seed',
-        type: 'number',
-        description: 'Random seed for reproducible results.',
-        min: 0,
-        max: 2147483647,
-        step: 1,
+        description: 'Things you do not want to see in the video.',
         group: 'advanced',
       },
     ],
   },
 
-  // ── Google Veo 2 (up to 4K, mature model) ──
+  // ── Google Veo 2 (mature model) ──
+  // Schema: google/veo-2 v af8ebddc406d
   {
     id: 'google-veo-2',
     replicateId: 'google/veo-2',
     name: 'Google Veo 2',
     brand: 'Google DeepMind',
-    description: 'State-of-the-art video generation with realistic motion. Up to 4K resolution capability. 5-8 second clips.',
+    description: 'State-of-the-art video generation with realistic motion and high-quality output. 5-8 second clips.',
     category: 'video',
     creditCost: 8,
     supportsReferenceImage: true,
@@ -1271,7 +1261,7 @@ export const VIDEO_MODELS: AIModel[] = [
           { value: '7', label: '7 seconds' },
           { value: '8', label: '8 seconds' },
         ],
-        default: '8',
+        default: '5',
         group: 'basic',
       },
       {
@@ -1290,7 +1280,7 @@ export const VIDEO_MODELS: AIModel[] = [
         key: 'seed',
         label: 'Seed',
         type: 'number',
-        description: 'Random seed for reproducible results.',
+        description: 'Random seed for reproducible results. Omit for random.',
         min: 0,
         max: 4294967295,
         step: 1,
@@ -1299,13 +1289,14 @@ export const VIDEO_MODELS: AIModel[] = [
     ],
   },
 
-  // ── Wan 2.1 T2V ──
+  // ── Wan 2.1 T2V (WaveSpeed accelerated) ──
+  // Schema: wavespeedai/wan-2.1-t2v-480p v 7677a619127e
   {
     id: 'wan-2.1',
     replicateId: 'wavespeedai/wan-2.1-t2v-480p',
     name: 'Wan 2.1',
     brand: 'Alibaba (Wan)',
-    description: 'Fast and affordable video generation at 480p. Great for quick drafts and social content. Up to ~3.4s at 24fps.',
+    description: 'Fast and affordable video generation at 480p. Great for quick drafts and social content.',
     category: 'video',
     creditCost: 5,
     supportsReferenceImage: false,
@@ -1316,23 +1307,48 @@ export const VIDEO_MODELS: AIModel[] = [
     async: true,
     params: [
       {
-        key: 'num_frames',
-        label: 'Number of Frames',
-        type: 'number',
-        description: 'Total frames to generate (17-81). More frames = longer video. 24fps. 81 frames ≈ 3.4s.',
-        min: 17,
-        max: 81,
-        step: 4,
-        default: 81,
+        key: 'aspect_ratio',
+        label: 'Aspect Ratio',
+        type: 'select',
+        description: 'Aspect ratio of the output video.',
+        options: [
+          { value: '16:9', label: '16:9 (Landscape)' },
+          { value: '9:16', label: '9:16 (Vertical/TikTok)' },
+        ],
+        default: '16:9',
         group: 'basic',
       },
       {
-        key: 'guidance_scale',
+        key: 'fast_mode',
+        label: 'Speed Mode',
+        type: 'select',
+        description: 'Speed up generation. Faster modes may slightly reduce quality.',
+        options: [
+          { value: 'Off', label: 'Off (Best Quality)' },
+          { value: 'Balanced', label: 'Balanced' },
+          { value: 'Fast', label: 'Fast' },
+        ],
+        default: 'Balanced',
+        group: 'basic',
+      },
+      {
+        key: 'sample_steps',
+        label: 'Inference Steps',
+        type: 'number',
+        description: 'Number of inference steps (1-40). More steps = higher quality.',
+        min: 1,
+        max: 40,
+        step: 1,
+        default: 30,
+        group: 'advanced',
+      },
+      {
+        key: 'sample_guide_scale',
         label: 'Guidance Scale',
         type: 'number',
-        description: 'Prompt adherence (0-20). Higher = follows prompt more closely.',
-        min: 0,
-        max: 20,
+        description: 'Prompt adherence (1-10). Higher = follows prompt more closely.',
+        min: 1,
+        max: 10,
         step: 0.5,
         default: 5,
         group: 'advanced',
@@ -1341,15 +1357,14 @@ export const VIDEO_MODELS: AIModel[] = [
         key: 'negative_prompt',
         label: 'Negative Prompt',
         type: 'string',
-        description: 'What to avoid.',
-        default: 'Bright tones, overexposed, static, blurred details, subtitles, style, works, paintings, images, static, overall gray, worst quality, low quality, JPEG artifacts, ugly, duplicate, morbid, mutilated, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck',
+        description: 'What to avoid in the video.',
         group: 'advanced',
       },
       {
         key: 'seed',
         label: 'Seed',
         type: 'number',
-        description: 'Random seed.',
+        description: 'Random seed for reproducible results.',
         min: 0,
         max: 2147483647,
         step: 1,
