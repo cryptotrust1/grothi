@@ -188,6 +188,23 @@ async function graphFetch(
       };
     }
 
+    // Enhanced logging: log full details on API errors for debugging
+    if (isGraphError(data)) {
+      const traceId = res.headers.get('x-fb-trace-id') || 'none';
+      const wwwAuth = res.headers.get('www-authenticate') || 'none';
+      console.error('[instagram] API error response details:', {
+        httpStatus: res.status,
+        traceId,
+        wwwAuthenticate: wwwAuth,
+        url: url.replace(/access_token=[^&]+/, 'access_token=***').substring(0, 150),
+        method: options?.method || 'GET',
+        errorCode: data.error.code,
+        errorType: data.error.type,
+        errorSubcode: data.error.error_subcode || 'none',
+        errorMessage: data.error.message?.substring(0, 200),
+      });
+    }
+
     if (rateLimits.shouldThrottle) {
       await new Promise((r) => setTimeout(r, 30_000));
     }
@@ -1053,4 +1070,237 @@ export async function healthCheckAllConnections(): Promise<{
   }
 
   return { total: connections.length, valid, invalid, refreshed };
+}
+
+// ── Token Debugging / Diagnostics ──────────────────────────────
+
+export interface TokenDebugInfo {
+  isValid: boolean;
+  appId?: string;
+  userId?: string;
+  type?: string;
+  scopes?: string[];
+  expiresAt?: string;
+  error?: string;
+}
+
+/**
+ * Debug an Instagram access token using Meta's debug_token API.
+ * This reveals the actual permissions/scopes the token has,
+ * which is critical for diagnosing "error code 2" (OAuthException).
+ *
+ * Uses: GET https://graph.facebook.com/debug_token?input_token={token}&access_token={app-token}
+ * The app token is constructed as: {app_id}|{app_secret}
+ */
+export async function debugToken(accessToken: string): Promise<TokenDebugInfo> {
+  const appId = process.env.INSTAGRAM_APP_ID;
+  const appSecret = process.env.INSTAGRAM_APP_SECRET;
+
+  if (!appId || !appSecret) {
+    return { isValid: false, error: 'INSTAGRAM_APP_ID or INSTAGRAM_APP_SECRET not set in env' };
+  }
+
+  try {
+    const appToken = `${appId}|${appSecret}`;
+    const url = new URL('https://graph.facebook.com/debug_token');
+    url.searchParams.set('input_token', accessToken);
+    url.searchParams.set('access_token', appToken);
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
+    const res = await fetch(url.toString(), { signal: controller.signal });
+    clearTimeout(timer);
+
+    const json = await res.json();
+
+    if (json.error) {
+      return {
+        isValid: false,
+        error: `debug_token API error: ${json.error.message || JSON.stringify(json.error)}`,
+      };
+    }
+
+    const data = json.data;
+    if (!data) {
+      return { isValid: false, error: 'No data in debug_token response' };
+    }
+
+    const expiresAt = data.expires_at
+      ? new Date(data.expires_at * 1000).toISOString()
+      : undefined;
+
+    return {
+      isValid: data.is_valid === true,
+      appId: String(data.app_id || ''),
+      userId: String(data.user_id || ''),
+      type: data.type || 'unknown',
+      scopes: Array.isArray(data.scopes) ? data.scopes : [],
+      expiresAt,
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    return { isValid: false, error: `debug_token failed: ${msg}` };
+  }
+}
+
+/**
+ * Run comprehensive Instagram diagnostics for a bot connection.
+ * Checks: token validity, permissions, account info, and a test container creation.
+ */
+export async function runDiagnostics(botId: string): Promise<{
+  connection: { status: string; config: unknown } | null;
+  tokenDebug: TokenDebugInfo | null;
+  accountInfo: { id: string; username?: string } | null;
+  publishPermission: boolean;
+  testContainerResult: { success: boolean; error?: string; httpStatus?: number; rawResponse?: unknown } | null;
+  recommendations: string[];
+}> {
+  const recommendations: string[] = [];
+
+  // Step 1: Get connection
+  const conn = await db.platformConnection.findUnique({
+    where: { botId_platform: { botId, platform: 'INSTAGRAM' } },
+  });
+
+  if (!conn) {
+    return {
+      connection: null,
+      tokenDebug: null,
+      accountInfo: null,
+      publishPermission: false,
+      testContainerResult: null,
+      recommendations: ['No Instagram connection found. Connect Instagram first.'],
+    };
+  }
+
+  let creds: InstagramCredentials;
+  try {
+    creds = decryptInstagramCredentials(conn);
+  } catch {
+    return {
+      connection: { status: conn.status, config: conn.config },
+      tokenDebug: null,
+      accountInfo: null,
+      publishPermission: false,
+      testContainerResult: null,
+      recommendations: ['Failed to decrypt credentials. Reconnect Instagram.'],
+    };
+  }
+
+  console.log('[instagram-diag] Starting diagnostics for bot:', botId);
+  console.log('[instagram-diag] Account ID:', creds.accountId);
+  console.log('[instagram-diag] Token length:', creds.accessToken.length);
+
+  // Step 2: Debug token
+  const tokenDebug = await debugToken(creds.accessToken);
+  console.log('[instagram-diag] Token debug result:', JSON.stringify(tokenDebug));
+
+  if (!tokenDebug.isValid) {
+    recommendations.push('Token is INVALID. Reconnect Instagram in Platform settings.');
+  }
+
+  const hasBasicScope = tokenDebug.scopes?.some(
+    (s) => s === 'instagram_business_basic' || s === 'business_basic'
+  ) ?? false;
+  const hasPublishScope = tokenDebug.scopes?.some(
+    (s) => s === 'instagram_business_content_publish' || s === 'business_content_publish'
+  ) ?? false;
+
+  if (!hasPublishScope) {
+    recommendations.push(
+      'CRITICAL: Token does NOT have instagram_business_content_publish permission! ' +
+      'This is the most likely cause of error code 2. ' +
+      'Check Meta Developer Dashboard: App > Use Cases > Instagram > Permissions. ' +
+      'Ensure instagram_business_content_publish is added and approved. ' +
+      'If the app is in Development mode, the Instagram account owner must be an Admin/Developer on the app.'
+    );
+  }
+
+  // Step 3: Validate account (basic read)
+  const accountInfo = await validateToken(creds);
+  console.log('[instagram-diag] Account info:', accountInfo ? JSON.stringify(accountInfo) : 'null');
+
+  if (!accountInfo) {
+    recommendations.push('Cannot read account info. Token may be expired or invalid.');
+  }
+
+  // Step 4: Test container creation with a known public image
+  // Use a small, always-available test image from Meta's CDN
+  let testContainerResult: { success: boolean; error?: string; httpStatus?: number; rawResponse?: unknown } | null = null;
+
+  try {
+    const testImageUrl = 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1f/Smiley.svg/200px-Smiley.svg.png';
+    const containerUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.accountId)}/media`;
+
+    console.log('[instagram-diag] Testing container creation with public image...');
+    console.log('[instagram-diag] URL:', containerUrl);
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30_000);
+
+    const res = await fetch(containerUrl, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        image_url: testImageUrl,
+        caption: 'Grothi diagnostic test - will be deleted',
+        access_token: creds.accessToken,
+      }).toString(),
+    });
+    clearTimeout(timer);
+
+    const httpStatus = res.status;
+    const rawResponse = await res.json().catch(() => ({}));
+
+    console.log('[instagram-diag] Test container HTTP status:', httpStatus);
+    console.log('[instagram-diag] Test container response:', JSON.stringify(rawResponse));
+    console.log('[instagram-diag] Test container headers:', {
+      traceId: res.headers.get('x-fb-trace-id'),
+      wwwAuth: res.headers.get('www-authenticate'),
+      contentType: res.headers.get('content-type'),
+    });
+
+    if (rawResponse.error) {
+      testContainerResult = {
+        success: false,
+        error: `Code ${rawResponse.error.code}: ${rawResponse.error.message}`,
+        httpStatus,
+        rawResponse,
+      };
+
+      if (rawResponse.error.code === 2) {
+        recommendations.push(
+          'Test container creation also fails with code 2 using a known public image URL. ' +
+          'This confirms the issue is NOT about image accessibility — it is about app permissions or account type. ' +
+          'Actions to take: ' +
+          '1) Go to Meta Developer Dashboard (developers.facebook.com) ' +
+          '2) Select your Instagram app (App ID: ' + (tokenDebug.appId || 'check dashboard') + ') ' +
+          '3) Check "Use Cases" > Instagram API > Permissions ' +
+          '4) Ensure instagram_business_content_publish is listed AND approved ' +
+          '5) If app is in Development mode, add the Instagram account owner as Admin/Developer in App Roles ' +
+          '6) Verify the Instagram account is Business or Creator (not Personal)'
+        );
+      }
+    } else if (rawResponse.id) {
+      testContainerResult = {
+        success: true,
+        httpStatus,
+        rawResponse,
+      };
+      recommendations.push('Test container creation SUCCEEDED! The API works. Issue may be with specific image URLs.');
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    testContainerResult = { success: false, error: msg };
+  }
+
+  return {
+    connection: { status: conn.status, config: conn.config },
+    tokenDebug,
+    accountInfo,
+    publishPermission: hasPublishScope,
+    testContainerResult,
+    recommendations,
+  };
 }
