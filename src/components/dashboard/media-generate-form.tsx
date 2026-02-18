@@ -203,12 +203,18 @@ function ModelCard({
                 model.badge === 'High Quality' ? 'bg-indigo-100 text-indigo-700' :
                 model.badge === 'Image to Video' ? 'bg-teal-100 text-teal-700' :
                 model.badge === 'Premium + Audio' ? 'bg-amber-100 text-amber-700' :
+                model.badge === 'Flagship + Audio' ? 'bg-amber-100 text-amber-700' :
+                model.badge === 'Audio + I2V' ? 'bg-amber-100 text-amber-700' :
+                model.badge === 'Latest' ? 'bg-emerald-100 text-emerald-700' :
+                model.badge === 'Premium' ? 'bg-purple-100 text-purple-700' :
+                model.badge === 'Reliable' ? 'bg-blue-100 text-blue-700' :
                 'bg-gray-100 text-gray-700'
               }`}>
                 {model.badge}
               </span>
             )}
           </div>
+          <p className="text-[10px] text-muted-foreground/70 font-medium">{model.brand}</p>
           <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">{model.description}</p>
         </div>
         <div className="text-right shrink-0">
