@@ -381,42 +381,64 @@ async function publishToInstagram(
       );
     }
 
-    // Debug token permissions before attempting publish
-    const tokenInfo = await igDebugToken(creds.accessToken);
-    console.log(`[process-posts] Instagram token debug:`, {
-      isValid: tokenInfo.isValid,
-      appId: tokenInfo.appId,
-      userId: tokenInfo.userId,
-      scopes: tokenInfo.scopes,
-      expiresAt: tokenInfo.expiresAt,
-      error: tokenInfo.error,
-    });
+    // Debug token permissions (soft check — do NOT block publishing if debug_token API fails).
+    // The debug_token endpoint uses app_id|app_secret which can fail independently
+    // of the actual user token validity (e.g., Meta system errors, missing env vars).
+    // Only block publishing if we get a DEFINITIVE answer that the token is invalid.
+    let debugTokenSuccess = false;
+    try {
+      const tokenInfo = await igDebugToken(creds.accessToken);
+      console.log(`[process-posts] Instagram token debug:`, {
+        isValid: tokenInfo.isValid,
+        appId: tokenInfo.appId,
+        userId: tokenInfo.userId,
+        scopes: tokenInfo.scopes,
+        expiresAt: tokenInfo.expiresAt,
+        error: tokenInfo.error,
+      });
 
-    if (!tokenInfo.isValid) {
-      await markConnectionError(conn.id, 'Token is invalid. Please reconnect Instagram.');
-      return {
-        success: false,
-        error: 'Instagram token is invalid. Please reconnect Instagram in Platform settings.',
-      };
+      if (tokenInfo.error) {
+        // debug_token API itself failed (e.g., Meta system error, bad app credentials).
+        // This does NOT mean the user's token is invalid — proceed with publishing.
+        console.warn(
+          `[process-posts] Instagram debug_token API error (will proceed with publish anyway): ${tokenInfo.error}`
+        );
+      } else if (tokenInfo.isValid === false && tokenInfo.appId) {
+        // We got a definitive answer: token is invalid (appId present means API worked).
+        await markConnectionError(conn.id, 'Token is invalid. Please reconnect Instagram.');
+        return {
+          success: false,
+          error: 'Instagram token is invalid. Please reconnect Instagram in Platform settings.',
+        };
+      } else if (tokenInfo.isValid && tokenInfo.scopes) {
+        debugTokenSuccess = true;
+        const hasPublishPermission = tokenInfo.scopes.some(
+          (s) => s === 'instagram_business_content_publish' || s === 'business_content_publish'
+        );
+
+        if (!hasPublishPermission) {
+          const errorMsg =
+            'MISSING PERMISSION: instagram_business_content_publish. ' +
+            'Token scopes: [' + (tokenInfo.scopes.join(', ') || 'none') + ']. ' +
+            'Go to Meta Developer Dashboard > App > Use Cases > Instagram > Permissions ' +
+            'and ensure instagram_business_content_publish is added and approved. ' +
+            'If app is in Development mode, add the IG account owner as Admin/Developer.';
+          console.error(`[process-posts] ${errorMsg}`);
+          await markConnectionError(conn.id, errorMsg);
+          return { success: false, error: errorMsg };
+        }
+
+        console.log('[process-posts] Instagram: token permissions verified OK');
+      }
+    } catch (debugErr) {
+      // debug_token call crashed — log and proceed with publishing
+      const msg = debugErr instanceof Error ? debugErr.message : 'Unknown error';
+      console.warn(`[process-posts] Instagram debug_token threw (will proceed anyway): ${msg}`);
     }
 
-    const hasPublishPermission = tokenInfo.scopes?.some(
-      (s) => s === 'instagram_business_content_publish' || s === 'business_content_publish'
-    ) ?? false;
-
-    if (!hasPublishPermission) {
-      const errorMsg =
-        'MISSING PERMISSION: instagram_business_content_publish. ' +
-        'Token scopes: [' + (tokenInfo.scopes?.join(', ') || 'none') + ']. ' +
-        'Go to Meta Developer Dashboard > App > Use Cases > Instagram > Permissions ' +
-        'and ensure instagram_business_content_publish is added and approved. ' +
-        'If app is in Development mode, add the IG account owner as Admin/Developer.';
-      console.error(`[process-posts] ${errorMsg}`);
-      await markConnectionError(conn.id, errorMsg);
-      return { success: false, error: errorMsg };
+    if (!debugTokenSuccess) {
+      console.log('[process-posts] Instagram: debug_token was inconclusive, proceeding with publish attempt');
     }
-
-    console.log('[process-posts] Instagram: token permissions verified OK, proceeding with publish');
 
     if (!mediaPath) {
       return {
