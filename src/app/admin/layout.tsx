@@ -1,6 +1,6 @@
 import { requireAdmin } from '@/lib/auth';
 import Link from 'next/link';
-import { Bot, LayoutDashboard, Users, CreditCard, DollarSign, Settings, MessageSquare } from 'lucide-react';
+import { Bot, LayoutDashboard, Users, CreditCard, DollarSign, Settings, MessageSquare, Stethoscope } from 'lucide-react';
 
 export default async function AdminLayout({
   children,
@@ -37,6 +37,9 @@ export default async function AdminLayout({
               </Link>
               <Link href="/admin/contacts" className="px-3 py-2 text-sm text-muted-foreground hover:text-foreground rounded-md hover:bg-muted">
                 <MessageSquare className="h-4 w-4 inline mr-1" /> Contacts
+              </Link>
+              <Link href="/admin/diagnostics" className="px-3 py-2 text-sm text-muted-foreground hover:text-foreground rounded-md hover:bg-muted">
+                <Stethoscope className="h-4 w-4 inline mr-1" /> Diagnostics
               </Link>
               <Link href="/admin/settings" className="px-3 py-2 text-sm text-muted-foreground hover:text-foreground rounded-md hover:bg-muted">
                 <Settings className="h-4 w-4 inline mr-1" /> Settings
