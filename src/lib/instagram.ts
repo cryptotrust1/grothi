@@ -248,8 +248,12 @@ function friendlyIgError(data: GraphApiError): string {
   if (code === 4 || code === 32) return 'Instagram rate limit reached. Posts will resume automatically.';
   // Media errors
   if (code === 36003) return 'Instagram could not download the image. Make sure the image is publicly accessible.';
-  // Generic API service error (code 2) — include raw message for debugging
-  if (code === 2) return `Instagram temporarily unavailable (code 2): ${err.message}`;
+  // Generic API service error (code 2)
+  // Persistent code 2 (not just temporary) usually means:
+  // - App is in Development mode and instagram_business_content_publish is not approved
+  // - Instagram account owner is not Admin/Developer on the Meta app
+  // - App review is pending
+  if (code === 2) return `Instagram API error (code 2): ${err.message}. If this persists, check Meta Developer Dashboard: App permissions and ensure instagram_business_content_publish is approved. If app is in Development mode, the IG account owner must be an App Admin/Developer.`;
   // Duplicate post
   if (sub === 2207051) return 'Duplicate post detected. Instagram rejected identical content.';
 
@@ -1097,7 +1101,8 @@ export async function debugToken(accessToken: string): Promise<TokenDebugInfo> {
   const appSecret = process.env.INSTAGRAM_APP_SECRET;
 
   if (!appId || !appSecret) {
-    return { isValid: false, error: 'INSTAGRAM_APP_ID or INSTAGRAM_APP_SECRET not set in env' };
+    console.warn('[instagram] debugToken: INSTAGRAM_APP_ID or INSTAGRAM_APP_SECRET not set. Add them to .env for token diagnostics.');
+    return { isValid: false, error: 'INSTAGRAM_APP_ID or INSTAGRAM_APP_SECRET not set in env. Add these to .env on the server.' };
   }
 
   try {
