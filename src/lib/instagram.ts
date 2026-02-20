@@ -1700,7 +1700,7 @@ export async function runDiagnostics(botId: string): Promise<{
     .slice(0, 5);
 
   if (recentFailedPosts.length > 0) {
-    const uniqueErrors = [...new Set(recentFailedPosts.map(p => p.error).filter(Boolean))];
+    const uniqueErrors = Array.from(new Set(recentFailedPosts.map(p => p.error).filter(Boolean)));
     recommendations.push(
       `${recentFailedPosts.length} recent failed Instagram post(s). ` +
       `Error(s): ${uniqueErrors.join(' | ') || 'No error message stored'}`
