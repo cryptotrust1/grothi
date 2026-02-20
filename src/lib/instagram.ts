@@ -23,7 +23,7 @@ import fs from 'fs/promises';
 
 // ── Constants ──────────────────────────────────────────────────
 
-const IG_GRAPH_VERSION = 'v22.0';
+const IG_GRAPH_VERSION = 'v24.0';
 const GRAPH_BASE = `https://graph.instagram.com/${IG_GRAPH_VERSION}`;
 
 /** Max time to wait for an image container to finish processing (ms). */

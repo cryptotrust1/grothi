@@ -138,7 +138,7 @@ describe('validateToken', () => {
     await validateToken(creds);
 
     const calledUrl = (global.fetch as jest.Mock).mock.calls[0][0] as string;
-    expect(calledUrl).toContain('/v22.0/17841400000000');
+    expect(calledUrl).toContain('/v24.0/17841400000000');
     expect(calledUrl).toContain('fields=id%2Cusername%2Cfollowers_count');
     expect(calledUrl).toContain('access_token=EAAG_test_ig_token_abc123');
   });
@@ -169,7 +169,7 @@ describe('postImage', () => {
 
     // Verify container creation call (index 1 because index 0 is the pre-check HEAD)
     const [url, options] = (global.fetch as jest.Mock).mock.calls[1];
-    expect(url).toContain('/v22.0/17841400000000/media');
+    expect(url).toContain('/v24.0/17841400000000/media');
     expect(options.method).toBe('POST');
     const body = parseFormBody(options.body);
     expect(body.image_url).toBe('https://cdn.example.com/photo.jpg');
@@ -187,7 +187,7 @@ describe('postImage', () => {
 
     // Verify publish call (index 3 because index 0 is the pre-check HEAD)
     const [url, options] = (global.fetch as jest.Mock).mock.calls[3];
-    expect(url).toContain('/v22.0/17841400000000/media_publish');
+    expect(url).toContain('/v24.0/17841400000000/media_publish');
     const body = parseFormBody(options.body);
     expect(body.creation_id).toBe('container_999');
   });
@@ -360,7 +360,7 @@ describe('getMediaInsights', () => {
     await getMediaInsights(makeCreds(), 'media_123');
 
     const url = (global.fetch as jest.Mock).mock.calls[0][0] as string;
-    expect(url).toContain('/v22.0/media_123/insights');
+    expect(url).toContain('/v24.0/media_123/insights');
     expect(url).toContain('metric=impressions%2Creach%2Clikes%2Ccomments%2Csaved%2Cshares');
   });
 
