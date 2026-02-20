@@ -59,6 +59,38 @@ interface DiagResult {
     createdAt: string;
     postType: string | null;
   }[];
+  failedPostAnalysis?: Array<{
+    postId: string;
+    content: string;
+    error: string | null;
+    createdAt: string;
+    postType: string | null;
+    hasMedia: boolean;
+    mediaDetails: { id: string; filePath: string; type: string; mimeType: string; filename: string } | null;
+    resolvedUrl: string | null;
+    fileExistsOnDisk: boolean | null;
+    urlAccessible: boolean | null;
+    urlContentType: string | null;
+    effectivePostType: string | null;
+  }>;
+  realMediaTest?: {
+    mediaId: string;
+    filename: string;
+    filePath: string;
+    mimeType: string;
+    resolvedUrl: string;
+    fileExistsOnDisk: boolean;
+    urlAccessible: boolean;
+    urlContentType: string | null;
+    containerSuccess: boolean;
+    containerError: string | null;
+    rawResponse: unknown;
+  } | null;
+  mediaInventory?: {
+    total: number;
+    byMimeType: Record<string, number>;
+    instagramUnsupported: Array<{ id: string; filename: string; mimeType: string }>;
+  };
   recommendations: string[];
   error?: string;
 }
@@ -339,8 +371,202 @@ export function DiagnosticsClient({ bots }: { bots: BotOption[] }) {
             </Card>
           )}
 
-          {/* Recent Failed Posts */}
-          {result.recentFailedPosts && result.recentFailedPosts.length > 0 && (
+          {/* Real Media Container Test */}
+          {result.realMediaTest && (
+            <Card className={result.realMediaTest.containerSuccess ? 'border-green-500' : 'border-red-500'}>
+              <CardContent className="pt-6">
+                <h2 className="text-lg font-semibold mb-4">Real Media Container Test (Your Actual Media)</h2>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Tests container creation with your actual media files, not a Wikimedia test image.
+                  If Wikimedia passes but this fails, the issue is with your media format or URL serving.
+                </p>
+                <div className="space-y-3 text-sm">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><span className="font-medium">File:</span> {result.realMediaTest.filename}</div>
+                    <div><span className="font-medium">MIME Type:</span> <code className="bg-muted px-1 rounded text-xs">{result.realMediaTest.mimeType}</code></div>
+                    <div><span className="font-medium">Path:</span> <code className="bg-muted px-1 rounded text-xs">{result.realMediaTest.filePath}</code></div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">File on Disk:</span>
+                      <Badge variant={result.realMediaTest.fileExistsOnDisk ? 'success' : 'destructive'}>
+                        {result.realMediaTest.fileExistsOnDisk ? 'EXISTS' : 'MISSING'}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="font-medium">Resolved URL:</span>
+                    <code className="text-xs bg-muted px-2 py-0.5 rounded ml-1 break-all block mt-1">{result.realMediaTest.resolvedUrl}</code>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">URL Accessible:</span>
+                      <Badge variant={result.realMediaTest.urlAccessible ? 'success' : 'destructive'}>
+                        {result.realMediaTest.urlAccessible ? 'YES' : 'NO'}
+                      </Badge>
+                    </div>
+                    {result.realMediaTest.urlContentType && (
+                      <div>
+                        <span className="font-medium">Content-Type:</span>{' '}
+                        <code className="bg-muted px-1 rounded text-xs">{result.realMediaTest.urlContentType}</code>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">Container Creation:</span>
+                    <Badge variant={result.realMediaTest.containerSuccess ? 'success' : 'destructive'}>
+                      {result.realMediaTest.containerSuccess ? 'SUCCESS' : 'FAILED'}
+                    </Badge>
+                  </div>
+                  {result.realMediaTest.containerError && (
+                    <div className="text-red-600 text-sm bg-red-50 p-3 rounded font-mono">{result.realMediaTest.containerError}</div>
+                  )}
+                  {result.realMediaTest.rawResponse != null && (
+                    <details className="text-xs">
+                      <summary className="cursor-pointer text-muted-foreground">Raw API Response</summary>
+                      <pre className="bg-muted p-3 rounded mt-1 overflow-auto max-h-48">
+                        {JSON.stringify(result.realMediaTest.rawResponse, null, 2)}
+                      </pre>
+                    </details>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Media Library Inventory */}
+          {result.mediaInventory && result.mediaInventory.total > 0 && (
+            <Card className={result.mediaInventory.instagramUnsupported.length > 0 ? 'border-amber-500' : ''}>
+              <CardContent className="pt-6">
+                <h2 className="text-lg font-semibold mb-4">Media Library Inventory ({result.mediaInventory.total} files)</h2>
+                <div className="space-y-3 text-sm">
+                  <div>
+                    <span className="font-medium">Format Breakdown:</span>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {Object.entries(result.mediaInventory.byMimeType).map(([mime, count]) => {
+                        const isSupported = ['image/jpeg', 'image/png', 'video/mp4'].includes(mime.toLowerCase());
+                        return (
+                          <Badge key={mime} variant={isSupported ? 'secondary' : 'destructive'} className="text-xs">
+                            {mime}: {count}{!isSupported && ' (unsupported)'}
+                          </Badge>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  {result.mediaInventory.instagramUnsupported.length > 0 && (
+                    <div className="bg-amber-50 p-3 rounded">
+                      <p className="font-medium text-amber-900 mb-2">
+                        {result.mediaInventory.instagramUnsupported.length} file(s) in unsupported formats:
+                      </p>
+                      <div className="space-y-1">
+                        {result.mediaInventory.instagramUnsupported.map((m) => (
+                          <div key={m.id} className="text-xs text-amber-800 font-mono">
+                            {m.filename} — {m.mimeType}
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-amber-700 mt-2">
+                        Instagram accepts: JPEG, PNG (images) and MP4 (video) only.
+                      </p>
+                    </div>
+                  )}
+                  {result.mediaInventory.instagramUnsupported.length === 0 && (
+                    <div className="bg-green-50 p-3 rounded text-green-800 text-sm">
+                      All media files are in Instagram-compatible formats.
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Failed Post Deep Analysis */}
+          {result.failedPostAnalysis && result.failedPostAnalysis.length > 0 && (
+            <Card className="border-red-500">
+              <CardContent className="pt-6">
+                <h2 className="text-lg font-semibold mb-4">
+                  Failed Post Deep Analysis ({result.failedPostAnalysis.length})
+                </h2>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Shows exactly what media was attached, what URL was sent to Instagram, and why it failed.
+                </p>
+                <div className="space-y-4">
+                  {result.failedPostAnalysis.map((post) => (
+                    <div key={post.postId} className="bg-red-50 p-4 rounded text-sm space-y-2 border border-red-200">
+                      {/* Header */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs text-muted-foreground">{new Date(post.createdAt).toLocaleString()}</span>
+                        {post.effectivePostType && <Badge variant="secondary" className="text-[10px]">{post.effectivePostType}</Badge>}
+                        <Badge variant={post.hasMedia ? 'secondary' : 'destructive'} className="text-[10px]">
+                          {post.hasMedia ? 'Has Media' : 'NO MEDIA'}
+                        </Badge>
+                      </div>
+
+                      {/* Content */}
+                      <p className="font-medium text-red-900">{post.content}</p>
+
+                      {/* Error */}
+                      <p className="text-red-700 font-mono text-xs break-all bg-red-100 p-2 rounded">
+                        {post.error || 'No error message stored'}
+                      </p>
+
+                      {/* Media Details */}
+                      {post.mediaDetails ? (
+                        <div className="bg-white/50 p-3 rounded space-y-1 text-xs">
+                          <div className="font-medium text-red-900 mb-1">Media Details:</div>
+                          <div className="grid grid-cols-2 gap-1">
+                            <div><span className="font-medium">Filename:</span> {post.mediaDetails.filename}</div>
+                            <div>
+                              <span className="font-medium">MIME Type:</span>{' '}
+                              <code className={`px-1 rounded ${
+                                ['image/jpeg', 'image/png'].includes(post.mediaDetails.mimeType.toLowerCase())
+                                  ? 'bg-green-100 text-green-800'
+                                  : 'bg-red-100 text-red-800 font-bold'
+                              }`}>{post.mediaDetails.mimeType}</code>
+                            </div>
+                            <div><span className="font-medium">Type:</span> {post.mediaDetails.type}</div>
+                            <div><span className="font-medium">Path:</span> <code className="bg-muted px-1 rounded">{post.mediaDetails.filePath}</code></div>
+                          </div>
+                          <div className="flex items-center gap-3 mt-1">
+                            <span className="flex items-center gap-1">
+                              <span className="font-medium">On Disk:</span>
+                              <Badge variant={post.fileExistsOnDisk ? 'success' : 'destructive'} className="text-[10px]">
+                                {post.fileExistsOnDisk === null ? 'N/A' : post.fileExistsOnDisk ? 'YES' : 'MISSING'}
+                              </Badge>
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <span className="font-medium">URL OK:</span>
+                              <Badge variant={post.urlAccessible ? 'success' : 'destructive'} className="text-[10px]">
+                                {post.urlAccessible === null ? 'N/A' : post.urlAccessible ? 'YES' : 'NO'}
+                              </Badge>
+                            </span>
+                            {post.urlContentType && (
+                              <span>
+                                <span className="font-medium">Served as:</span>{' '}
+                                <code className="bg-muted px-1 rounded">{post.urlContentType}</code>
+                              </span>
+                            )}
+                          </div>
+                          {post.resolvedUrl && (
+                            <div className="mt-1">
+                              <span className="font-medium">URL sent to Instagram:</span>
+                              <code className="bg-muted px-1 rounded block mt-0.5 break-all">{post.resolvedUrl}</code>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="bg-red-100 p-2 rounded text-xs text-red-800 font-medium">
+                          No media attached to this post. Instagram requires an image or video!
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Legacy: Recent Failed Posts (basic view) */}
+          {(!result.failedPostAnalysis || result.failedPostAnalysis.length === 0) &&
+           result.recentFailedPosts && result.recentFailedPosts.length > 0 && (
             <Card className="border-red-500">
               <CardContent className="pt-6">
                 <h2 className="text-lg font-semibold mb-4">Recent Failed Instagram Posts ({result.recentFailedPosts.length})</h2>

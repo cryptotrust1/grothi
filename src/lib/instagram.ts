@@ -1324,6 +1324,38 @@ export async function runDiagnostics(botId: string): Promise<{
   publishTestResult: { success: boolean; mediaId?: string; deleted?: boolean; error?: string } | null;
   mediaUrlTest: { configured: boolean; baseUrl?: string; testUrl?: string; accessible?: boolean; error?: string; contentType?: string } | null;
   recentFailedPosts: { id: string; content: string; error: string | null; createdAt: string; postType: string | null }[];
+  failedPostAnalysis: Array<{
+    postId: string;
+    content: string;
+    error: string | null;
+    createdAt: string;
+    postType: string | null;
+    hasMedia: boolean;
+    mediaDetails: { id: string; filePath: string; type: string; mimeType: string; filename: string } | null;
+    resolvedUrl: string | null;
+    fileExistsOnDisk: boolean | null;
+    urlAccessible: boolean | null;
+    urlContentType: string | null;
+    effectivePostType: string | null;
+  }>;
+  realMediaTest: {
+    mediaId: string;
+    filename: string;
+    filePath: string;
+    mimeType: string;
+    resolvedUrl: string;
+    fileExistsOnDisk: boolean;
+    urlAccessible: boolean;
+    urlContentType: string | null;
+    containerSuccess: boolean;
+    containerError: string | null;
+    rawResponse: unknown;
+  } | null;
+  mediaInventory: {
+    total: number;
+    byMimeType: Record<string, number>;
+    instagramUnsupported: Array<{ id: string; filename: string; mimeType: string }>;
+  };
   recommendations: string[];
 }> {
   const recommendations: string[] = [];
@@ -1686,18 +1718,154 @@ export async function runDiagnostics(botId: string): Promise<{
     mediaUrlTest = { configured: !!MEDIA_DIRECT_BASE, error: `Test failed: ${msg}` };
   }
 
-  // Step 8: Get recent failed posts with exact error messages
+  // Step 8: Get recent failed posts with FULL details (media, postType, etc.)
   // platforms is a Json field storing a string array — filter in JS since
   // Prisma 5.22 Json filters are limited on PostgreSQL
   const allRecentFailed = await db.scheduledPost.findMany({
     where: { botId, status: 'FAILED' },
     orderBy: { updatedAt: 'desc' },
     take: 20,
-    select: { id: true, content: true, error: true, createdAt: true, postType: true, platforms: true },
+    select: {
+      id: true, content: true, error: true, createdAt: true, postType: true, platforms: true,
+      mediaId: true,
+      media: { select: { id: true, filePath: true, type: true, mimeType: true, filename: true } },
+    },
   });
   const recentFailedPosts = allRecentFailed
     .filter(p => Array.isArray(p.platforms) && (p.platforms as string[]).includes('INSTAGRAM'))
     .slice(0, 5);
+
+  // URL resolution helper — mirrors the EXACT logic in process-posts/route.ts
+  const diagResolveUrl = (filePath: string | null, mId: string | null): string | null => {
+    if (!filePath && !mId) return null;
+    if (filePath?.startsWith('http://') || filePath?.startsWith('https://')) return filePath;
+    if (MEDIA_DIRECT_BASE && filePath) return `${MEDIA_DIRECT_BASE}/${filePath}`;
+    if (mId) {
+      const baseUrl = process.env.NEXTAUTH_URL || 'https://grothi.com';
+      return `${baseUrl}/api/media/${encodeURIComponent(mId)}`;
+    }
+    return null;
+  };
+
+  // Accessibility check that also returns content-type
+  const checkUrlDetailed = async (url: string): Promise<{ accessible: boolean; contentType: string | null; error: string | null }> => {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10_000);
+      const res = await fetch(url, {
+        method: 'HEAD', signal: controller.signal,
+        headers: { 'User-Agent': 'facebookexternalhit/1.1' },
+      });
+      clearTimeout(timer);
+      const ct = res.headers.get('content-type') || null;
+      if (!res.ok) return { accessible: false, contentType: ct, error: `HTTP ${res.status}` };
+      return { accessible: true, contentType: ct, error: null };
+    } catch (e) {
+      return { accessible: false, contentType: null, error: e instanceof Error ? e.message : 'Unknown' };
+    }
+  };
+
+  // Step 8b: Deep analysis of each failed post — media, URL, format, accessibility
+  const failedPostAnalysis: Array<{
+    postId: string;
+    content: string;
+    error: string | null;
+    createdAt: string;
+    postType: string | null;
+    hasMedia: boolean;
+    mediaDetails: { id: string; filePath: string; type: string; mimeType: string; filename: string } | null;
+    resolvedUrl: string | null;
+    fileExistsOnDisk: boolean | null;
+    urlAccessible: boolean | null;
+    urlContentType: string | null;
+    effectivePostType: string | null;
+  }> = [];
+
+  const IG_UNSUPPORTED_MIMES = ['image/gif', 'image/webp', 'image/avif', 'image/heic', 'image/bmp', 'image/svg+xml'];
+
+  for (const post of recentFailedPosts) {
+    const media = post.media;
+    const resolvedUrl = media ? diagResolveUrl(media.filePath, media.id) : null;
+
+    let fileExists: boolean | null = null;
+    let urlInfo: { accessible: boolean; contentType: string | null; error: string | null } | null = null;
+
+    if (media?.filePath) {
+      try {
+        const absPath = path.join(UPLOAD_DIR, media.filePath);
+        await fs.access(absPath);
+        fileExists = true;
+      } catch {
+        fileExists = false;
+      }
+    }
+
+    if (resolvedUrl) {
+      urlInfo = await checkUrlDetailed(resolvedUrl);
+    }
+
+    // Determine effective post type (mirrors process-posts logic)
+    const mType = media?.type || null;
+    const effectivePostType = post.postType
+      || (mType === 'VIDEO' ? 'reel' : mType ? 'feed' : null);
+
+    failedPostAnalysis.push({
+      postId: post.id,
+      content: post.content.substring(0, 100),
+      error: post.error,
+      createdAt: post.createdAt.toISOString(),
+      postType: post.postType,
+      hasMedia: !!media,
+      mediaDetails: media ? {
+        id: media.id,
+        filePath: media.filePath,
+        type: media.type,
+        mimeType: media.mimeType,
+        filename: media.filename,
+      } : null,
+      resolvedUrl,
+      fileExistsOnDisk: fileExists,
+      urlAccessible: urlInfo?.accessible ?? null,
+      urlContentType: urlInfo?.contentType ?? null,
+      effectivePostType,
+    });
+
+    // Generate specific recommendations per failed post
+    const label = `"${post.content.substring(0, 30)}..."`;
+    if (!media) {
+      recommendations.push(
+        `Failed post ${label} has NO MEDIA attached. ` +
+        'Instagram requires an image or video for every post.'
+      );
+    } else {
+      if (media.mimeType && IG_UNSUPPORTED_MIMES.includes(media.mimeType.toLowerCase())) {
+        recommendations.push(
+          `MEDIA FORMAT ISSUE: Post ${label} uses ${media.mimeType} (${media.filename}). ` +
+          'Instagram ONLY accepts JPEG and PNG images. ' +
+          'This is exactly why it fails with "Only photo or video can be accepted as media type". ' +
+          'Solution: Convert images to JPEG before uploading.'
+        );
+      }
+      if (fileExists === false) {
+        recommendations.push(
+          `FILE MISSING: Post ${label} — media file not found on disk: ${media.filePath}. ` +
+          'Nginx returns 404 HTML, which Instagram cannot process as an image.'
+        );
+      }
+      if (urlInfo && !urlInfo.accessible) {
+        recommendations.push(
+          `URL INACCESSIBLE: Post ${label} — media URL returned error: ${urlInfo.error}. ` +
+          `URL: ${resolvedUrl?.substring(0, 80)}`
+        );
+      }
+      if (urlInfo?.accessible && urlInfo.contentType && !urlInfo.contentType.startsWith('image/') && !urlInfo.contentType.startsWith('video/')) {
+        recommendations.push(
+          `WRONG CONTENT TYPE: Post ${label} — URL serves "${urlInfo.contentType}" instead of image/video. ` +
+          'Cloudflare/Nginx may be serving HTML. Instagram cannot process this.'
+        );
+      }
+    }
+  }
 
   if (recentFailedPosts.length > 0) {
     const uniqueErrors = Array.from(new Set(recentFailedPosts.map(p => p.error).filter(Boolean)));
@@ -1705,6 +1873,173 @@ export async function runDiagnostics(botId: string): Promise<{
       `${recentFailedPosts.length} recent failed Instagram post(s). ` +
       `Error(s): ${uniqueErrors.join(' | ') || 'No error message stored'}`
     );
+  }
+
+  // Step 9: Test container creation with ACTUAL bot media (not Wikimedia)
+  // This is the definitive test — if Wikimedia works but real media doesn't,
+  // the problem is the media format or the URL serving.
+  let realMediaTest: {
+    mediaId: string;
+    filename: string;
+    filePath: string;
+    mimeType: string;
+    resolvedUrl: string;
+    fileExistsOnDisk: boolean;
+    urlAccessible: boolean;
+    urlContentType: string | null;
+    containerSuccess: boolean;
+    containerError: string | null;
+    rawResponse: unknown;
+  } | null = null;
+
+  try {
+    // Find a real image from this bot (prefer JPEG/PNG, but test whatever exists)
+    const realMedia = await db.media.findFirst({
+      where: { botId, type: 'IMAGE' },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, filePath: true, mimeType: true, filename: true },
+    });
+
+    if (realMedia && realMedia.filePath) {
+      const resolvedUrl = diagResolveUrl(realMedia.filePath, realMedia.id);
+
+      if (resolvedUrl) {
+        // Check file on disk
+        let fileExists = false;
+        try {
+          await fs.access(path.join(UPLOAD_DIR, realMedia.filePath));
+          fileExists = true;
+        } catch { fileExists = false; }
+
+        // Check URL accessibility with content type
+        const urlInfo = await checkUrlDetailed(resolvedUrl);
+
+        // Test container creation with this real media
+        let containerSuccess = false;
+        let containerError: string | null = null;
+        let rawResponse: unknown = null;
+
+        if (tokenDebug.isValid && publishPermission) {
+          try {
+            const containerUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.accountId)}/media`;
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 30_000);
+
+            const res = await fetch(containerUrl, {
+              method: 'POST',
+              signal: controller.signal,
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: new URLSearchParams({
+                image_url: resolvedUrl,
+                caption: 'Grothi diagnostic - real media test',
+                access_token: creds.accessToken,
+              }).toString(),
+            });
+            clearTimeout(timer);
+
+            rawResponse = await res.json().catch(() => ({}));
+
+            if ((rawResponse as Record<string, unknown>).error) {
+              containerSuccess = false;
+              const err = (rawResponse as Record<string, Record<string, unknown>>).error;
+              containerError = `Code ${err.code}: ${err.message}`;
+
+              if (String(err.message).includes('Only photo or video')) {
+                recommendations.push(
+                  `REAL MEDIA CONTAINER TEST FAILED with "Only photo or video" error! ` +
+                  `Media: ${realMedia.filename} (${realMedia.mimeType}). ` +
+                  `URL sent to Instagram: ${resolvedUrl.substring(0, 100)}. ` +
+                  `URL content-type: ${urlInfo.contentType || 'unknown'}. ` +
+                  'This CONFIRMS the issue is with the media format or URL serving. ' +
+                  'Instagram cannot recognize this file as a photo or video. ' +
+                  'Solutions: 1) Convert images to JPEG/PNG before uploading. ' +
+                  '2) Ensure Nginx serves correct Content-Type header. ' +
+                  '3) Check if Cloudflare is intercepting the response.'
+                );
+              } else {
+                recommendations.push(
+                  `Real media container test failed: ${containerError}. ` +
+                  `Media: ${realMedia.filename} (${realMedia.mimeType}). ` +
+                  `URL: ${resolvedUrl.substring(0, 100)}`
+                );
+              }
+            } else if ((rawResponse as Record<string, unknown>).id) {
+              containerSuccess = true;
+              recommendations.push(
+                `Real media test PASSED: ${realMedia.filename} (${realMedia.mimeType}) → container created OK. ` +
+                'Container NOT published (test only). Real media URL is accepted by Instagram.'
+              );
+            }
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : 'Unknown error';
+            containerError = `Request failed: ${msg}`;
+          }
+        } else {
+          containerError = 'Skipped — token invalid or publish permission not confirmed in previous steps.';
+        }
+
+        realMediaTest = {
+          mediaId: realMedia.id,
+          filename: realMedia.filename,
+          filePath: realMedia.filePath,
+          mimeType: realMedia.mimeType,
+          resolvedUrl,
+          fileExistsOnDisk: fileExists,
+          urlAccessible: urlInfo.accessible,
+          urlContentType: urlInfo.contentType,
+          containerSuccess,
+          containerError,
+          rawResponse,
+        };
+      }
+    } else {
+      recommendations.push('No images found in media library to test real media container creation.');
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    console.error('[instagram-diag] Real media test failed:', msg);
+  }
+
+  // Step 10: Media library format inventory
+  // Shows all formats and flags Instagram-unsupported ones
+  const mediaInventory: {
+    total: number;
+    byMimeType: Record<string, number>;
+    instagramUnsupported: Array<{ id: string; filename: string; mimeType: string }>;
+  } = { total: 0, byMimeType: {}, instagramUnsupported: [] };
+
+  try {
+    const allMedia = await db.media.findMany({
+      where: { botId },
+      select: { id: true, filename: true, mimeType: true, type: true },
+    });
+
+    mediaInventory.total = allMedia.length;
+
+    const supportedImageMimes = ['image/jpeg', 'image/png'];
+    const supportedVideoMimes = ['video/mp4'];
+
+    for (const m of allMedia) {
+      const mime = m.mimeType || 'unknown';
+      mediaInventory.byMimeType[mime] = (mediaInventory.byMimeType[mime] || 0) + 1;
+
+      if (m.type === 'IMAGE' && !supportedImageMimes.includes(mime.toLowerCase())) {
+        mediaInventory.instagramUnsupported.push({ id: m.id, filename: m.filename, mimeType: mime });
+      }
+      if (m.type === 'VIDEO' && !supportedVideoMimes.includes(mime.toLowerCase())) {
+        mediaInventory.instagramUnsupported.push({ id: m.id, filename: m.filename, mimeType: mime });
+      }
+    }
+
+    if (mediaInventory.instagramUnsupported.length > 0) {
+      recommendations.push(
+        `UNSUPPORTED MEDIA: ${mediaInventory.instagramUnsupported.length} file(s) in formats Instagram cannot process: ` +
+        mediaInventory.instagramUnsupported.map(m => `${m.filename} (${m.mimeType})`).join(', ') +
+        '. Instagram accepts: JPEG, PNG images and MP4 video only.'
+      );
+    }
+  } catch (e) {
+    console.error('[instagram-diag] Media inventory failed:', e instanceof Error ? e.message : 'Unknown');
   }
 
   // If token is valid and account readable, fix the ERROR status left from old bugs
@@ -1731,6 +2066,16 @@ export async function runDiagnostics(botId: string): Promise<{
     recommendations.push('Container creation works. Check media URL accessibility and post errors above.');
   }
 
+  // Compare Wikimedia test vs real media test
+  if (testContainerResult?.success && realMediaTest && !realMediaTest.containerSuccess) {
+    recommendations.push(
+      'CRITICAL FINDING: Wikimedia test image PASSES but your REAL media FAILS! ' +
+      `Problem media: ${realMediaTest.filename} (${realMediaTest.mimeType}). ` +
+      `URL content-type served: ${realMediaTest.urlContentType || 'unknown'}. ` +
+      'The issue is NOT with Instagram permissions or token — it is with your media files or URL serving.'
+    );
+  }
+
   return {
     connection: { status: tokenDebug.isValid && accountInfo ? 'CONNECTED' : conn.status, config: conn.config },
     tokenDebug,
@@ -1747,6 +2092,9 @@ export async function runDiagnostics(botId: string): Promise<{
       createdAt: p.createdAt.toISOString(),
       postType: p.postType,
     })),
+    failedPostAnalysis,
+    realMediaTest,
+    mediaInventory,
     recommendations,
   };
 }
