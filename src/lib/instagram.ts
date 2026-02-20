@@ -1376,6 +1376,9 @@ export async function runDiagnostics(botId: string): Promise<{
       publishTestResult: null,
       mediaUrlTest: null,
       recentFailedPosts: [],
+      failedPostAnalysis: [],
+      realMediaTest: null,
+      mediaInventory: { total: 0, byMimeType: {}, instagramUnsupported: [] },
       recommendations: ['No Instagram connection found. Connect Instagram first.'],
     };
   }
@@ -1394,6 +1397,9 @@ export async function runDiagnostics(botId: string): Promise<{
       publishTestResult: null,
       mediaUrlTest: null,
       recentFailedPosts: [],
+      failedPostAnalysis: [],
+      realMediaTest: null,
+      mediaInventory: { total: 0, byMimeType: {}, instagramUnsupported: [] },
       recommendations: ['Failed to decrypt credentials. Reconnect Instagram.'],
     };
   }
