@@ -1285,8 +1285,9 @@ export async function runDiagnostics(botId: string): Promise<{
   let publishPermission = false;
 
   try {
-    // Use a well-known, always-accessible JPEG image (not SVG - Instagram rejects SVGs)
-    const testImageUrl = 'https://www.google.com/images/branding/googlelogo/2x/googlelogo_color_272x92dp.png';
+    // Use a well-known, publicly accessible JPEG with valid Instagram aspect ratio (1.33:1)
+    // Instagram requires: 4:5 to 1.91:1 ratio, min 320px wide, JPEG/PNG
+    const testImageUrl = 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Cat03.jpg/1200px-Cat03.jpg';
     const containerUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.accountId)}/media`;
 
     console.log('[instagram-diag] Testing container creation...');
@@ -1388,13 +1389,22 @@ export async function runDiagnostics(botId: string): Promise<{
     testContainerResult = { success: false, error: msg };
   }
 
+  // If token is valid and account readable, fix the ERROR status left from old bugs
+  if (tokenDebug.isValid && accountInfo && conn.status === 'ERROR') {
+    await db.platformConnection.update({
+      where: { id: conn.id },
+      data: { status: 'CONNECTED', lastError: null },
+    });
+    recommendations.push('Connection status updated from ERROR → CONNECTED (token is working).');
+  }
+
   // Final summary recommendation
   if (tokenDebug.isValid && accountInfo && publishPermission) {
     recommendations.push('ALL CHECKS PASSED. Instagram integration is working correctly.');
   }
 
   return {
-    connection: { status: conn.status, config: conn.config },
+    connection: { status: tokenDebug.isValid && accountInfo ? 'CONNECTED' : conn.status, config: conn.config },
     tokenDebug,
     accountInfo,
     publishPermission,
