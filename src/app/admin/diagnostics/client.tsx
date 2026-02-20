@@ -115,7 +115,7 @@ export function DiagnosticsClient({ bots }: { bots: BotOption[] }) {
           {/* Token Debug */}
           <Card>
             <CardContent className="pt-6">
-              <h2 className="text-lg font-semibold mb-4">Token Analysis</h2>
+              <h2 className="text-lg font-semibold mb-4">Token Analysis (via Instagram /me endpoint)</h2>
               {result.tokenDebug ? (
                 <div className="space-y-3">
                   <div className="flex items-center gap-2">
@@ -155,10 +155,10 @@ export function DiagnosticsClient({ bots }: { bots: BotOption[] }) {
                     </div>
                   </div>
                   {/* Highlight the critical check */}
-                  <div className={`p-3 rounded text-sm font-medium ${result.publishPermission ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+                  <div className={`p-3 rounded text-sm font-medium ${result.publishPermission ? 'bg-green-50 text-green-800' : 'bg-yellow-50 text-yellow-800'}`}>
                     {result.publishPermission
-                      ? 'instagram_business_content_publish scope IS present on token'
-                      : 'CRITICAL: instagram_business_content_publish scope is MISSING from token! Publishing will fail.'}
+                      ? 'instagram_business_content_publish CONFIRMED working (container creation succeeded)'
+                      : 'instagram_business_content_publish not yet confirmed. See container test below for details.'}
                   </div>
                 </div>
               ) : (

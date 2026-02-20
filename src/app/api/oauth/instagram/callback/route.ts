@@ -141,26 +141,65 @@ export async function GET(request: NextRequest) {
 
     const longLivedToken = longLivedData.access_token as string;
 
-    // Step 3: Fetch Instagram profile info
+    // Step 3: Fetch Instagram profile to get the CORRECT Graph API user ID
+    // CRITICAL: The user_id from token exchange may differ from the id returned
+    // by /me endpoint. The Graph API publishing endpoints (/{id}/media, /{id}/media_publish)
+    // require the id from /me, NOT the user_id from token exchange.
     const profileUrl = new URL('https://graph.instagram.com/me');
-    profileUrl.searchParams.set('fields', 'user_id,username,name,profile_picture_url');
+    profileUrl.searchParams.set('fields', 'id,username,name,account_type,profile_picture_url');
     profileUrl.searchParams.set('access_token', longLivedToken);
 
     const profileRes = await fetch(profileUrl.toString(), { signal: oauthController.signal });
     clearTimeout(oauthTimeout);
-    let igUsername = 'unknown';
-    if (profileRes.ok) {
-      const profileData = await profileRes.json();
-      if (profileData.username) {
-        igUsername = profileData.username;
-      }
-    } else {
-      console.error('[Instagram OAuth] Profile fetch failed:', profileRes.status);
+
+    if (!profileRes.ok) {
+      const profileError = await profileRes.text().catch(() => 'unknown');
+      console.error('[Instagram OAuth] Profile fetch failed:', profileRes.status, profileError);
+      return NextResponse.redirect(
+        new URL(
+          `/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(
+            `Instagram profile fetch failed (HTTP ${profileRes.status}). ` +
+            'The token may be invalid. Please try connecting again. ' +
+            'If this persists, check that your Instagram account is a Business or Creator account.'
+          )}`,
+          origin
+        )
+      );
     }
 
+    const profileData = await profileRes.json();
+
+    if (profileData.error) {
+      const errMsg = profileData.error.message || 'Unknown profile error';
+      console.error('[Instagram OAuth] Profile API error:', JSON.stringify(profileData.error));
+      return NextResponse.redirect(
+        new URL(
+          `/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(
+            `Instagram API error: ${errMsg}. Please try again.`
+          )}`,
+          origin
+        )
+      );
+    }
+
+    // Use the id from /me as the canonical account ID for all Graph API calls.
+    // Fall back to tokenData.user_id only if /me didn't return id (shouldn't happen).
+    const graphUserId = String(profileData.id || igUserId);
+    const igUsername = profileData.username || 'unknown';
+    const accountType = profileData.account_type || 'unknown';
+
+    console.log('[Instagram OAuth] Profile fetched successfully:', {
+      graphUserId,
+      tokenUserId: igUserId,
+      idsMatch: graphUserId === igUserId,
+      username: igUsername,
+      accountType,
+    });
+
     // Step 4: Save encrypted credentials
+    // IMPORTANT: Use graphUserId (from /me), not igUserId (from token exchange)
     const encryptedCredentials = {
-      accountId: encrypt(igUserId),
+      accountId: encrypt(graphUserId),
       accessToken: encrypt(longLivedToken),
     };
 
@@ -175,6 +214,9 @@ export async function GET(request: NextRequest) {
         encryptedCredentials,
         config: {
           igUsername,
+          accountType,
+          graphUserId,
+          tokenUserId: igUserId,
           connectedVia: 'oauth',
           tokenExpiresAt,
         },
@@ -184,6 +226,9 @@ export async function GET(request: NextRequest) {
         encryptedCredentials,
         config: {
           igUsername,
+          accountType,
+          graphUserId,
+          tokenUserId: igUserId,
           connectedVia: 'oauth',
           tokenExpiresAt,
         },
