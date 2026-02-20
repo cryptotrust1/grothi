@@ -89,14 +89,27 @@ pm2 save
 # Cleanup old build
 rm -rf .next-old
 
-# Step 10: Setup cron jobs (process-posts, collect-engagement, health-check)
+# Step 10: Update Nginx media direct config (for Instagram/Meta media serving)
 echo ""
-echo "[10/10] Setting up cron jobs..."
+echo "[10/11] Updating Nginx media direct config..."
+if [ -f server/nginx-media-direct.conf ]; then
+  sudo cp server/nginx-media-direct.conf /etc/nginx/sites-available/grothi-media-direct 2>/dev/null && \
+  sudo ln -sf /etc/nginx/sites-available/grothi-media-direct /etc/nginx/sites-enabled/ 2>/dev/null && \
+  sudo nginx -t 2>&1 && sudo systemctl reload nginx 2>&1 && \
+  echo "Nginx media config updated and reloaded." || \
+  echo "WARN: Nginx media config update failed. Update manually: sudo cp server/nginx-media-direct.conf /etc/nginx/sites-available/grothi-media-direct && sudo nginx -t && sudo systemctl reload nginx"
+else
+  echo "WARN: server/nginx-media-direct.conf not found, skipping."
+fi
+
+# Step 11: Setup cron jobs (process-posts, collect-engagement, health-check)
+echo ""
+echo "[11/11] Setting up cron jobs..."
 bash server/setup-cron.sh 2>&1 || echo "WARN: Cron setup failed. Run manually: bash server/setup-cron.sh"
 
 echo ""
 echo "========================================="
-echo "  DEPLOYMENT COMPLETE!"
+echo "  DEPLOYMENT COMPLETE! (11 steps)"
 echo "  grothi.com should be live now"
 echo "========================================="
 echo ""

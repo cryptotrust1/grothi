@@ -46,7 +46,8 @@ import {
 } from '@/lib/threads';
 import type { PlatformType } from '@prisma/client';
 import path from 'path';
-import { existsSync } from 'fs';
+import { existsSync, mkdirSync } from 'fs';
+import sharp from 'sharp';
 
 /** Base directory for uploaded media files. */
 const UPLOAD_DIR = path.join(process.cwd(), 'data', 'uploads');
@@ -64,6 +65,74 @@ const CRON_SECRET = process.env.CRON_SECRET;
 
 /** Max posts to process per invocation (prevents long-running requests). */
 const BATCH_SIZE = 10;
+
+/**
+ * MIME types that require conversion to JPEG before posting to Instagram.
+ * Instagram officially recommends sRGB JPEG. While PNG is sometimes accepted,
+ * AI-generated PNGs (with alpha channels, unusual color profiles, or non-sRGB
+ * color spaces) frequently fail with error 9004 "Only photo or video can be
+ * accepted as media type". Converting to JPEG eliminates these issues.
+ */
+const IG_CONVERT_TO_JPEG_MIMES = ['image/png', 'image/webp', 'image/avif', 'image/gif'];
+
+/**
+ * Convert a non-JPEG image to JPEG for Instagram compatibility.
+ *
+ * Instagram's Container API downloads images from a URL. If the image is a PNG
+ * with an alpha channel, unusual color profile, or AI-generated metadata,
+ * Instagram often rejects it with error 9004. Converting to JPEG (flattening
+ * alpha to white, forcing sRGB, stripping metadata) fixes these issues.
+ *
+ * The converted file is saved alongside the original (with -ig.jpg suffix).
+ * Returns the new file path relative to UPLOAD_DIR, or null on failure.
+ */
+async function convertToJpegForInstagram(
+  originalFilePath: string,
+  mimeType: string
+): Promise<string | null> {
+  if (!IG_CONVERT_TO_JPEG_MIMES.includes(mimeType.toLowerCase())) {
+    return null; // Already JPEG or unsupported — no conversion needed
+  }
+
+  const absOriginal = path.resolve(path.join(UPLOAD_DIR, originalFilePath));
+  if (!existsSync(absOriginal)) {
+    console.error(`[process-posts] convertToJpeg: source file not found: ${absOriginal}`);
+    return null;
+  }
+
+  // Construct the JPEG path: same directory, same name but with -ig.jpg suffix
+  const dir = path.dirname(absOriginal);
+  const ext = path.extname(absOriginal);
+  const baseName = path.basename(absOriginal, ext);
+  const jpegPath = path.join(dir, `${baseName}-ig.jpg`);
+  const relJpegPath = path.relative(UPLOAD_DIR, jpegPath);
+
+  // Skip conversion if already exists (cached from previous attempt)
+  if (existsSync(jpegPath)) {
+    console.log(`[process-posts] convertToJpeg: using cached JPEG: ${relJpegPath}`);
+    return relJpegPath;
+  }
+
+  try {
+    await sharp(absOriginal)
+      // Flatten alpha channel to white background (Instagram doesn't support transparency)
+      .flatten({ background: { r: 255, g: 255, b: 255 } })
+      // Force sRGB color space (Instagram requirement)
+      .toColorspace('srgb')
+      // Remove metadata (EXIF, ICC profiles that might confuse Instagram)
+      .withMetadata({ orientation: undefined })
+      // Convert to JPEG with quality 92 (high quality, reasonable file size)
+      .jpeg({ quality: 92, mozjpeg: true })
+      .toFile(jpegPath);
+
+    console.log(`[process-posts] convertToJpeg: converted ${originalFilePath} → ${relJpegPath}`);
+    return relJpegPath;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    console.error(`[process-posts] convertToJpeg: failed to convert ${originalFilePath}: ${msg}`);
+    return null;
+  }
+}
 
 export async function POST(request: NextRequest) {
   // Verify cron secret
@@ -435,23 +504,44 @@ async function publishToInstagram(
       };
     }
 
-    // Instagram only supports JPEG and PNG for images. Warn about unsupported formats.
-    if (mediaType === 'IMAGE' && mediaMimeType) {
-      const supportedImageTypes = ['image/jpeg', 'image/png'];
-      if (!supportedImageTypes.includes(mediaMimeType)) {
-        console.warn(
-          `[process-posts] Instagram image format warning: ${mediaMimeType} may not be supported. ` +
-          `Instagram officially supports only JPEG and PNG.`
-        );
+    // Convert non-JPEG images to JPEG for Instagram compatibility.
+    // Instagram officially recommends sRGB JPEG. AI-generated PNGs frequently fail
+    // with error 9004 due to alpha channels, unusual color profiles, or metadata.
+    // Converting ALL non-JPEG images to JPEG eliminates these issues.
+    let igMediaPath = mediaPath;
+    let igMediaMimeType = mediaMimeType;
+    if (mediaType === 'IMAGE' && mediaMimeType && IG_CONVERT_TO_JPEG_MIMES.includes(mediaMimeType.toLowerCase())) {
+      console.log(`[process-posts] Instagram: converting ${mediaMimeType} → JPEG for compatibility`);
+      const jpegPath = await convertToJpegForInstagram(mediaPath, mediaMimeType);
+      if (jpegPath) {
+        igMediaPath = jpegPath;
+        igMediaMimeType = 'image/jpeg';
+        console.log(`[process-posts] Instagram: using converted JPEG: ${jpegPath}`);
+      } else {
+        console.warn('[process-posts] Instagram: JPEG conversion failed, using original file');
       }
     }
 
     // Determine the effective post type:
-    // 1. Use explicit postType if set
-    // 2. Auto-detect: VIDEO → reel, multiple mediaIds → carousel, else → feed
-    const effectivePostType = postType
-      || (mediaIds && mediaIds.length >= 2 ? 'carousel' : null)
-      || (mediaType === 'VIDEO' ? 'reel' : 'feed');
+    // 1. VIDEO media ALWAYS uses 'reel' — Instagram does not support video in feed
+    //    posts via the Container API (image_url param). Videos require media_type=REELS
+    //    with video_url. If user selected 'feed' for a video, override to 'reel'.
+    // 2. Use explicit postType if set (for non-video)
+    // 3. Auto-detect: multiple mediaIds → carousel, else → feed
+    let effectivePostType: string;
+    if (mediaType === 'VIDEO') {
+      if (postType && postType !== 'reel' && postType !== 'story') {
+        console.warn(
+          `[process-posts] Instagram: overriding postType "${postType}" → "reel" because media is VIDEO. ` +
+          `Instagram API requires media_type=REELS for video content.`
+        );
+      }
+      effectivePostType = (postType === 'story') ? 'story' : 'reel';
+    } else {
+      effectivePostType = postType
+        || (mediaIds && mediaIds.length >= 2 ? 'carousel' : null)
+        || 'feed';
+    }
 
     console.log(`[process-posts] Instagram: effective post type: ${effectivePostType}`);
 
@@ -487,18 +577,20 @@ async function publishToInstagram(
 
     switch (effectivePostType) {
       case 'story': {
-        const publicUrl = await resolveMediaUrl(mediaPath, mediaId);
+        const isVideo = mediaType === 'VIDEO';
+        // Use converted JPEG for image stories, original for video stories
+        const storyPath = isVideo ? mediaPath : igMediaPath;
+        const publicUrl = await resolveMediaUrl(storyPath, mediaId);
         if (!publicUrl) {
           return { success: false, error: 'Could not resolve media URL for Story.' };
         }
-        const isVideo = mediaType === 'VIDEO';
         console.log(`[process-posts] Instagram: posting Story (${isVideo ? 'video' : 'image'})`);
         result = await igPostStory(creds, publicUrl, isVideo);
         break;
       }
 
       case 'carousel': {
-        // Resolve all media items for the carousel
+        // Resolve all media items for the carousel, converting each to JPEG if needed
         const carouselMediaIds = mediaIds || [];
         if (carouselMediaIds.length < 2) {
           return { success: false, error: 'Carousel requires at least 2 media items.' };
@@ -506,12 +598,18 @@ async function publishToInstagram(
 
         const allMedia = await db.media.findMany({
           where: { id: { in: carouselMediaIds } },
-          select: { id: true, filePath: true, type: true },
+          select: { id: true, filePath: true, type: true, mimeType: true },
         });
 
         const imageUrls: string[] = [];
         for (const m of allMedia) {
-          const url = await resolveMediaUrl(m.filePath, m.id);
+          // Convert non-JPEG carousel items to JPEG
+          let carouselFilePath = m.filePath;
+          if (m.type === 'IMAGE' && m.mimeType && IG_CONVERT_TO_JPEG_MIMES.includes(m.mimeType.toLowerCase())) {
+            const jpegPath = await convertToJpegForInstagram(m.filePath, m.mimeType);
+            if (jpegPath) carouselFilePath = jpegPath;
+          }
+          const url = await resolveMediaUrl(carouselFilePath, m.id);
           if (!url) {
             return { success: false, error: `Could not resolve URL for media item ${m.id}.` };
           }
@@ -524,6 +622,7 @@ async function publishToInstagram(
       }
 
       case 'reel': {
+        // Videos use original path (no JPEG conversion for video)
         const publicUrl = await resolveMediaUrl(mediaPath, mediaId);
         if (!publicUrl) {
           return { success: false, error: 'Could not resolve video URL for Reel.' };
@@ -534,8 +633,8 @@ async function publishToInstagram(
       }
 
       default: {
-        // 'feed' - single image post
-        const publicUrl = await resolveMediaUrl(mediaPath, mediaId);
+        // 'feed' - single image post (use converted JPEG)
+        const publicUrl = await resolveMediaUrl(igMediaPath, mediaId);
         if (!publicUrl) {
           return { success: false, error: 'Could not resolve media URL for feed post.' };
         }

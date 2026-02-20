@@ -431,11 +431,27 @@ async function verifyMediaUrlAccessible(url: string): Promise<{ ok: boolean; err
       };
     }
 
+    // Check for Content-Length — Instagram needs this to validate the file.
+    // If Nginx gzip is enabled, Content-Length gets stripped.
+    const contentLength = res.headers.get('content-length');
+    const contentEncoding = res.headers.get('content-encoding');
+
     console.log('[instagram] Media URL pre-check passed:', {
       url: url.substring(0, 80),
       status: res.status,
       contentType: contentType.substring(0, 50),
+      contentLength: contentLength || 'MISSING',
+      contentEncoding: contentEncoding || 'none',
     });
+
+    if (!contentLength) {
+      console.warn(
+        '[instagram] Media URL missing Content-Length header. ' +
+        'This often causes Instagram error 9004. ' +
+        'Check if gzip is enabled in Nginx for the media server.'
+      );
+    }
+
     return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error';
@@ -1669,6 +1685,38 @@ export async function runDiagnostics(botId: string): Promise<{
     publishTestResult = { success: false, error: 'Skipped — container did not reach FINISHED status.' };
   }
 
+  // URL check helper — defined before step 7 which uses it.
+  // Also returns Content-Length, Transfer-Encoding, Content-Encoding for diagnosis.
+  // Instagram's media downloader requires proper Content-Length to recognize the file.
+  // If gzip is enabled in Nginx, it strips Content-Length and uses chunked encoding,
+  // which causes Instagram to fail with "Only photo or video can be accepted".
+  const checkUrlDetailed = async (url: string): Promise<{
+    accessible: boolean;
+    contentType: string | null;
+    contentLength: string | null;
+    transferEncoding: string | null;
+    contentEncoding: string | null;
+    error: string | null;
+  }> => {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10_000);
+      const res = await fetch(url, {
+        method: 'HEAD', signal: controller.signal,
+        headers: { 'User-Agent': 'facebookexternalhit/1.1' },
+      });
+      clearTimeout(timer);
+      const ct = res.headers.get('content-type') || null;
+      const cl = res.headers.get('content-length') || null;
+      const te = res.headers.get('transfer-encoding') || null;
+      const ce = res.headers.get('content-encoding') || null;
+      if (!res.ok) return { accessible: false, contentType: ct, contentLength: cl, transferEncoding: te, contentEncoding: ce, error: `HTTP ${res.status}` };
+      return { accessible: true, contentType: ct, contentLength: cl, transferEncoding: te, contentEncoding: ce, error: null };
+    } catch (e) {
+      return { accessible: false, contentType: null, contentLength: null, transferEncoding: null, contentEncoding: null, error: e instanceof Error ? e.message : 'Unknown' };
+    }
+  };
+
   // Step 7: Test media URL accessibility with real media from this bot
   let mediaUrlTest: { configured: boolean; baseUrl?: string; testUrl?: string; accessible?: boolean; error?: string; contentType?: string } | null = null;
 
@@ -1718,6 +1766,30 @@ export async function runDiagnostics(botId: string): Promise<{
       } else {
         recommendations.push(`Media URL accessible. Tested: ${recentMedia.filename} (${recentMedia.mimeType})`);
       }
+
+      // Additional header check: Content-Length must be present.
+      // If gzip is enabled in Nginx, Content-Length is stripped and replaced with
+      // chunked Transfer-Encoding, which causes Instagram to fail.
+      const headerCheck = await checkUrlDetailed(testUrl);
+      if (headerCheck.accessible) {
+        mediaUrlTest.contentType = headerCheck.contentType || undefined;
+        if (!headerCheck.contentLength) {
+          recommendations.push(
+            'WARNING: Media URL is missing Content-Length header! ' +
+            'This is usually caused by gzip being enabled in Nginx. ' +
+            'Instagram requires Content-Length to validate the file. ' +
+            'Fix: Add "gzip off;" to the Nginx media server block and reload Nginx. ' +
+            (headerCheck.transferEncoding ? `Transfer-Encoding: ${headerCheck.transferEncoding}. ` : '') +
+            (headerCheck.contentEncoding ? `Content-Encoding: ${headerCheck.contentEncoding}. ` : '')
+          );
+        }
+        if (headerCheck.contentEncoding) {
+          recommendations.push(
+            `WARNING: Media URL has Content-Encoding: ${headerCheck.contentEncoding}. ` +
+            'Instagram may not decompress this. Add "gzip off;" to the Nginx media server block.'
+          );
+        }
+      }
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error';
@@ -1751,24 +1823,6 @@ export async function runDiagnostics(botId: string): Promise<{
       return `${baseUrl}/api/media/${encodeURIComponent(mId)}`;
     }
     return null;
-  };
-
-  // Accessibility check that also returns content-type
-  const checkUrlDetailed = async (url: string): Promise<{ accessible: boolean; contentType: string | null; error: string | null }> => {
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 10_000);
-      const res = await fetch(url, {
-        method: 'HEAD', signal: controller.signal,
-        headers: { 'User-Agent': 'facebookexternalhit/1.1' },
-      });
-      clearTimeout(timer);
-      const ct = res.headers.get('content-type') || null;
-      if (!res.ok) return { accessible: false, contentType: ct, error: `HTTP ${res.status}` };
-      return { accessible: true, contentType: ct, error: null };
-    } catch (e) {
-      return { accessible: false, contentType: null, error: e instanceof Error ? e.message : 'Unknown' };
-    }
   };
 
   // Step 8b: Deep analysis of each failed post — media, URL, format, accessibility
@@ -1951,16 +2005,24 @@ export async function runDiagnostics(botId: string): Promise<{
               containerError = `Code ${err.code}: ${err.message}`;
 
               if (String(err.message).includes('Only photo or video')) {
+                const missingCL = !urlInfo.contentLength;
+                const hasGzip = !!urlInfo.contentEncoding;
                 recommendations.push(
                   `REAL MEDIA CONTAINER TEST FAILED with "Only photo or video" error! ` +
                   `Media: ${realMedia.filename} (${realMedia.mimeType}). ` +
                   `URL sent to Instagram: ${resolvedUrl.substring(0, 100)}. ` +
                   `URL content-type: ${urlInfo.contentType || 'unknown'}. ` +
-                  'This CONFIRMS the issue is with the media format or URL serving. ' +
-                  'Instagram cannot recognize this file as a photo or video. ' +
-                  'Solutions: 1) Convert images to JPEG/PNG before uploading. ' +
-                  '2) Ensure Nginx serves correct Content-Type header. ' +
-                  '3) Check if Cloudflare is intercepting the response.'
+                  `Content-Length: ${urlInfo.contentLength || 'MISSING'}. ` +
+                  (hasGzip ? `Content-Encoding: ${urlInfo.contentEncoding} (PROBLEM!). ` : '') +
+                  'ROOT CAUSES (check all): ' +
+                  '1) Port 8787 may not be open in the server firewall for external access — ' +
+                  'run "sudo ufw allow 8787/tcp" or "sudo iptables -A INPUT -p tcp --dport 8787 -j ACCEPT". ' +
+                  '2) Nginx gzip may be stripping Content-Length header — ' +
+                  'add "gzip off;" to the media server block and reload Nginx. ' +
+                  '3) The image may have an alpha channel or non-sRGB color space — ' +
+                  'the publish flow now auto-converts PNG/WebP to JPEG before posting. ' +
+                  '4) This diagnostic tests from the server itself; Instagram fetches from their own servers. ' +
+                  'Verify external access: curl -I http://89.167.18.92:8787/media/test from a different machine.'
                 );
               } else {
                 recommendations.push(
