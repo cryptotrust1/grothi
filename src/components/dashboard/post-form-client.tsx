@@ -109,6 +109,7 @@ export function PostFormClient({
   );
   const [selectedMediaId, setSelectedMediaId] = useState<string>(preSelectedMediaId || '');
   const [scheduledAt, setScheduledAt] = useState('');
+  const [postType, setPostType] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showDimensions, setShowDimensions] = useState(false);
 
@@ -355,6 +356,7 @@ export function PostFormClient({
     addHidden('action', action);
     if (selectedMediaId) addHidden('mediaId', selectedMediaId);
     if (scheduledAt) addHidden('scheduledAt', scheduledAt);
+    if (postType) addHidden('postType', postType);
     for (const p of Array.from(selectedPlatforms)) {
       addHidden('platforms', p);
     }
@@ -587,6 +589,33 @@ export function PostFormClient({
                       </div>
                     )}
                   </div>
+
+                  {/* ═══════ Instagram Post Type ═══════ */}
+                  {selectedPlatforms.has('INSTAGRAM') && (
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-1">
+                        <Film className="h-4 w-4" />
+                        Instagram Post Type
+                        <HelpTip text="Choose how this post appears on Instagram. Feed = standard image post, Reel = video post (9:16 recommended), Story = 24-hour temporary post, Carousel = 2-10 images in a swipeable gallery." />
+                      </Label>
+                      <select
+                        value={postType}
+                        onChange={(e) => setPostType(e.target.value)}
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      >
+                        <option value="">Auto-detect (based on media type)</option>
+                        <option value="feed">Feed Post (image)</option>
+                        <option value="reel">Reel (video, 9:16 recommended)</option>
+                        <option value="story">Story (disappears after 24h)</option>
+                        <option value="carousel">Carousel (2-10 images)</option>
+                      </select>
+                      <div className="text-xs text-muted-foreground space-y-0.5">
+                        <p><strong>Image specs:</strong> JPEG, 4:5 to 1.91:1 ratio, max 8MB. Best: 1080x1080 or 1080x1350</p>
+                        <p><strong>Video/Reel:</strong> MP4, H.264+AAC, 3s-15min, max 300MB. Best: 1080x1920 (9:16)</p>
+                        <p><strong>Story:</strong> JPEG or MP4, 9:16, max 60s video. Captions not supported via API.</p>
+                      </div>
+                    </div>
+                  )}
 
                   {/* ═══════ Media Selection ═══════ */}
                   <div className="space-y-3">
