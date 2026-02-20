@@ -389,63 +389,43 @@ async function publishToInstagram(
       );
     }
 
-    // Debug token permissions (soft check — do NOT block publishing if debug_token API fails).
-    // The debug_token endpoint uses app_id|app_secret which can fail independently
-    // of the actual user token validity (e.g., Meta system errors, missing env vars).
-    // Only block publishing if we get a DEFINITIVE answer that the token is invalid.
-    let debugTokenSuccess = false;
+    // Token validation (soft check — do NOT block publishing if it fails).
+    // Instagram Direct Login tokens CANNOT be introspected for specific scopes.
+    // The /me endpoint only confirms the token is valid (instagram_business_basic works),
+    // but cannot tell us if instagram_business_content_publish is present.
+    // Therefore we ONLY block publishing if the token is definitively INVALID.
+    // The actual publish attempt is the real permission test.
     try {
       const tokenInfo = await igDebugToken(creds.accessToken);
-      console.log(`[process-posts] Instagram token debug:`, {
+      console.log(`[process-posts] Instagram token check:`, {
         isValid: tokenInfo.isValid,
-        appId: tokenInfo.appId,
         userId: tokenInfo.userId,
-        scopes: tokenInfo.scopes,
-        expiresAt: tokenInfo.expiresAt,
+        type: tokenInfo.type,
         error: tokenInfo.error,
       });
 
-      if (tokenInfo.error) {
-        // debug_token API itself failed (e.g., Meta system error, bad app credentials).
-        // This does NOT mean the user's token is invalid — proceed with publishing.
-        console.warn(
-          `[process-posts] Instagram debug_token API error (will proceed with publish anyway): ${tokenInfo.error}`
-        );
-      } else if (tokenInfo.isValid === false && tokenInfo.appId) {
-        // We got a definitive answer: token is invalid (appId present means API worked).
-        await markConnectionError(conn.id, 'Token is invalid. Please reconnect Instagram.');
+      if (tokenInfo.isValid === false && !tokenInfo.error) {
+        // Definitive answer: /me returned an API error with a specific error code.
+        // This means the token is expired, revoked, or account is restricted.
+        await markConnectionError(conn.id, `Token invalid: ${tokenInfo.error || 'unknown reason'}. Please reconnect Instagram.`);
         return {
           success: false,
           error: 'Instagram token is invalid. Please reconnect Instagram in Platform settings.',
         };
-      } else if (tokenInfo.isValid && tokenInfo.scopes) {
-        debugTokenSuccess = true;
-        const hasPublishPermission = tokenInfo.scopes.some(
-          (s) => s === 'instagram_business_content_publish' || s === 'business_content_publish'
+      }
+
+      if (tokenInfo.error) {
+        // /me call failed but we can't be sure why — proceed with publishing.
+        console.warn(
+          `[process-posts] Instagram token check inconclusive (will proceed anyway): ${tokenInfo.error}`
         );
-
-        if (!hasPublishPermission) {
-          const errorMsg =
-            'MISSING PERMISSION: instagram_business_content_publish. ' +
-            'Token scopes: [' + (tokenInfo.scopes.join(', ') || 'none') + ']. ' +
-            'Go to Meta Developer Dashboard > App > Use Cases > Instagram > Permissions ' +
-            'and ensure instagram_business_content_publish is added and approved. ' +
-            'If app is in Development mode, add the IG account owner as Admin/Developer.';
-          console.error(`[process-posts] ${errorMsg}`);
-          await markConnectionError(conn.id, errorMsg);
-          return { success: false, error: errorMsg };
-        }
-
-        console.log('[process-posts] Instagram: token permissions verified OK');
+      } else {
+        console.log('[process-posts] Instagram: token check passed, proceeding to publish');
       }
     } catch (debugErr) {
-      // debug_token call crashed — log and proceed with publishing
+      // Token check crashed — log and proceed with publishing
       const msg = debugErr instanceof Error ? debugErr.message : 'Unknown error';
-      console.warn(`[process-posts] Instagram debug_token threw (will proceed anyway): ${msg}`);
-    }
-
-    if (!debugTokenSuccess) {
-      console.log('[process-posts] Instagram: debug_token was inconclusive, proceeding with publish attempt');
+      console.warn(`[process-posts] Instagram token check threw (will proceed anyway): ${msg}`);
     }
 
     if (!mediaPath) {

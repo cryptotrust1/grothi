@@ -146,7 +146,7 @@ export async function GET(request: NextRequest) {
     // by /me endpoint. The Graph API publishing endpoints (/{id}/media, /{id}/media_publish)
     // require the id from /me, NOT the user_id from token exchange.
     const profileUrl = new URL('https://graph.instagram.com/me');
-    profileUrl.searchParams.set('fields', 'id,username,name,account_type,profile_picture_url');
+    profileUrl.searchParams.set('fields', 'id,username,name,account_type,profile_picture_url,followers_count,follows_count,media_count,biography');
     profileUrl.searchParams.set('access_token', longLivedToken);
 
     const profileRes = await fetch(profileUrl.toString(), { signal: oauthController.signal });
@@ -187,6 +187,12 @@ export async function GET(request: NextRequest) {
     const graphUserId = String(profileData.id || igUserId);
     const igUsername = profileData.username || 'unknown';
     const accountType = profileData.account_type || 'unknown';
+    const igName = profileData.name || '';
+    const igProfilePic = profileData.profile_picture_url || '';
+    const igFollowers = profileData.followers_count ?? null;
+    const igFollowing = profileData.follows_count ?? null;
+    const igMediaCount = profileData.media_count ?? null;
+    const igBio = profileData.biography || '';
 
     console.log('[Instagram OAuth] Profile fetched successfully:', {
       graphUserId,
@@ -194,6 +200,8 @@ export async function GET(request: NextRequest) {
       idsMatch: graphUserId === igUserId,
       username: igUsername,
       accountType,
+      name: igName,
+      followers: igFollowers,
     });
 
     // Step 4: Save encrypted credentials
@@ -214,6 +222,12 @@ export async function GET(request: NextRequest) {
         encryptedCredentials,
         config: {
           igUsername,
+          igName,
+          igProfilePic,
+          igBio,
+          igFollowers,
+          igFollowing,
+          igMediaCount,
           accountType,
           graphUserId,
           tokenUserId: igUserId,
@@ -226,6 +240,12 @@ export async function GET(request: NextRequest) {
         encryptedCredentials,
         config: {
           igUsername,
+          igName,
+          igProfilePic,
+          igBio,
+          igFollowers,
+          igFollowing,
+          igMediaCount,
           accountType,
           graphUserId,
           tokenUserId: igUserId,

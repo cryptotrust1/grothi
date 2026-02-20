@@ -496,6 +496,22 @@ export default async function BotPlatformsPage({ params, searchParams }: {
                       {isConnected && oauthLabel && (
                         <p className="text-xs text-green-700">{oauthLabel}</p>
                       )}
+                      {/* Enhanced Instagram account info */}
+                      {isConnected && key === 'INSTAGRAM' && connConfig && (
+                        <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+                          {typeof connConfig.igName === 'string' && connConfig.igName && (
+                            <p className="font-medium text-foreground">{connConfig.igName}</p>
+                          )}
+                          <p>
+                            Type: {String(connConfig.accountType || 'unknown').replace('MEDIA_CREATOR', 'Creator').replace('BUSINESS', 'Business')}
+                            {connConfig.igFollowers != null && ` · ${Number(connConfig.igFollowers).toLocaleString()} followers`}
+                            {connConfig.igMediaCount != null && ` · ${Number(connConfig.igMediaCount).toLocaleString()} posts`}
+                          </p>
+                          {typeof connConfig.igBio === 'string' && connConfig.igBio && (
+                            <p className="line-clamp-2 italic">{connConfig.igBio}</p>
+                          )}
+                        </div>
+                      )}
                       {conn?.lastError && (
                         <p className="text-xs text-red-600 mt-1">Last error: {conn.lastError}</p>
                       )}
