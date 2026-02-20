@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { botId, content, contentType, mediaId, platforms, platformContent, scheduledAt, autoSchedule } = body;
+    const { botId, content, contentType, mediaId, platforms, platformContent, scheduledAt, autoSchedule, postType, mediaIds } = body;
 
     if (!botId || !content) {
       return NextResponse.json({ error: 'botId and content are required' }, { status: 400 });
@@ -91,11 +91,67 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Validate postType if provided
+    const validPostTypes = ['feed', 'reel', 'story', 'carousel'];
+    if (postType && !validPostTypes.includes(postType)) {
+      return NextResponse.json(
+        { error: `Invalid postType: ${postType}. Must be one of: ${validPostTypes.join(', ')}` },
+        { status: 400 }
+      );
+    }
+
     // Validate media if provided
     if (mediaId) {
       const media = await db.media.findFirst({ where: { id: mediaId, botId } });
       if (!media) {
         return NextResponse.json({ error: 'Media not found' }, { status: 404 });
+      }
+    }
+
+    // Validate mediaIds for carousel
+    const validatedMediaIds: string[] | null = Array.isArray(mediaIds) && mediaIds.length > 0 ? mediaIds : null;
+    if (postType === 'carousel') {
+      if (!validatedMediaIds || validatedMediaIds.length < 2) {
+        return NextResponse.json(
+          { error: 'Carousel requires at least 2 media items.' },
+          { status: 400 }
+        );
+      }
+      if (validatedMediaIds.length > 10) {
+        return NextResponse.json(
+          { error: 'Carousel allows maximum 10 media items.' },
+          { status: 400 }
+        );
+      }
+      // Verify all media items exist and belong to this bot
+      const mediaCount = await db.media.count({
+        where: { id: { in: validatedMediaIds }, botId },
+      });
+      if (mediaCount !== validatedMediaIds.length) {
+        return NextResponse.json(
+          { error: 'Some carousel media items not found or do not belong to this bot.' },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Instagram-specific validation
+    if (selectedPlatforms.includes('INSTAGRAM')) {
+      if (postType === 'reel' && mediaId) {
+        const media = await db.media.findFirst({ where: { id: mediaId, botId } });
+        if (media && media.type !== 'VIDEO') {
+          return NextResponse.json(
+            { error: 'Reels require a video file. Selected media is not a video.' },
+            { status: 400 }
+          );
+        }
+      }
+      if (!mediaId && !validatedMediaIds && postType !== 'carousel') {
+        // Instagram requires media (no text-only posts)
+        return NextResponse.json(
+          { error: 'Instagram does not support text-only posts. Please add an image or video.' },
+          { status: 400 }
+        );
       }
     }
 
@@ -107,6 +163,8 @@ export async function POST(request: NextRequest) {
         content,
         contentType: contentType || 'custom',
         mediaId: mediaId || null,
+        postType: postType || null,
+        mediaIds: validatedMediaIds ?? undefined,
         platforms: selectedPlatforms,
         platformContent: platformContent || null,
         scheduledAt: finalScheduledAt,

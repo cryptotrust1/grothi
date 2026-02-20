@@ -29,6 +29,8 @@ import {
   decryptInstagramCredentials,
   postImage as igPostImage,
   postReel as igPostReel,
+  postStory as igPostStory,
+  postCarousel as igPostCarousel,
   postLocalImage as igPostLocalImage,
   isTokenNearExpiry as igIsTokenNearExpiry,
   debugToken as igDebugToken,
@@ -143,7 +145,9 @@ export async function POST(request: NextRequest) {
           post.media?.filePath || null,
           (post.media?.type as 'IMAGE' | 'VIDEO' | 'GIF' | null) || null,
           post.media?.mimeType || null,
-          post.media?.id || null
+          post.media?.id || null,
+          (post.postType as 'feed' | 'reel' | 'story' | 'carousel' | null) || null,
+          (post.mediaIds as string[] | null) || null
         );
 
         platformResults[platform] = result;
@@ -263,7 +267,9 @@ async function publishToPlatform(
   mediaPath: string | null,
   mediaType: 'IMAGE' | 'VIDEO' | 'GIF' | null,
   mediaMimeType: string | null,
-  mediaId: string | null
+  mediaId: string | null,
+  postType: 'feed' | 'reel' | 'story' | 'carousel' | null = null,
+  mediaIds: string[] | null = null
 ): Promise<{ success: boolean; externalId?: string; error?: string }> {
   // Get platform connection
   const conn = await db.platformConnection.findUnique({
@@ -279,7 +285,7 @@ async function publishToPlatform(
       return publishToFacebook(conn, content, mediaPath, mediaType);
 
     case 'INSTAGRAM':
-      return publishToInstagram(conn, content, mediaPath, mediaType, mediaId, mediaMimeType);
+      return publishToInstagram(conn, content, mediaPath, mediaType, mediaId, mediaMimeType, postType, mediaIds);
 
     case 'THREADS':
       return publishToThreads(conn, content, mediaPath, mediaType);
@@ -358,7 +364,9 @@ async function publishToInstagram(
   mediaPath: string | null,
   mediaType: 'IMAGE' | 'VIDEO' | 'GIF' | null,
   mediaId: string | null,
-  mediaMimeType: string | null = null
+  mediaMimeType: string | null = null,
+  postType: 'feed' | 'reel' | 'story' | 'carousel' | null = null,
+  mediaIds: string[] | null = null
 ): Promise<{ success: boolean; externalId?: string; error?: string }> {
   try {
     const creds = decryptInstagramCredentials(conn);
@@ -458,60 +466,104 @@ async function publishToInstagram(
       }
     }
 
-    // Determine the correct posting function based on media type
-    const postFn = mediaType === 'VIDEO' ? igPostReel : igPostImage;
+    // Determine the effective post type:
+    // 1. Use explicit postType if set
+    // 2. Auto-detect: VIDEO → reel, multiple mediaIds → carousel, else → feed
+    const effectivePostType = postType
+      || (mediaIds && mediaIds.length >= 2 ? 'carousel' : null)
+      || (mediaType === 'VIDEO' ? 'reel' : 'feed');
 
-    // Check if mediaPath is already a URL
-    if (mediaPath.startsWith('http://') || mediaPath.startsWith('https://')) {
-      console.log(`[process-posts] Instagram: posting with external URL: ${mediaPath.substring(0, 100)}`);
-      const result = await postFn(creds, content, mediaPath);
-      if (result.success) {
-        return { success: true, externalId: result.mediaId };
-      }
-      if (isInstagramTokenError(result.error)) {
-        await markConnectionError(conn.id, 'Token expired. Please reconnect Instagram.');
-      }
-      return { success: false, error: result.error };
-    }
+    console.log(`[process-posts] Instagram: effective post type: ${effectivePostType}`);
 
-    // Build a publicly accessible media URL for Instagram's servers.
-    //
-    // PRIORITY: Use direct server URL (bypasses Cloudflare) if MEDIA_DIRECT_BASE is set.
-    // Cloudflare's bot protection blocks Meta's crawlers from downloading images,
-    // causing error code 2. The direct URL serves files via Nginx on the server IP.
-    //
-    // FALLBACK: Use the API endpoint through Cloudflare (only works if bot protection is disabled).
-    let publicUrl: string;
+    // Helper to resolve a media file path or ID to a public URL
+    const resolveMediaUrl = async (filePath: string | null, mId: string | null): Promise<string | null> => {
+      if (!filePath && !mId) return null;
 
-    if (MEDIA_DIRECT_BASE && mediaPath) {
-      // Direct path: Nginx serves the file from disk at http://<server-ip>:8787/media/<filePath>
-      // Verify the file exists on disk first
-      const absPath = path.resolve(path.join(UPLOAD_DIR, mediaPath));
-      if (!existsSync(absPath)) {
-        console.error(`[process-posts] Instagram: media file NOT FOUND: ${absPath}`);
-        return { success: false, error: `Media file not found on disk: ${mediaPath}` };
+      // Already a URL
+      if (filePath?.startsWith('http://') || filePath?.startsWith('https://')) {
+        return filePath;
       }
-      publicUrl = `${MEDIA_DIRECT_BASE}/${mediaPath}`;
-      console.log(`[process-posts] Instagram publishing via DIRECT URL (bypasses Cloudflare): ${publicUrl}`);
-    } else {
-      // Fallback: API endpoint through Cloudflare
+
+      if (MEDIA_DIRECT_BASE && filePath) {
+        const absPath = path.resolve(path.join(UPLOAD_DIR, filePath));
+        if (!existsSync(absPath)) {
+          console.error(`[process-posts] Instagram: media file NOT FOUND: ${absPath}`);
+          return null;
+        }
+        return `${MEDIA_DIRECT_BASE}/${filePath}`;
+      }
+
       const baseUrl = process.env.NEXTAUTH_URL || 'https://grothi.com';
-      const resolvedMediaId = mediaId || (await db.media.findFirst({
-        where: { filePath: mediaPath },
+      const resolvedId = mId || (filePath ? (await db.media.findFirst({
+        where: { filePath },
         select: { id: true },
-      }))?.id;
+      }))?.id : null);
 
-      if (!resolvedMediaId) {
-        return {
-          success: false,
-          error: 'Could not find media record for Instagram publishing. Set MEDIA_DIRECT_BASE to bypass Cloudflare.',
-        };
+      if (!resolvedId) return null;
+      return `${baseUrl}/api/media/${encodeURIComponent(resolvedId)}`;
+    };
+
+    let result: InstagramPostResult;
+
+    switch (effectivePostType) {
+      case 'story': {
+        const publicUrl = await resolveMediaUrl(mediaPath, mediaId);
+        if (!publicUrl) {
+          return { success: false, error: 'Could not resolve media URL for Story.' };
+        }
+        const isVideo = mediaType === 'VIDEO';
+        console.log(`[process-posts] Instagram: posting Story (${isVideo ? 'video' : 'image'})`);
+        result = await igPostStory(creds, publicUrl, isVideo);
+        break;
       }
-      publicUrl = `${baseUrl}/api/media/${encodeURIComponent(resolvedMediaId)}`;
-      console.log(`[process-posts] Instagram publishing via API URL (through Cloudflare): ${publicUrl}`);
-    }
 
-    const result = await postFn(creds, content, publicUrl);
+      case 'carousel': {
+        // Resolve all media items for the carousel
+        const carouselMediaIds = mediaIds || [];
+        if (carouselMediaIds.length < 2) {
+          return { success: false, error: 'Carousel requires at least 2 media items.' };
+        }
+
+        const allMedia = await db.media.findMany({
+          where: { id: { in: carouselMediaIds } },
+          select: { id: true, filePath: true, type: true },
+        });
+
+        const imageUrls: string[] = [];
+        for (const m of allMedia) {
+          const url = await resolveMediaUrl(m.filePath, m.id);
+          if (!url) {
+            return { success: false, error: `Could not resolve URL for media item ${m.id}.` };
+          }
+          imageUrls.push(url);
+        }
+
+        console.log(`[process-posts] Instagram: posting Carousel with ${imageUrls.length} items`);
+        result = await igPostCarousel(creds, content, imageUrls);
+        break;
+      }
+
+      case 'reel': {
+        const publicUrl = await resolveMediaUrl(mediaPath, mediaId);
+        if (!publicUrl) {
+          return { success: false, error: 'Could not resolve video URL for Reel.' };
+        }
+        console.log(`[process-posts] Instagram: posting Reel`);
+        result = await igPostReel(creds, content, publicUrl);
+        break;
+      }
+
+      default: {
+        // 'feed' - single image post
+        const publicUrl = await resolveMediaUrl(mediaPath, mediaId);
+        if (!publicUrl) {
+          return { success: false, error: 'Could not resolve media URL for feed post.' };
+        }
+        console.log(`[process-posts] Instagram: posting Feed Image`);
+        result = await igPostImage(creds, content, publicUrl);
+        break;
+      }
+    }
 
     if (result.success) {
       return { success: true, externalId: result.mediaId };
