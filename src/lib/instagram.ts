@@ -1687,16 +1687,17 @@ export async function runDiagnostics(botId: string): Promise<{
   }
 
   // Step 8: Get recent failed posts with exact error messages
-  const recentFailedPosts = await db.scheduledPost.findMany({
-    where: {
-      botId,
-      status: 'FAILED',
-      platforms: { has: 'INSTAGRAM' },
-    },
+  // platforms is a Json field storing a string array — filter in JS since
+  // Prisma 5.22 Json filters are limited on PostgreSQL
+  const allRecentFailed = await db.scheduledPost.findMany({
+    where: { botId, status: 'FAILED' },
     orderBy: { updatedAt: 'desc' },
-    take: 5,
-    select: { id: true, content: true, error: true, createdAt: true, postType: true },
+    take: 20,
+    select: { id: true, content: true, error: true, createdAt: true, postType: true, platforms: true },
   });
+  const recentFailedPosts = allRecentFailed
+    .filter(p => Array.isArray(p.platforms) && (p.platforms as string[]).includes('INSTAGRAM'))
+    .slice(0, 5);
 
   if (recentFailedPosts.length > 0) {
     const uniqueErrors = [...new Set(recentFailedPosts.map(p => p.error).filter(Boolean))];
