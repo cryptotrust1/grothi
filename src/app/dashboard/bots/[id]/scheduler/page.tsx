@@ -129,6 +129,7 @@ export default async function SchedulerPage({
     const scheduledAt = formData.get('scheduledAt') as string;
     const autoSchedule = formData.get('autoSchedule') === 'on';
     const mediaId = (formData.get('mediaId') as string) || null;
+    const postType = (formData.get('postType') as string) || null;
 
     let finalScheduledAt: Date | null = null;
     if (!autoSchedule && scheduledAt) {
@@ -141,12 +142,18 @@ export default async function SchedulerPage({
 
     const status = finalScheduledAt ? 'SCHEDULED' : 'DRAFT';
 
+    // Validate Instagram requirements server-side
+    if (platforms.includes('INSTAGRAM') && !mediaId) {
+      redirect(`/dashboard/bots/${id}/scheduler?error=Instagram requires an image or video. Please attach media.`);
+    }
+
     await db.scheduledPost.create({
       data: {
         botId: id,
         content,
         contentType: 'custom',
         mediaId,
+        postType: postType || null,
         platforms,
         scheduledAt: finalScheduledAt,
         autoSchedule,
@@ -230,9 +237,31 @@ export default async function SchedulerPage({
               </div>
             </div>
 
+            {/* Instagram Post Type */}
+            {connectedPlatforms.includes('INSTAGRAM') && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium flex items-center gap-1">
+                  Instagram Post Type
+                  <HelpTip text="Choose how this post appears on Instagram. Feed = standard image post, Reel = video post (9:16 recommended), Story = 24-hour temporary post, Carousel = 2-10 images in a swipeable gallery." />
+                </label>
+                <select name="postType" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                  <option value="">Auto-detect (based on media type)</option>
+                  <option value="feed">Feed Post (image)</option>
+                  <option value="reel">Reel (video, 9:16 recommended)</option>
+                  <option value="story">Story (disappears after 24h)</option>
+                  <option value="carousel">Carousel (2-10 images)</option>
+                </select>
+                <div className="text-xs text-muted-foreground space-y-0.5">
+                  <p><strong>Image specs:</strong> JPEG, 4:5 to 1.91:1 ratio, max 8MB. Best: 1080x1080 or 1080x1350</p>
+                  <p><strong>Video/Reel:</strong> MP4, H.264+AAC, 3s-15min, max 300MB. Best: 1080x1920 (9:16)</p>
+                  <p><strong>Story:</strong> JPEG or MP4, 9:16, max 60s video. Captions not supported via API.</p>
+                </div>
+              </div>
+            )}
+
             {/* Media Selection */}
             <div className="space-y-2">
-              <label className="text-sm font-medium">Attach Media (optional)</label>
+              <label className="text-sm font-medium">Attach Media {connectedPlatforms.includes('INSTAGRAM') ? '(required for Instagram)' : '(optional)'}</label>
               <select name="mediaId" defaultValue={preSelectedMedia?.id || ''} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
                 <option value="">No media</option>
                 {mediaLibrary.map((m) => (
@@ -241,6 +270,9 @@ export default async function SchedulerPage({
                   </option>
                 ))}
               </select>
+              {connectedPlatforms.includes('INSTAGRAM') && (
+                <p className="text-xs text-amber-600">Instagram does not support text-only posts. Images must be JPEG format.</p>
+              )}
             </div>
 
             {/* Platform Selection */}
@@ -456,6 +488,9 @@ export default async function SchedulerPage({
                               {PLATFORM_NAMES[p] || p}
                             </Badge>
                           ))}
+                          {post.postType && (
+                            <Badge variant="secondary" className="text-[10px] h-5 capitalize">{post.postType}</Badge>
+                          )}
                           {post.autoSchedule && (
                             <Badge variant="secondary" className="text-[10px] h-5">Auto</Badge>
                           )}

@@ -401,6 +401,11 @@ model ScheduledPost {
   contentType String?
   mediaId     String?
 
+  // Instagram post type: 'feed' | 'reel' | 'story' | 'carousel' | null (auto-detect)
+  postType    String?
+  // Additional media IDs for carousel posts (JSON string array)
+  mediaIds    Json?
+
   // Platform targeting
   platforms   Json
   platformContent Json?

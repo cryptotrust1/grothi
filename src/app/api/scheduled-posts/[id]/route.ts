@@ -80,6 +80,21 @@ export async function PATCH(
     updates.mediaId = body.mediaId || null;
   }
 
+  // Post type and carousel media
+  if (body.postType !== undefined) {
+    const validPostTypes = ['feed', 'reel', 'story', 'carousel', ''];
+    if (body.postType && !validPostTypes.includes(body.postType as string)) {
+      return NextResponse.json(
+        { error: `Invalid postType. Must be one of: feed, reel, story, carousel` },
+        { status: 400 }
+      );
+    }
+    updates.postType = body.postType || null;
+  }
+  if (body.mediaIds !== undefined) {
+    updates.mediaIds = Array.isArray(body.mediaIds) && body.mediaIds.length > 0 ? body.mediaIds : null;
+  }
+
   if (body.scheduledAt !== undefined) {
     if (body.scheduledAt) {
       const scheduled = new Date(body.scheduledAt as string | number);

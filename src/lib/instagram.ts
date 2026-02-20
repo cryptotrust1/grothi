@@ -752,7 +752,15 @@ export async function postCarousel(
 export async function postReel(
   creds: InstagramCredentials,
   caption: string,
-  videoUrl: string
+  videoUrl: string,
+  options?: {
+    /** Custom cover image URL (JPEG, max 8MB, 9:16 recommended) */
+    coverUrl?: string;
+    /** Whether to share to feed AND Reels tab. Default: true */
+    shareToFeed?: boolean;
+    /** Custom audio name (default: "Original Audio") */
+    audioName?: string;
+  }
 ): Promise<InstagramPostResult> {
   // Pre-validate: check URL accessibility (diagnostic only, not a hard failure)
   const urlCheck = await verifyMediaUrlAccessible(videoUrl);
@@ -771,15 +779,32 @@ export async function postReel(
       // Step 1: Create video container
       const containerUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.accountId)}/media`;
 
+      const reelParams: Record<string, string> = {
+        media_type: 'REELS',
+        video_url: videoUrl,
+        caption,
+        access_token: creds.accessToken,
+      };
+
+      // Optional: custom cover image
+      if (options?.coverUrl) {
+        reelParams.cover_url = options.coverUrl;
+      }
+
+      // Optional: share to feed (default true in the API)
+      if (options?.shareToFeed === false) {
+        reelParams.share_to_feed = 'false';
+      }
+
+      // Optional: custom audio name
+      if (options?.audioName) {
+        reelParams.audio_name = options.audioName;
+      }
+
       const { data: containerData } = await graphFetch(containerUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          media_type: 'REELS',
-          video_url: videoUrl,
-          caption,
-          access_token: creds.accessToken,
-        }).toString(),
+        body: new URLSearchParams(reelParams).toString(),
       });
 
       if (isGraphError(containerData)) {
@@ -839,6 +864,113 @@ export async function postReel(
   }
 
   return { success: false, error: 'Instagram reel publishing failed after retries' };
+}
+
+// ── Publishing: Story ─────────────────────────────────────────
+
+/**
+ * Publish a Story to Instagram.
+ *
+ * Stories use media_type=STORIES and support both images and videos.
+ * NOTE: Captions are NOT supported on Stories via the API (silently ignored).
+ * Stories expire after 24 hours.
+ *
+ * Requires: instagram_business_content_publish permission.
+ * Account type: Business accounts only (Creator may not have Stories API access).
+ */
+export async function postStory(
+  creds: InstagramCredentials,
+  mediaUrl: string,
+  isVideo: boolean
+): Promise<InstagramPostResult> {
+  const urlCheck = await verifyMediaUrlAccessible(mediaUrl);
+  if (!urlCheck.ok) {
+    console.warn('[instagram] postStory: media URL pre-check FAILED (will try Instagram API anyway):', urlCheck.error);
+  }
+
+  for (let attempt = 0; attempt <= TRANSIENT_MAX_RETRIES; attempt++) {
+    try {
+      if (attempt > 0) {
+        const delay = getRetryDelay(attempt);
+        console.log(`[instagram] postStory: retry ${attempt}/${TRANSIENT_MAX_RETRIES}, waiting ${delay}ms`);
+        await new Promise((r) => setTimeout(r, delay));
+      }
+
+      console.log(`[instagram] postStory: step 1/3 — creating container (${isVideo ? 'video' : 'image'})`);
+
+      const containerUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.accountId)}/media`;
+      const params: Record<string, string> = {
+        media_type: 'STORIES',
+        access_token: creds.accessToken,
+      };
+
+      if (isVideo) {
+        params.video_url = mediaUrl;
+      } else {
+        params.image_url = mediaUrl;
+      }
+
+      const { data: containerData } = await graphFetch(containerUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(params).toString(),
+      });
+
+      if (isGraphError(containerData)) {
+        if (isTransientError(containerData) && attempt < TRANSIENT_MAX_RETRIES) {
+          console.warn('[instagram] Transient error creating story container, will retry:', containerData.error.message);
+          continue;
+        }
+        return { success: false, error: friendlyIgError(containerData) };
+      }
+
+      const containerId = containerData.id;
+      if (!containerId) {
+        console.error('[instagram] postStory: no container ID in response:', JSON.stringify(containerData));
+        return { success: false, error: 'No container ID returned from Instagram' };
+      }
+
+      console.log(`[instagram] postStory: step 2/3 — container created (id=${containerId}), polling status...`);
+
+      const containerStatus = await waitForContainer(containerId, creds.accessToken, isVideo);
+      console.log(`[instagram] postStory: container status=${containerStatus.status}`);
+      if (containerStatus.status !== 'FINISHED') {
+        return { success: false, error: containerStatus.error || 'Story processing failed' };
+      }
+
+      console.log(`[instagram] postStory: step 3/3 — publishing story ${containerId}...`);
+      const publishUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.accountId)}/media_publish`;
+
+      const { data: publishData } = await graphFetch(publishUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          creation_id: containerId,
+          access_token: creds.accessToken,
+        }).toString(),
+      });
+
+      if (isGraphError(publishData)) {
+        if (isTransientError(publishData) && attempt < TRANSIENT_MAX_RETRIES) {
+          console.warn('[instagram] Transient error at PUBLISH step for story, will retry:', publishData.error.message);
+          continue;
+        }
+        return { success: false, error: friendlyIgError(publishData) };
+      }
+
+      console.log(`[instagram] postStory: SUCCESS — mediaId=${publishData.id}`);
+      return { success: true, mediaId: publishData.id };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Network error';
+      if (attempt < TRANSIENT_MAX_RETRIES) {
+        console.warn(`[instagram] postStory error, will retry: ${msg}`);
+        continue;
+      }
+      return { success: false, error: msg };
+    }
+  }
+
+  return { success: false, error: 'Instagram story publishing failed after retries' };
 }
 
 // ── Publishing: Local File Helper ─────────────────────────────
