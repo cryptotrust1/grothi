@@ -1307,7 +1307,12 @@ export async function debugToken(accessToken: string): Promise<TokenDebugInfo> {
  * 2. Validate token via graph.instagram.com/me (proper for Instagram Direct Login)
  * 3. Test account read via /{accountId} endpoint
  * 4. Test container creation (publishing permission check)
- * 5. Generate actionable recommendations
+ * 5. Poll container status (FINISHED/ERROR)
+ * 6. Test actual media_publish (creates+deletes real post)
+ * 7. Test media URL accessibility with real media
+ * 8. Check MEDIA_DIRECT_BASE config
+ * 9. Show recent failed posts with exact errors
+ * 10. Generate actionable recommendations
  */
 export async function runDiagnostics(botId: string): Promise<{
   connection: { status: string; config: unknown } | null;
@@ -1315,6 +1320,10 @@ export async function runDiagnostics(botId: string): Promise<{
   accountInfo: { id: string; username?: string } | null;
   publishPermission: boolean;
   testContainerResult: { success: boolean; error?: string; httpStatus?: number; rawResponse?: unknown } | null;
+  containerStatusResult: { status: string; error?: string } | null;
+  publishTestResult: { success: boolean; mediaId?: string; deleted?: boolean; error?: string } | null;
+  mediaUrlTest: { configured: boolean; baseUrl?: string; testUrl?: string; accessible?: boolean; error?: string; contentType?: string } | null;
+  recentFailedPosts: { id: string; content: string; error: string | null; createdAt: string; postType: string | null }[];
   recommendations: string[];
 }> {
   const recommendations: string[] = [];
@@ -1331,6 +1340,10 @@ export async function runDiagnostics(botId: string): Promise<{
       accountInfo: null,
       publishPermission: false,
       testContainerResult: null,
+      containerStatusResult: null,
+      publishTestResult: null,
+      mediaUrlTest: null,
+      recentFailedPosts: [],
       recommendations: ['No Instagram connection found. Connect Instagram first.'],
     };
   }
@@ -1345,6 +1358,10 @@ export async function runDiagnostics(botId: string): Promise<{
       accountInfo: null,
       publishPermission: false,
       testContainerResult: null,
+      containerStatusResult: null,
+      publishTestResult: null,
+      mediaUrlTest: null,
+      recentFailedPosts: [],
       recommendations: ['Failed to decrypt credentials. Reconnect Instagram.'],
     };
   }
@@ -1415,6 +1432,7 @@ export async function runDiagnostics(botId: string): Promise<{
   let testContainerResult: { success: boolean; error?: string; httpStatus?: number; rawResponse?: unknown } | null = null;
   // We consider publish permission confirmed only if container creation succeeds
   let publishPermission = false;
+  let testContainerId: string | null = null;
 
   try {
     // Use a well-known, publicly accessible JPEG with valid Instagram aspect ratio (1.33:1)
@@ -1508,10 +1526,7 @@ export async function runDiagnostics(botId: string): Promise<{
         rawResponse,
       };
       publishPermission = true;
-      recommendations.push(
-        'Container creation SUCCEEDED! instagram_business_content_publish permission is working. ' +
-        'Container ID: ' + rawResponse.id + '. If individual posts still fail, the issue is with specific image URLs.'
-      );
+      testContainerId = rawResponse.id;
     }
   } catch (e) {
     const isTimeout = e instanceof Error && e.name === 'AbortError';
@@ -1519,6 +1534,176 @@ export async function runDiagnostics(botId: string): Promise<{
       ? 'Container creation timed out (30s). Instagram API may be slow.'
       : e instanceof Error ? e.message : 'Unknown error';
     testContainerResult = { success: false, error: msg };
+  }
+
+  // Step 5: Poll container status (this is where many posts fail!)
+  let containerStatusResult: { status: string; error?: string } | null = null;
+
+  if (testContainerId) {
+    try {
+      console.log('[instagram-diag] Step 5: Polling container status for', testContainerId);
+      containerStatusResult = await waitForContainer(testContainerId, creds.accessToken);
+      console.log('[instagram-diag] Container status:', JSON.stringify(containerStatusResult));
+
+      if (containerStatusResult.status === 'FINISHED') {
+        recommendations.push('Container reached FINISHED status. Image was processed successfully by Instagram.');
+      } else {
+        recommendations.push(
+          `Container status: ${containerStatusResult.status}${containerStatusResult.error ? ` — ${containerStatusResult.error}` : ''}. ` +
+          'This means Instagram could not process the test image. Real posts will also fail at this step.'
+        );
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Unknown error';
+      containerStatusResult = { status: 'ERROR', error: `Poll failed: ${msg}` };
+    }
+  }
+
+  // Step 6: Test actual media_publish (the REAL test — creates then deletes)
+  let publishTestResult: { success: boolean; mediaId?: string; deleted?: boolean; error?: string } | null = null;
+
+  if (testContainerId && containerStatusResult?.status === 'FINISHED') {
+    try {
+      console.log('[instagram-diag] Step 6: Testing actual media_publish...');
+      const publishUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.accountId)}/media_publish`;
+
+      const pubController = new AbortController();
+      const pubTimer = setTimeout(() => pubController.abort(), 30_000);
+
+      const pubRes = await fetch(publishUrl, {
+        method: 'POST',
+        signal: pubController.signal,
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          creation_id: testContainerId,
+          access_token: creds.accessToken,
+        }).toString(),
+      });
+      clearTimeout(pubTimer);
+
+      const pubData = await pubRes.json().catch(() => ({}));
+      console.log('[instagram-diag] media_publish response:', JSON.stringify(pubData));
+
+      if (pubData.error) {
+        publishTestResult = {
+          success: false,
+          error: `Code ${pubData.error.code}${pubData.error.error_subcode ? ` (subcode ${pubData.error.error_subcode})` : ''}: ${pubData.error.message}`,
+        };
+        recommendations.push(
+          `CRITICAL: Container creation works but media_publish FAILS! Error: ${pubData.error.message}. ` +
+          'This is the EXACT step where real posts fail. Possible causes: ' +
+          '1) App is in Development mode and needs to go Live. ' +
+          '2) instagram_business_content_publish needs App Review approval. ' +
+          '3) MEDIA_CREATOR account — try switching to BUSINESS in Instagram settings.'
+        );
+      } else if (pubData.id) {
+        publishTestResult = { success: true, mediaId: pubData.id };
+        recommendations.push(
+          `FULL PUBLISH TEST PASSED! Post created (ID: ${pubData.id}). ` +
+          'Attempting to delete test post...'
+        );
+
+        // Try to delete the test post
+        try {
+          const deleteUrl = `${GRAPH_BASE}/${encodeURIComponent(pubData.id)}?access_token=${encodeURIComponent(creds.accessToken)}`;
+          const delRes = await fetch(deleteUrl, { method: 'DELETE' });
+          const delData = await delRes.json().catch(() => ({}));
+          if (delData.success) {
+            publishTestResult.deleted = true;
+            recommendations.push('Test post deleted successfully. Full publishing pipeline is working.');
+          } else {
+            publishTestResult.deleted = false;
+            recommendations.push(
+              'Test post was published but could not be auto-deleted. ' +
+              'Please delete it manually from Instagram. The publishing pipeline IS working.'
+            );
+          }
+        } catch {
+          publishTestResult.deleted = false;
+          recommendations.push('Test post was published but delete request failed. Delete it manually.');
+        }
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Unknown error';
+      publishTestResult = { success: false, error: `media_publish request failed: ${msg}` };
+    }
+  } else if (testContainerId && containerStatusResult?.status !== 'FINISHED') {
+    publishTestResult = { success: false, error: 'Skipped — container did not reach FINISHED status.' };
+  }
+
+  // Step 7: Test media URL accessibility with real media from this bot
+  let mediaUrlTest: { configured: boolean; baseUrl?: string; testUrl?: string; accessible?: boolean; error?: string; contentType?: string } | null = null;
+
+  const MEDIA_DIRECT_BASE = process.env.MEDIA_DIRECT_BASE;
+  const UPLOAD_DIR = path.join(process.cwd(), 'data', 'uploads');
+
+  try {
+    const recentMedia = await db.media.findFirst({
+      where: { botId, type: 'IMAGE' },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, filePath: true, filename: true, mimeType: true },
+    });
+
+    if (!recentMedia) {
+      mediaUrlTest = { configured: !!MEDIA_DIRECT_BASE, baseUrl: MEDIA_DIRECT_BASE || 'NOT SET', error: 'No images in media library to test.' };
+    } else {
+      let testUrl: string;
+
+      if (MEDIA_DIRECT_BASE && recentMedia.filePath) {
+        testUrl = `${MEDIA_DIRECT_BASE}/${recentMedia.filePath}`;
+        mediaUrlTest = { configured: true, baseUrl: MEDIA_DIRECT_BASE, testUrl };
+      } else {
+        const baseUrl = process.env.NEXTAUTH_URL || 'https://grothi.com';
+        testUrl = `${baseUrl}/api/media/${encodeURIComponent(recentMedia.id)}`;
+        mediaUrlTest = { configured: false, baseUrl: 'NOT SET (using Cloudflare path)', testUrl };
+
+        if (!MEDIA_DIRECT_BASE) {
+          recommendations.push(
+            'MEDIA_DIRECT_BASE is NOT SET. Media URLs go through Cloudflare (grothi.com/api/media/...) ' +
+            'which BLOCKS Meta crawlers. Instagram cannot download your images! ' +
+            'Set MEDIA_DIRECT_BASE=http://89.167.18.92:8787 in .env and configure Nginx to serve /data/uploads/ on port 8787.'
+          );
+        }
+      }
+
+      // Test if Meta crawlers can access the URL
+      console.log('[instagram-diag] Step 7: Testing media URL accessibility:', testUrl);
+      const urlCheck = await verifyMediaUrlAccessible(testUrl);
+      mediaUrlTest.accessible = urlCheck.ok;
+      if (!urlCheck.ok) {
+        mediaUrlTest.error = urlCheck.error;
+        recommendations.push(
+          `Media URL NOT ACCESSIBLE: ${urlCheck.error}. ` +
+          `Tested URL: ${testUrl.substring(0, 100)}. ` +
+          'Instagram CANNOT download your images. This is why posts fail!'
+        );
+      } else {
+        recommendations.push(`Media URL accessible. Tested: ${recentMedia.filename} (${recentMedia.mimeType})`);
+      }
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    mediaUrlTest = { configured: !!MEDIA_DIRECT_BASE, error: `Test failed: ${msg}` };
+  }
+
+  // Step 8: Get recent failed posts with exact error messages
+  const recentFailedPosts = await db.scheduledPost.findMany({
+    where: {
+      botId,
+      status: 'FAILED',
+      platforms: { has: 'INSTAGRAM' },
+    },
+    orderBy: { updatedAt: 'desc' },
+    take: 5,
+    select: { id: true, content: true, error: true, createdAt: true, postType: true },
+  });
+
+  if (recentFailedPosts.length > 0) {
+    const uniqueErrors = [...new Set(recentFailedPosts.map(p => p.error).filter(Boolean))];
+    recommendations.push(
+      `${recentFailedPosts.length} recent failed Instagram post(s). ` +
+      `Error(s): ${uniqueErrors.join(' | ') || 'No error message stored'}`
+    );
   }
 
   // If token is valid and account readable, fix the ERROR status left from old bugs
@@ -1530,9 +1715,19 @@ export async function runDiagnostics(botId: string): Promise<{
     recommendations.push('Connection status updated from ERROR → CONNECTED (token is working).');
   }
 
-  // Final summary recommendation
-  if (tokenDebug.isValid && accountInfo && publishPermission) {
-    recommendations.push('ALL CHECKS PASSED. Instagram integration is working correctly.');
+  // Final summary
+  const fullPublishWorks = publishTestResult?.success === true;
+  if (fullPublishWorks) {
+    recommendations.push('ALL CHECKS PASSED including FULL PUBLISH TEST. Instagram integration is fully working.');
+  } else if (tokenDebug.isValid && publishPermission && containerStatusResult?.status === 'FINISHED' && !publishTestResult?.success) {
+    recommendations.push(
+      'Container creation + processing works, but media_publish FAILS. ' +
+      'This is a PERMISSION issue at the Meta app level. ' +
+      'Check: 1) Is the app Live or Development? 2) Is content_publish approved via App Review? ' +
+      '3) Is the IG account owner listed as Admin/Developer in Meta App Dashboard?'
+    );
+  } else if (tokenDebug.isValid && publishPermission) {
+    recommendations.push('Container creation works. Check media URL accessibility and post errors above.');
   }
 
   return {
@@ -1541,6 +1736,16 @@ export async function runDiagnostics(botId: string): Promise<{
     accountInfo,
     publishPermission,
     testContainerResult,
+    containerStatusResult,
+    publishTestResult,
+    mediaUrlTest,
+    recentFailedPosts: recentFailedPosts.map(p => ({
+      id: p.id,
+      content: p.content.substring(0, 100),
+      error: p.error,
+      createdAt: p.createdAt.toISOString(),
+      postType: p.postType,
+    })),
     recommendations,
   };
 }
