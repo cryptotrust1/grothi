@@ -54,10 +54,11 @@ const UPLOAD_DIR = path.join(process.cwd(), 'data', 'uploads');
 
 /**
  * Direct media URL base for Meta platforms (Instagram, Threads, Facebook).
- * When set (e.g., "http://89.167.18.92:8787/media"), media files are served
- * directly via Nginx on the server IP, bypassing Cloudflare entirely.
- * This is needed because Cloudflare's bot protection blocks Meta's crawlers
- * from downloading images, causing Instagram error code 2.
+ * When set (e.g., "https://grothi.com/media"), media files are served
+ * directly by Nginx from disk, bypassing the Next.js API route.
+ * IMPORTANT: Meta's infrastructure requires HTTPS + domain name + standard port (443).
+ * Raw IP addresses and non-standard ports (e.g., http://IP:8787) are blocked by Meta.
+ * The /media/ location in nginx-grothi.conf serves from data/uploads/ with gzip off.
  */
 const MEDIA_DIRECT_BASE = process.env.MEDIA_DIRECT_BASE;
 

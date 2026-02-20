@@ -1745,9 +1745,10 @@ export async function runDiagnostics(botId: string): Promise<{
 
         if (!MEDIA_DIRECT_BASE) {
           recommendations.push(
-            'MEDIA_DIRECT_BASE is NOT SET. Media URLs go through Cloudflare (grothi.com/api/media/...) ' +
-            'which BLOCKS Meta crawlers. Instagram cannot download your images! ' +
-            'Set MEDIA_DIRECT_BASE=http://89.167.18.92:8787 in .env and configure Nginx to serve /data/uploads/ on port 8787.'
+            'MEDIA_DIRECT_BASE is NOT SET. Media URLs go through the Next.js API route (grothi.com/api/media/...) ' +
+            'which adds overhead and may be blocked by Cloudflare bot protection. ' +
+            'Set MEDIA_DIRECT_BASE=https://grothi.com/media in .env to serve files directly via Nginx. ' +
+            'Ensure the /media/ location is configured in the main Nginx server block (see server/nginx-grothi.conf).'
           );
         }
       }
