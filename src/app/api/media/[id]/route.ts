@@ -82,12 +82,46 @@ export async function GET(
       const { createReadStream } = await import('fs');
       const stream = createReadStream(filePath, { start, end });
 
-      // Convert Node.js Readable to Web ReadableStream
+      // Convert Node.js Readable to Web ReadableStream.
+      // Track closed state to prevent ERR_INVALID_STATE when data arrives
+      // after the controller has been closed (race condition in Node streams).
       const webStream = new ReadableStream({
         start(controller) {
-          stream.on('data', (chunk) => controller.enqueue(new Uint8Array(Buffer.from(chunk))));
-          stream.on('end', () => controller.close());
-          stream.on('error', (err) => controller.error(err));
+          let closed = false;
+          stream.on('data', (chunk) => {
+            if (!closed) {
+              try {
+                controller.enqueue(new Uint8Array(Buffer.from(chunk)));
+              } catch {
+                // Controller already closed — ignore
+                closed = true;
+              }
+            }
+          });
+          stream.on('end', () => {
+            if (!closed) {
+              closed = true;
+              try {
+                controller.close();
+              } catch {
+                // Already closed — ignore
+              }
+            }
+          });
+          stream.on('error', (err) => {
+            if (!closed) {
+              closed = true;
+              try {
+                controller.error(err);
+              } catch {
+                // Already closed/errored — ignore
+              }
+            }
+          });
+        },
+        cancel() {
+          // Client disconnected — destroy the file stream to free resources
+          stream.destroy();
         },
       });
 
