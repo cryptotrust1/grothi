@@ -100,6 +100,7 @@ export default async function ManualPostPage({
     const mediaId = (formData.get('mediaId') as string) || null;
     const action = formData.get('action') as string;
     const scheduledAt = formData.get('scheduledAt') as string;
+    const postType = (formData.get('postType') as string) || null;
 
     // Validate media ownership
     if (mediaId) {
@@ -212,6 +213,7 @@ export default async function ManualPostPage({
         content,
         contentType: 'custom',
         mediaId,
+        postType: postType || null,
         platforms: platformsRaw,
         scheduledAt: finalScheduledAt,
         autoSchedule: false,
