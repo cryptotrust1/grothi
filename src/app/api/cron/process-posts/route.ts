@@ -146,6 +146,30 @@ export async function POST(request: NextRequest) {
 
   const now = new Date();
 
+  // Recovery: Find posts stuck in PUBLISHING state for more than 5 minutes.
+  // This happens when the process crashes or times out during publishing.
+  // Reset them to FAILED so they don't block the queue forever.
+  const stuckThreshold = new Date(now.getTime() - 5 * 60 * 1000);
+  try {
+    const stuckPosts = await db.scheduledPost.updateMany({
+      where: {
+        status: 'PUBLISHING',
+        updatedAt: { lt: stuckThreshold },
+      },
+      data: {
+        status: 'FAILED',
+        error: 'Publishing timed out (stuck in PUBLISHING state for >5 minutes). The post may have been partially published. Check your Instagram/platform account and retry if needed.',
+      },
+    });
+    if (stuckPosts.count > 0) {
+      console.warn(`[process-posts] Recovered ${stuckPosts.count} stuck PUBLISHING post(s) → FAILED`);
+    }
+  } catch (e) {
+    // Don't let recovery failure block normal processing
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    console.error(`[process-posts] Stuck post recovery failed: ${msg}`);
+  }
+
   // Find posts due for publishing
   const duePosts = await db.scheduledPost.findMany({
     where: {
@@ -358,7 +382,7 @@ async function publishToPlatform(
       return publishToInstagram(conn, content, mediaPath, mediaType, mediaId, mediaMimeType, postType, mediaIds);
 
     case 'THREADS':
-      return publishToThreads(conn, content, mediaPath, mediaType);
+      return publishToThreads(conn, content, mediaPath, mediaType, mediaMimeType);
 
     default:
       return {
@@ -523,12 +547,13 @@ async function publishToInstagram(
       }
     }
 
-    // Determine the effective post type:
-    // 1. VIDEO media ALWAYS uses 'reel' — Instagram does not support video in feed
-    //    posts via the Container API (image_url param). Videos require media_type=REELS
-    //    with video_url. If user selected 'feed' for a video, override to 'reel'.
-    // 2. Use explicit postType if set (for non-video)
-    // 3. Auto-detect: multiple mediaIds → carousel, else → feed
+    // Determine the effective post type with safety overrides:
+    // 1. VIDEO media ALWAYS uses 'reel' (or 'story') — Instagram does not support
+    //    video in feed posts via the Container API (image_url param).
+    //    Videos require media_type=REELS with video_url.
+    // 2. IMAGE media CANNOT be a 'reel' — Reels require video. Override to 'feed'.
+    // 3. Use explicit postType if valid for the media type.
+    // 4. Auto-detect: multiple mediaIds → carousel, else → feed.
     let effectivePostType: string;
     if (mediaType === 'VIDEO') {
       if (postType && postType !== 'reel' && postType !== 'story') {
@@ -539,9 +564,18 @@ async function publishToInstagram(
       }
       effectivePostType = (postType === 'story') ? 'story' : 'reel';
     } else {
-      effectivePostType = postType
-        || (mediaIds && mediaIds.length >= 2 ? 'carousel' : null)
-        || 'feed';
+      // IMAGE or GIF — cannot be reel (reel requires video)
+      if (postType === 'reel') {
+        console.warn(
+          `[process-posts] Instagram: overriding postType "reel" → "feed" because media is ${mediaType || 'IMAGE'}. ` +
+          `Instagram Reels require video content. Images can only be posted as feed, story, or carousel.`
+        );
+        effectivePostType = 'feed';
+      } else {
+        effectivePostType = postType
+          || (mediaIds && mediaIds.length >= 2 ? 'carousel' : null)
+          || 'feed';
+      }
     }
 
     console.log(`[process-posts] Instagram: effective post type: ${effectivePostType}`);
@@ -670,7 +704,8 @@ async function publishToThreads(
   conn: any,
   content: string,
   mediaPath: string | null,
-  mediaType: 'IMAGE' | 'VIDEO' | 'GIF' | null
+  mediaType: 'IMAGE' | 'VIDEO' | 'GIF' | null,
+  mediaMimeType: string | null = null
 ): Promise<{ success: boolean; externalId?: string; error?: string }> {
   try {
     const creds = decryptThreadsCredentials(conn);
@@ -687,24 +722,39 @@ async function publishToThreads(
     let result: ThreadsPostResult;
 
     if (mediaPath) {
+      // Convert non-JPEG images to JPEG for Threads compatibility.
+      // Threads can be strict about certain image formats (especially AI-generated PNGs
+      // with alpha channels). Converting to JPEG ensures consistent behavior.
+      let threadsMediaPath = mediaPath;
+      if (mediaType === 'IMAGE' && mediaMimeType && IG_CONVERT_TO_JPEG_MIMES.includes(mediaMimeType.toLowerCase())) {
+        console.log(`[process-posts] Threads: converting ${mediaMimeType} → JPEG for compatibility`);
+        const jpegPath = await convertToJpegForInstagram(threadsMediaPath, mediaMimeType);
+        if (jpegPath) {
+          threadsMediaPath = jpegPath;
+          console.log(`[process-posts] Threads: using converted JPEG: ${jpegPath}`);
+        } else {
+          console.warn('[process-posts] Threads: JPEG conversion failed, using original file');
+        }
+      }
+
       let mediaUrl: string;
 
-      if (mediaPath.startsWith('http://') || mediaPath.startsWith('https://')) {
-        mediaUrl = mediaPath;
+      if (threadsMediaPath.startsWith('http://') || threadsMediaPath.startsWith('https://')) {
+        mediaUrl = threadsMediaPath;
       } else if (MEDIA_DIRECT_BASE) {
         // Direct path: Nginx serves the file from disk, bypasses Cloudflare
-        const absPath = path.resolve(path.join(UPLOAD_DIR, mediaPath));
+        const absPath = path.resolve(path.join(UPLOAD_DIR, threadsMediaPath));
         if (!existsSync(absPath)) {
           console.error(`[process-posts] Threads: media file NOT FOUND: ${absPath}`);
-          return { success: false, error: `Media file not found on disk: ${mediaPath}` };
+          return { success: false, error: `Media file not found on disk: ${threadsMediaPath}` };
         }
-        mediaUrl = `${MEDIA_DIRECT_BASE}/${mediaPath}`;
+        mediaUrl = `${MEDIA_DIRECT_BASE}/${threadsMediaPath}`;
         console.log(`[process-posts] Threads publishing via DIRECT URL (bypasses Cloudflare): ${mediaUrl}`);
       } else {
         // Fallback: API endpoint through Cloudflare
         const baseUrl = process.env.NEXTAUTH_URL || 'https://grothi.com';
         const media = await db.media.findFirst({
-          where: { filePath: mediaPath },
+          where: { filePath: threadsMediaPath },
           select: { id: true },
         });
 
