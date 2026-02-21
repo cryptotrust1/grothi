@@ -381,6 +381,109 @@ export async function postWithVideo(
 }
 
 /**
+ * Publish a Reel (short-form vertical video) to a Facebook Page.
+ *
+ * Uses the 3-step Resumable Upload API:
+ * 1. Initialize upload session → get video_id
+ * 2. Upload video binary to rupload.facebook.com
+ * 3. Finish upload and publish with description
+ *
+ * Reels appear in the Page's Reels tab and get broader organic distribution.
+ * Recommended: 9:16 vertical, 3s-90s, MP4 H.264+AAC.
+ *
+ * Docs: https://developers.facebook.com/docs/video-api/guides/reels-publishing
+ */
+export async function postReel(
+  creds: FacebookCredentials,
+  description: string,
+  videoPath: string
+): Promise<FacebookPostResult> {
+  try {
+    // Verify file exists
+    try {
+      await fs.access(videoPath);
+    } catch {
+      return { success: false, error: `Video file not found: ${path.basename(videoPath)}. It may have been deleted.` };
+    }
+
+    const fileBuffer = await fs.readFile(videoPath);
+    const fileSize = fileBuffer.byteLength;
+
+    // Step 1: Initialize upload session
+    const initUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.pageId)}/video_reels`;
+    const { data: initData } = await graphFetch(initUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        upload_phase: 'start',
+        access_token: creds.accessToken,
+      }),
+    });
+
+    if (isGraphError(initData)) {
+      return { success: false, error: friendlyFbError(initData) };
+    }
+
+    const videoId = initData.video_id;
+    if (!videoId) {
+      return { success: false, error: 'Facebook did not return a video_id for Reel upload.' };
+    }
+
+    // Step 2: Upload video binary to rupload endpoint
+    const uploadUrl = `https://rupload.facebook.com/video-upload/${FB_GRAPH_VERSION}/${encodeURIComponent(videoId)}`;
+    const uploadController = new AbortController();
+    const uploadTimer = setTimeout(() => uploadController.abort(), 120_000); // 2 min timeout for upload
+
+    try {
+      const uploadRes = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `OAuth ${creds.accessToken}`,
+          file_size: String(fileSize),
+          'Content-Type': 'application/octet-stream',
+        },
+        body: fileBuffer,
+        signal: uploadController.signal,
+      });
+      clearTimeout(uploadTimer);
+
+      if (!uploadRes.ok) {
+        const errorBody = await uploadRes.text().catch(() => 'Unknown upload error');
+        return { success: false, error: `Reel upload failed (HTTP ${uploadRes.status}): ${errorBody.slice(0, 200)}` };
+      }
+    } catch (e) {
+      clearTimeout(uploadTimer);
+      if (e instanceof Error && e.name === 'AbortError') {
+        return { success: false, error: 'Reel video upload timed out (2 minutes). File may be too large.' };
+      }
+      throw e;
+    }
+
+    // Step 3: Finish and publish
+    const finishUrl = `${GRAPH_BASE}/${encodeURIComponent(creds.pageId)}/video_reels`;
+    const { data: finishData } = await graphFetch(finishUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        upload_phase: 'finish',
+        video_id: videoId,
+        description,
+        access_token: creds.accessToken,
+      }),
+    });
+
+    if (isGraphError(finishData)) {
+      return { success: false, error: friendlyFbError(finishData) };
+    }
+
+    return { success: true, postId: finishData.video_id || videoId };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Network error';
+    return { success: false, error: msg };
+  }
+}
+
+/**
  * Create a scheduled post on Facebook (server-side scheduling via Graph API).
  */
 export async function postScheduled(

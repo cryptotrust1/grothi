@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { botId, content, contentType, mediaId, platforms, platformContent, scheduledAt, autoSchedule, postType, mediaIds } = body;
+    const { botId, content, contentType, mediaId, platforms, platformContent, scheduledAt, autoSchedule, postType, mediaIds, fbPostType, threadsPostType } = body;
 
     if (!botId || !content) {
       return NextResponse.json({ error: 'botId and content are required' }, { status: 400 });
@@ -91,11 +91,29 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Validate postType if provided
-    const validPostTypes = ['feed', 'reel', 'story', 'carousel'];
-    if (postType && !validPostTypes.includes(postType)) {
+    // Validate postType (Instagram) if provided
+    const validIgPostTypes = ['feed', 'reel', 'story', 'carousel'];
+    if (postType && !validIgPostTypes.includes(postType)) {
       return NextResponse.json(
-        { error: `Invalid postType: ${postType}. Must be one of: ${validPostTypes.join(', ')}` },
+        { error: `Invalid postType: ${postType}. Must be one of: ${validIgPostTypes.join(', ')}` },
+        { status: 400 }
+      );
+    }
+
+    // Validate fbPostType (Facebook) if provided
+    const validFbPostTypes = ['text', 'photo', 'video', 'reel', 'link'];
+    if (fbPostType && !validFbPostTypes.includes(fbPostType)) {
+      return NextResponse.json(
+        { error: `Invalid fbPostType: ${fbPostType}. Must be one of: ${validFbPostTypes.join(', ')}` },
+        { status: 400 }
+      );
+    }
+
+    // Validate threadsPostType (Threads) if provided
+    const validThreadsPostTypes = ['text', 'image', 'video', 'carousel'];
+    if (threadsPostType && !validThreadsPostTypes.includes(threadsPostType)) {
+      return NextResponse.json(
+        { error: `Invalid threadsPostType: ${threadsPostType}. Must be one of: ${validThreadsPostTypes.join(', ')}` },
         { status: 400 }
       );
     }
@@ -155,6 +173,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Combine per-platform post types into JSON for storage
+    const postTypeMap: Record<string, string> = {};
+    if (postType) postTypeMap.instagram = postType;
+    if (fbPostType) postTypeMap.facebook = fbPostType;
+    if (threadsPostType) postTypeMap.threads = threadsPostType;
+    const finalPostType = Object.keys(postTypeMap).length > 0 ? JSON.stringify(postTypeMap) : null;
+
     const status = finalScheduledAt ? 'SCHEDULED' : 'DRAFT';
 
     const post = await db.scheduledPost.create({
@@ -163,7 +188,7 @@ export async function POST(request: NextRequest) {
         content,
         contentType: contentType || 'custom',
         mediaId: mediaId || null,
-        postType: postType || null,
+        postType: finalPostType,
         mediaIds: validatedMediaIds ?? undefined,
         platforms: selectedPlatforms,
         platformContent: platformContent || null,

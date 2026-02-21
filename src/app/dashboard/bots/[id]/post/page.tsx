@@ -100,7 +100,16 @@ export default async function ManualPostPage({
     const mediaId = (formData.get('mediaId') as string) || null;
     const action = formData.get('action') as string;
     const scheduledAt = formData.get('scheduledAt') as string;
-    const postType = (formData.get('postType') as string) || null;
+    const igPostType = (formData.get('postType') as string) || null;
+    const fbPostType = (formData.get('fbPostType') as string) || null;
+    const threadsPostType = (formData.get('threadsPostType') as string) || null;
+
+    // Combine per-platform post types into JSON string for storage
+    const postTypeMap: Record<string, string> = {};
+    if (igPostType) postTypeMap.instagram = igPostType;
+    if (fbPostType) postTypeMap.facebook = fbPostType;
+    if (threadsPostType) postTypeMap.threads = threadsPostType;
+    const postType = Object.keys(postTypeMap).length > 0 ? JSON.stringify(postTypeMap) : null;
 
     // Validate media ownership
     if (mediaId) {
