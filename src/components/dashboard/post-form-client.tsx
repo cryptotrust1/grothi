@@ -110,6 +110,8 @@ export function PostFormClient({
   const [selectedMediaId, setSelectedMediaId] = useState<string>(preSelectedMediaId || '');
   const [scheduledAt, setScheduledAt] = useState('');
   const [postType, setPostType] = useState('');
+  const [fbPostType, setFbPostType] = useState('');
+  const [threadsPostType, setThreadsPostType] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showDimensions, setShowDimensions] = useState(false);
 
@@ -357,6 +359,8 @@ export function PostFormClient({
     if (selectedMediaId) addHidden('mediaId', selectedMediaId);
     if (scheduledAt) addHidden('scheduledAt', scheduledAt);
     if (postType) addHidden('postType', postType);
+    if (fbPostType) addHidden('fbPostType', fbPostType);
+    if (threadsPostType) addHidden('threadsPostType', threadsPostType);
     for (const p of Array.from(selectedPlatforms)) {
       addHidden('platforms', p);
     }
@@ -613,6 +617,63 @@ export function PostFormClient({
                         <p><strong>Image specs:</strong> JPEG, 4:5 to 1.91:1 ratio, max 8MB. Best: 1080x1080 or 1080x1350</p>
                         <p><strong>Video/Reel:</strong> MP4, H.264+AAC, 3s-15min, max 300MB. Best: 1080x1920 (9:16)</p>
                         <p><strong>Story:</strong> JPEG or MP4, 9:16, max 60s video. Captions not supported via API.</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ═══════ Facebook Post Type ═══════ */}
+                  {selectedPlatforms.has('FACEBOOK') && (
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-1">
+                        <Film className="h-4 w-4" />
+                        Facebook Post Type
+                        <HelpTip text="Choose how this post appears on Facebook. Text = text-only post, Photo = image with caption, Video = standard video post, Reel = short-form vertical video (9:16) shown in the Reels tab, Link = post with a URL link preview." />
+                      </Label>
+                      <select
+                        value={fbPostType}
+                        onChange={(e) => setFbPostType(e.target.value)}
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      >
+                        <option value="">Auto-detect (based on media type)</option>
+                        <option value="text">Text Post (text only)</option>
+                        <option value="photo">Photo Post (image with caption)</option>
+                        <option value="video">Video Post (standard video)</option>
+                        <option value="reel">Reel (vertical video, 9:16)</option>
+                        <option value="link">Link Post (URL with preview card)</option>
+                      </select>
+                      <div className="text-xs text-muted-foreground space-y-0.5">
+                        <p><strong>Photo:</strong> JPEG/PNG/GIF/WebP, max 8MB. Best: 1200x630 (1.91:1) or 1200x1200</p>
+                        <p><strong>Video:</strong> MP4/MOV, H.264+AAC, max 1GB. Best: 1280x720 (16:9)</p>
+                        <p><strong>Reel:</strong> MP4/MOV, 9:16 vertical, 3s-15min, max 1GB. Best: 1080x1920</p>
+                        <p><strong>Link:</strong> Include a URL in your text — Facebook auto-generates the preview card.</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ═══════ Threads Post Type ═══════ */}
+                  {selectedPlatforms.has('THREADS') && (
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-1">
+                        <Film className="h-4 w-4" />
+                        Threads Post Type
+                        <HelpTip text="Choose how this post appears on Threads. Text = text-only post (max 500 chars), Image = single image with caption, Video = single video with caption, Carousel = swipeable gallery of 2-20 images or videos." />
+                      </Label>
+                      <select
+                        value={threadsPostType}
+                        onChange={(e) => setThreadsPostType(e.target.value)}
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      >
+                        <option value="">Auto-detect (based on media type)</option>
+                        <option value="text">Text Post (text only, max 500 chars)</option>
+                        <option value="image">Image Post (single image with caption)</option>
+                        <option value="video">Video Post (single video with caption)</option>
+                        <option value="carousel">Carousel (2-20 images/videos)</option>
+                      </select>
+                      <div className="text-xs text-muted-foreground space-y-0.5">
+                        <p><strong>Text:</strong> Max 500 characters. Supports link attachments for URL previews.</p>
+                        <p><strong>Image:</strong> JPEG/PNG, max 8MB. Best: 1080x1080 (1:1) or 1080x1350 (4:5)</p>
+                        <p><strong>Video:</strong> MP4/MOV, max 500MB, max 5min. Best: 1080x1920 (9:16)</p>
+                        <p><strong>Carousel:</strong> 2-20 images or videos. Each item can have different aspect ratios.</p>
                       </div>
                     </div>
                   )}

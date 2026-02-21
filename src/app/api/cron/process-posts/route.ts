@@ -23,6 +23,7 @@ import {
   postText,
   postWithImage,
   postWithVideo as fbPostWithVideo,
+  postReel as fbPostReel,
   type FacebookPostResult,
 } from '@/lib/facebook';
 import {
@@ -41,6 +42,7 @@ import {
   postText as threadsPostText,
   postWithImage as threadsPostWithImage,
   postWithVideo as threadsPostWithVideo,
+  postCarousel as threadsPostCarousel,
   isTokenNearExpiry,
   type ThreadsPostResult,
 } from '@/lib/threads';
@@ -350,6 +352,33 @@ export async function POST(request: NextRequest) {
 }
 
 /**
+ * Parse the postType field which may be:
+ * - null (no post type specified)
+ * - A plain string like "reel" (legacy Instagram-only format)
+ * - A JSON string like '{"instagram":"reel","facebook":"photo","threads":"text"}'
+ */
+function parsePostTypes(postType: string | null): {
+  instagram: string | null;
+  facebook: string | null;
+  threads: string | null;
+} {
+  if (!postType) return { instagram: null, facebook: null, threads: null };
+  try {
+    const parsed = JSON.parse(postType);
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+      return {
+        instagram: parsed.instagram || null,
+        facebook: parsed.facebook || null,
+        threads: parsed.threads || null,
+      };
+    }
+  } catch {
+    // Legacy: plain string applies to Instagram only
+  }
+  return { instagram: postType, facebook: null, threads: null };
+}
+
+/**
  * Publish content to a specific platform.
  * Currently supports: FACEBOOK.
  * Other platforms return a "not implemented" placeholder.
@@ -362,7 +391,7 @@ async function publishToPlatform(
   mediaType: 'IMAGE' | 'VIDEO' | 'GIF' | null,
   mediaMimeType: string | null,
   mediaId: string | null,
-  postType: 'feed' | 'reel' | 'story' | 'carousel' | null = null,
+  postTypeRaw: string | null = null,
   mediaIds: string[] | null = null
 ): Promise<{ success: boolean; externalId?: string; error?: string }> {
   // Get platform connection
@@ -374,15 +403,22 @@ async function publishToPlatform(
     return { success: false, error: `${platform} not connected` };
   }
 
+  // Parse per-platform post types from the JSON field
+  const postTypes = parsePostTypes(postTypeRaw);
+
   switch (platform) {
     case 'FACEBOOK':
-      return publishToFacebook(conn, content, mediaPath, mediaType);
+      return publishToFacebook(conn, content, mediaPath, mediaType, postTypes.facebook);
 
     case 'INSTAGRAM':
-      return publishToInstagram(conn, content, mediaPath, mediaType, mediaId, mediaMimeType, postType, mediaIds);
+      return publishToInstagram(
+        conn, content, mediaPath, mediaType, mediaId, mediaMimeType,
+        (postTypes.instagram as 'feed' | 'reel' | 'story' | 'carousel' | null),
+        mediaIds
+      );
 
     case 'THREADS':
-      return publishToThreads(conn, content, mediaPath, mediaType, mediaMimeType);
+      return publishToThreads(conn, botId, content, mediaPath, mediaType, mediaMimeType, postTypes.threads, mediaIds);
 
     default:
       return {
@@ -396,7 +432,8 @@ async function publishToFacebook(
   conn: any,
   content: string,
   mediaPath: string | null,
-  mediaType: 'IMAGE' | 'VIDEO' | 'GIF' | null
+  mediaType: 'IMAGE' | 'VIDEO' | 'GIF' | null,
+  fbPostType: string | null = null
 ): Promise<{ success: boolean; externalId?: string; error?: string }> {
   try {
     const creds = decryptFacebookCredentials(conn);
@@ -415,11 +452,27 @@ async function publishToFacebook(
       }
 
       if (mediaType === 'VIDEO') {
-        result = await fbPostWithVideo(creds, content, absPath);
+        // Determine effective post type for video
+        // User can choose 'reel' for vertical video or 'video' for standard video
+        const effectiveFbType = fbPostType || 'video'; // default: standard video
+
+        if (effectiveFbType === 'reel') {
+          console.log('[process-posts] Facebook: posting as Reel (vertical video)');
+          result = await fbPostReel(creds, content, absPath);
+        } else {
+          console.log('[process-posts] Facebook: posting as standard Video');
+          result = await fbPostWithVideo(creds, content, absPath);
+        }
       } else {
+        // Image post
+        console.log('[process-posts] Facebook: posting as Photo');
         result = await postWithImage(creds, content, absPath);
       }
     } else {
+      // No media — text or link post
+      // For 'link' post type, the URL in the content auto-generates a preview
+      // Both text and link posts use the same endpoint (/{page-id}/feed)
+      console.log(`[process-posts] Facebook: posting as ${fbPostType === 'link' ? 'Link' : 'Text'} post`);
       result = await postText(creds, content);
     }
 
@@ -696,16 +749,25 @@ async function publishToInstagram(
 /**
  * Publish content to Threads.
  *
- * Threads supports both text-only and image posts.
+ * Threads supports text-only, image, video, and carousel posts.
  * Uses the 2-step Container API: create container → publish.
- * For image posts, requires a publicly accessible image URL.
+ * For media posts, requires a publicly accessible URL.
+ *
+ * Post types (media_type in Threads API):
+ * - TEXT: text-only (max 500 chars)
+ * - IMAGE: single image with caption
+ * - VIDEO: single video with caption (max 500MB, max 5min)
+ * - CAROUSEL: 2-20 images/videos in a swipeable gallery
  */
 async function publishToThreads(
   conn: any,
+  botId: string,
   content: string,
   mediaPath: string | null,
   mediaType: 'IMAGE' | 'VIDEO' | 'GIF' | null,
-  mediaMimeType: string | null = null
+  mediaMimeType: string | null = null,
+  threadsPostType: string | null = null,
+  mediaIds: string[] | null = null
 ): Promise<{ success: boolean; externalId?: string; error?: string }> {
   try {
     const creds = decryptThreadsCredentials(conn);
@@ -719,65 +781,163 @@ async function publishToThreads(
       );
     }
 
-    let result: ThreadsPostResult;
-
-    if (mediaPath) {
-      // Convert non-JPEG images to JPEG for Threads compatibility.
-      // Threads can be strict about certain image formats (especially AI-generated PNGs
-      // with alpha channels). Converting to JPEG ensures consistent behavior.
-      let threadsMediaPath = mediaPath;
-      if (mediaType === 'IMAGE' && mediaMimeType && IG_CONVERT_TO_JPEG_MIMES.includes(mediaMimeType.toLowerCase())) {
-        console.log(`[process-posts] Threads: converting ${mediaMimeType} → JPEG for compatibility`);
-        const jpegPath = await convertToJpegForInstagram(threadsMediaPath, mediaMimeType);
-        if (jpegPath) {
-          threadsMediaPath = jpegPath;
-          console.log(`[process-posts] Threads: using converted JPEG: ${jpegPath}`);
-        } else {
-          console.warn('[process-posts] Threads: JPEG conversion failed, using original file');
-        }
+    /**
+     * Resolve a media file path to a publicly accessible URL for the Threads API.
+     */
+    const resolveThreadsMediaUrl = async (filePath: string, mId?: string | null): Promise<string | null> => {
+      // Convert non-JPEG images for Threads compatibility
+      let resolvedPath = filePath;
+      const mime = mediaMimeType; // Use the primary media's MIME type for single-media posts
+      if (mediaType === 'IMAGE' && mime && IG_CONVERT_TO_JPEG_MIMES.includes(mime.toLowerCase())) {
+        const jpegPath = await convertToJpegForInstagram(resolvedPath, mime);
+        if (jpegPath) resolvedPath = jpegPath;
       }
 
-      let mediaUrl: string;
+      if (resolvedPath.startsWith('http://') || resolvedPath.startsWith('https://')) {
+        return resolvedPath;
+      }
 
-      if (threadsMediaPath.startsWith('http://') || threadsMediaPath.startsWith('https://')) {
-        mediaUrl = threadsMediaPath;
-      } else if (MEDIA_DIRECT_BASE) {
-        // Direct path: Nginx serves the file from disk, bypasses Cloudflare
-        const absPath = path.resolve(path.join(UPLOAD_DIR, threadsMediaPath));
+      if (MEDIA_DIRECT_BASE) {
+        const absPath = path.resolve(path.join(UPLOAD_DIR, resolvedPath));
         if (!existsSync(absPath)) {
           console.error(`[process-posts] Threads: media file NOT FOUND: ${absPath}`);
-          return { success: false, error: `Media file not found on disk: ${threadsMediaPath}` };
+          return null;
         }
-        mediaUrl = `${MEDIA_DIRECT_BASE}/${threadsMediaPath}`;
-        console.log(`[process-posts] Threads publishing via DIRECT URL (bypasses Cloudflare): ${mediaUrl}`);
+        return `${MEDIA_DIRECT_BASE}/${resolvedPath}`;
+      }
+
+      const baseUrl = process.env.NEXTAUTH_URL || 'https://grothi.com';
+      const resolvedId = mId || (await db.media.findFirst({
+        where: { filePath: resolvedPath },
+        select: { id: true },
+      }))?.id;
+
+      if (!resolvedId) return null;
+      return `${baseUrl}/api/media/${encodeURIComponent(resolvedId)}`;
+    };
+
+    // Determine effective post type
+    let effectiveType = threadsPostType;
+    if (!effectiveType) {
+      // Auto-detect based on media
+      if (mediaIds && mediaIds.length >= 2) {
+        effectiveType = 'carousel';
+      } else if (mediaPath) {
+        effectiveType = mediaType === 'VIDEO' ? 'video' : 'image';
       } else {
-        // Fallback: API endpoint through Cloudflare
-        const baseUrl = process.env.NEXTAUTH_URL || 'https://grothi.com';
-        const media = await db.media.findFirst({
-          where: { filePath: threadsMediaPath },
-          select: { id: true },
+        effectiveType = 'text';
+      }
+    }
+
+    console.log(`[process-posts] Threads: effective post type: ${effectiveType}`);
+
+    let result: ThreadsPostResult;
+
+    switch (effectiveType) {
+      case 'carousel': {
+        // Carousel post: 2-20 media items
+        const carouselMediaIds = mediaIds || [];
+        if (carouselMediaIds.length < 2) {
+          return { success: false, error: 'Threads carousel requires at least 2 media items.' };
+        }
+
+        const allMedia = await db.media.findMany({
+          where: { id: { in: carouselMediaIds }, botId },
+          select: { id: true, filePath: true, type: true, mimeType: true },
         });
 
-        if (!media) {
-          return {
-            success: false,
-            error: 'Could not find media record for Threads publishing. Set MEDIA_DIRECT_BASE to bypass Cloudflare.',
-          };
+        const imageUrls: string[] = [];
+        for (const m of allMedia) {
+          // Convert non-JPEG images
+          let itemPath = m.filePath;
+          if (m.type === 'IMAGE' && m.mimeType && IG_CONVERT_TO_JPEG_MIMES.includes(m.mimeType.toLowerCase())) {
+            const jpegPath = await convertToJpegForInstagram(m.filePath, m.mimeType);
+            if (jpegPath) itemPath = jpegPath;
+          }
+
+          let itemUrl: string | null;
+          if (MEDIA_DIRECT_BASE) {
+            const absPath = path.resolve(path.join(UPLOAD_DIR, itemPath));
+            if (!existsSync(absPath)) {
+              return { success: false, error: `Carousel item file not found: ${itemPath}` };
+            }
+            itemUrl = `${MEDIA_DIRECT_BASE}/${itemPath}`;
+          } else {
+            const baseUrl = process.env.NEXTAUTH_URL || 'https://grothi.com';
+            itemUrl = `${baseUrl}/api/media/${encodeURIComponent(m.id)}`;
+          }
+
+          imageUrls.push(itemUrl);
         }
 
-        mediaUrl = `${baseUrl}/api/media/${encodeURIComponent(media.id)}`;
-        console.log(`[process-posts] Threads publishing via API URL (through Cloudflare): ${mediaUrl}`);
+        console.log(`[process-posts] Threads: posting Carousel with ${imageUrls.length} items`);
+        result = await threadsPostCarousel(creds, content, imageUrls);
+        break;
       }
 
-      // Use correct posting function based on media type
-      if (mediaType === 'VIDEO') {
-        result = await threadsPostWithVideo(creds, content, mediaUrl);
-      } else {
-        result = await threadsPostWithImage(creds, content, mediaUrl);
+      case 'video': {
+        if (!mediaPath) {
+          return { success: false, error: 'Threads video post requires a video file.' };
+        }
+        const videoUrl = await resolveThreadsMediaUrl(mediaPath, null);
+        if (!videoUrl) {
+          return { success: false, error: 'Could not resolve video URL for Threads.' };
+        }
+        console.log('[process-posts] Threads: posting Video');
+        result = await threadsPostWithVideo(creds, content, videoUrl);
+        break;
       }
-    } else {
-      // Text-only post
-      result = await threadsPostText(creds, content);
+
+      case 'image': {
+        if (!mediaPath) {
+          return { success: false, error: 'Threads image post requires an image file.' };
+        }
+        // Convert non-JPEG images for compatibility
+        let threadsMediaPath = mediaPath;
+        if (mediaType === 'IMAGE' && mediaMimeType && IG_CONVERT_TO_JPEG_MIMES.includes(mediaMimeType.toLowerCase())) {
+          console.log(`[process-posts] Threads: converting ${mediaMimeType} → JPEG for compatibility`);
+          const jpegPath = await convertToJpegForInstagram(threadsMediaPath, mediaMimeType);
+          if (jpegPath) {
+            threadsMediaPath = jpegPath;
+            console.log(`[process-posts] Threads: using converted JPEG: ${jpegPath}`);
+          }
+        }
+
+        const imageUrl = await resolveThreadsMediaUrl(threadsMediaPath, null);
+        if (!imageUrl) {
+          return { success: false, error: 'Could not resolve image URL for Threads.' };
+        }
+        console.log('[process-posts] Threads: posting Image');
+        result = await threadsPostWithImage(creds, content, imageUrl);
+        break;
+      }
+
+      default: {
+        // 'text' or fallback — text-only post
+        if (mediaPath) {
+          // User explicitly chose 'text' but has media attached — still support it.
+          // If they have media, auto-detect the actual type.
+          let threadsMediaPath = mediaPath;
+          if (mediaType === 'IMAGE' && mediaMimeType && IG_CONVERT_TO_JPEG_MIMES.includes(mediaMimeType.toLowerCase())) {
+            const jpegPath = await convertToJpegForInstagram(threadsMediaPath, mediaMimeType);
+            if (jpegPath) threadsMediaPath = jpegPath;
+          }
+
+          const mediaUrl = await resolveThreadsMediaUrl(threadsMediaPath, null);
+          if (mediaUrl) {
+            if (mediaType === 'VIDEO') {
+              result = await threadsPostWithVideo(creds, content, mediaUrl);
+            } else {
+              result = await threadsPostWithImage(creds, content, mediaUrl);
+            }
+            break;
+          }
+        }
+
+        console.log('[process-posts] Threads: posting Text-only');
+        result = await threadsPostText(creds, content);
+        break;
+      }
     }
 
     if (result.success) {
