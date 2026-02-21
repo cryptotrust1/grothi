@@ -1,7 +1,9 @@
 import { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { headers } from 'next/headers';
 import { createPasswordResetToken } from '@/lib/auth';
+import { forgotPasswordLimiter, getClientIp } from '@/lib/rate-limit';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -22,6 +24,17 @@ export default async function ForgotPasswordPage({
 
   async function handleResetRequest(formData: FormData) {
     'use server';
+
+    // Rate limit: max 3 reset requests per 15 minutes per IP
+    const headersList = await headers();
+    const clientIp = getClientIp(headersList);
+    const rateResult = forgotPasswordLimiter.check(clientIp);
+    if (!rateResult.allowed) {
+      const minutes = Math.ceil(rateResult.retryAfterMs / 60_000);
+      redirect('/auth/forgot-password?error=' + encodeURIComponent(
+        `Too many reset requests. Please try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`
+      ));
+    }
 
     const email = (formData.get('email') as string)?.trim().toLowerCase();
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {

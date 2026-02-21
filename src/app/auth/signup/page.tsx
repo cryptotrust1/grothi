@@ -1,8 +1,10 @@
 import { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { headers } from 'next/headers';
 import { getCurrentUser, signUp } from '@/lib/auth';
 import { signUpSchema } from '@/lib/validations';
+import { signUpLimiter, getClientIp } from '@/lib/rate-limit';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -26,6 +28,17 @@ export default async function SignUpPage({
 
   async function handleSignUp(formData: FormData) {
     'use server';
+
+    // Rate limit: max 5 signups per hour per IP
+    const headersList = await headers();
+    const clientIp = getClientIp(headersList);
+    const rateResult = signUpLimiter.check(clientIp);
+    if (!rateResult.allowed) {
+      const minutes = Math.ceil(rateResult.retryAfterMs / 60_000);
+      redirect('/auth/signup?error=' + encodeURIComponent(
+        `Too many registration attempts. Please try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`
+      ));
+    }
 
     const name = formData.get('name') as string;
     const email = formData.get('email') as string;

@@ -1,8 +1,10 @@
 import { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { headers } from 'next/headers';
 import { getCurrentUser, signIn } from '@/lib/auth';
 import { signInSchema } from '@/lib/validations';
+import { signInLimiter, getClientIp } from '@/lib/rate-limit';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -31,6 +33,17 @@ export default async function SignInPage({
 
   async function handleSignIn(formData: FormData) {
     'use server';
+
+    // Rate limit: max 10 attempts per 15 minutes per IP
+    const headersList = await headers();
+    const clientIp = getClientIp(headersList);
+    const rateResult = signInLimiter.check(clientIp);
+    if (!rateResult.allowed) {
+      const minutes = Math.ceil(rateResult.retryAfterMs / 60_000);
+      redirect('/auth/signin?error=' + encodeURIComponent(
+        `Too many sign in attempts. Please try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`
+      ));
+    }
 
     const email = formData.get('email') as string;
     const password = formData.get('password') as string;

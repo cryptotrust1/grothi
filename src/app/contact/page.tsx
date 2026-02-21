@@ -1,7 +1,9 @@
 import { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { headers } from 'next/headers';
 import { db } from '@/lib/db';
+import { contactFormLimiter, getClientIp } from '@/lib/rate-limit';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -13,6 +15,76 @@ export const metadata: Metadata = {
   description: 'Get in touch with the Grothi team. We typically respond within 24 hours.',
 };
 
+// ── Spam detection patterns ─────────────────────────────────────
+
+/** Common spam phrases found in bot submissions. */
+const SPAM_PHRASES = [
+  /\b(viagra|cialis|pharmacy|pills)\b/i,
+  /\b(crypto|bitcoin|forex)\s+(invest|trading|profit)/i,
+  /\b(earn|make)\s+\$?\d+.*\b(per|a)\s+(day|hour|week)\b/i,
+  /\b(work\s+from\s+home|make\s+money\s+online)\b/i,
+  /\bSEO\s+(service|company|agency|expert)/i,
+  /\b(web\s+design|website\s+development)\s+(service|company|agency)/i,
+  /\b(backlink|link\s+building)\b/i,
+  /\bincreas(e|ing)\s+(your\s+)?(traffic|ranking|sales)\b/i,
+  /\bI\s+(noticed|visited|found)\s+(your|the)\s+(website|site)\b/i,
+  /\b(dear\s+)?(sir|madam|webmaster|admin)\b/i,
+  /\b(unsubscribe|opt[\s-]out|remove\s+me)\b/i,
+  /\bfree\s+(trial|quote|consultation|estimate)\b/i,
+];
+
+/** Detect excessive URLs in message (bots often include many links). */
+const URL_PATTERN = /https?:\/\/[^\s]+/gi;
+
+/** Max URLs allowed in a contact message. */
+const MAX_URLS = 2;
+
+/** Minimum time in seconds between page load and form submission.
+ *  Humans take at least 5-10 seconds; bots submit instantly. */
+const MIN_SUBMIT_TIME_SEC = 3;
+
+/**
+ * Check if message content is likely spam.
+ * Returns a reason string if spam, null if clean.
+ */
+function detectSpam(name: string, email: string, message: string): string | null {
+  const fullText = `${name} ${email} ${message}`;
+
+  // Check spam phrases
+  for (const pattern of SPAM_PHRASES) {
+    if (pattern.test(fullText)) {
+      return 'Message flagged as spam';
+    }
+  }
+
+  // Check excessive URLs
+  const urls = message.match(URL_PATTERN) || [];
+  if (urls.length > MAX_URLS) {
+    return 'Too many links in message';
+  }
+
+  // Check if message is mostly non-Latin characters mixed with Latin (common spam pattern)
+  // But allow fully non-Latin messages (legitimate international users)
+  const latinChars = (message.match(/[a-zA-Z]/g) || []).length;
+  const totalChars = message.replace(/\s/g, '').length;
+  if (totalChars > 20 && latinChars > 0 && latinChars < totalChars * 0.2) {
+    // Less than 20% Latin but some Latin present — suspicious mixed script
+    // Don't flag fully non-Latin (0 Latin chars)
+  }
+
+  // Check for repeated characters (bots sometimes fill "aaaaaaa")
+  if (/(.)\1{10,}/.test(message)) {
+    return 'Invalid message content';
+  }
+
+  // Check for very long single words (encoded data or gibberish)
+  if (/\S{100,}/.test(message)) {
+    return 'Invalid message content';
+  }
+
+  return null;
+}
+
 export default async function ContactPage({
   searchParams,
 }: {
@@ -20,9 +92,42 @@ export default async function ContactPage({
 }) {
   const sp = await searchParams;
 
+  // Generate a timestamp token for the form (anti-bot timing check)
+  const formLoadedAt = Math.floor(Date.now() / 1000);
+
   async function handleSubmit(formData: FormData) {
     'use server';
 
+    // ── Anti-spam layer 1: Honeypot ──────────────────────────
+    // Hidden field that real users never fill in. Bots auto-fill all fields.
+    const honeypot = formData.get('website') as string;
+    if (honeypot) {
+      // Silently "succeed" — don't reveal to bot that it was detected
+      redirect('/contact?sent=1');
+    }
+
+    // ── Anti-spam layer 2: Time-based check ──────────────────
+    // Reject submissions faster than MIN_SUBMIT_TIME_SEC from page load
+    const loadedAt = parseInt(formData.get('_t') as string, 10);
+    const now = Math.floor(Date.now() / 1000);
+    if (!isNaN(loadedAt) && (now - loadedAt) < MIN_SUBMIT_TIME_SEC) {
+      // Too fast — likely a bot. Silently "succeed".
+      redirect('/contact?sent=1');
+    }
+
+    // ── Anti-spam layer 3: Rate limiting per IP ──────────────
+    const headersList = await headers();
+    const clientIp = getClientIp(headersList);
+
+    const rateResult = contactFormLimiter.check(clientIp);
+    if (!rateResult.allowed) {
+      const minutes = Math.ceil(rateResult.retryAfterMs / 60_000);
+      redirect('/contact?error=' + encodeURIComponent(
+        `Too many messages. Please try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`
+      ));
+    }
+
+    // ── Basic validation ─────────────────────────────────────
     const name = (formData.get('name') as string)?.trim();
     const email = (formData.get('email') as string)?.trim();
     const message = (formData.get('message') as string)?.trim();
@@ -31,14 +136,52 @@ export default async function ContactPage({
       redirect('/contact?error=' + encodeURIComponent('Please fill in all fields'));
     }
 
+    if (name.length > 100) {
+      redirect('/contact?error=' + encodeURIComponent('Name is too long'));
+    }
+
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       redirect('/contact?error=' + encodeURIComponent('Please enter a valid email'));
+    }
+
+    if (email.length > 254) {
+      redirect('/contact?error=' + encodeURIComponent('Email address is too long'));
     }
 
     if (message.length < 10) {
       redirect('/contact?error=' + encodeURIComponent('Message must be at least 10 characters'));
     }
 
+    if (message.length > 5000) {
+      redirect('/contact?error=' + encodeURIComponent('Message is too long (max 5000 characters)'));
+    }
+
+    // ── Anti-spam layer 4: Content analysis ──────────────────
+    const spamReason = detectSpam(name, email, message);
+    if (spamReason) {
+      // Silently "succeed" to not inform the bot
+      console.log(`[contact] Spam blocked from ${clientIp}: ${spamReason}`);
+      redirect('/contact?sent=1');
+    }
+
+    // ── Anti-spam layer 5: Duplicate check ───────────────────
+    // Block exact duplicate submissions within 1 hour
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const duplicate = await db.contactMessage.findFirst({
+      where: {
+        email,
+        message,
+        createdAt: { gte: oneHourAgo },
+      },
+      select: { id: true },
+    });
+
+    if (duplicate) {
+      // Already submitted — redirect as success
+      redirect('/contact?sent=1');
+    }
+
+    // ── Save and send ────────────────────────────────────────
     try {
       await db.contactMessage.create({
         data: { name, email, message },
@@ -113,13 +256,21 @@ export default async function ContactPage({
               <Card>
                 <form action={handleSubmit}>
                   <CardContent className="pt-6 space-y-4">
+                    {/* Honeypot field — hidden from real users, bots auto-fill it */}
+                    <div className="absolute opacity-0 -z-10" style={{ position: 'absolute', left: '-9999px' }} aria-hidden="true">
+                      <label htmlFor="website">Website</label>
+                      <input type="text" id="website" name="website" tabIndex={-1} autoComplete="off" />
+                    </div>
+                    {/* Timestamp for timing check */}
+                    <input type="hidden" name="_t" value={formLoadedAt} />
+
                     <div className="space-y-2">
                       <Label htmlFor="name">Name</Label>
-                      <Input id="name" name="name" placeholder="Your name" required />
+                      <Input id="name" name="name" placeholder="Your name" required maxLength={100} />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="email">Email</Label>
-                      <Input id="email" name="email" type="email" placeholder="you@example.com" required />
+                      <Input id="email" name="email" type="email" placeholder="you@example.com" required maxLength={254} />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="message">Message</Label>
@@ -129,6 +280,7 @@ export default async function ContactPage({
                         className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                         placeholder="How can we help?"
                         required
+                        maxLength={5000}
                       />
                     </div>
                     <Button type="submit" className="w-full">Send Message</Button>
