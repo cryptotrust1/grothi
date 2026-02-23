@@ -121,8 +121,8 @@ export function PostFormClient({
     setIsSubmitting(false);
   }, [successMessage, errorMessage]);
 
-  // AI chat state
-  const [showAiPanel, setShowAiPanel] = useState(false);
+  // AI chat state — open by default
+  const [showAiPanel, setShowAiPanel] = useState(true);
 
   // ── Derived data ───────────────────────────────────────────
 
@@ -275,7 +275,20 @@ export function PostFormClient({
   // ── AI Chat callback ──────────────────────────────────────
 
   const handleUseAiContent = useCallback((text: string) => {
-    setContent(text);
+    // Strip markdown formatting so raw text goes into the post
+    const cleaned = text
+      .replace(/\*\*(.+?)\*\*/g, '$1')   // **bold** → bold
+      .replace(/\*(.+?)\*/g, '$1')       // *italic* → italic
+      .replace(/__(.+?)__/g, '$1')       // __bold__ → bold
+      .replace(/_(.+?)_/g, '$1')         // _italic_ → italic
+      .replace(/~~(.+?)~~/g, '$1')       // ~~strike~~ → strike
+      .replace(/^#{1,6}\s+/gm, '')       // # heading → heading
+      .replace(/^[>\s]*>\s?/gm, '')      // > blockquote → text
+      .replace(/^[-*+]\s+/gm, '')        // - list item → list item
+      .replace(/^\d+\.\s+/gm, '')        // 1. list → list
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // [link](url) → link
+      .replace(/`([^`]+)`/g, '$1');      // `code` → code
+    setContent(cleaned);
   }, []);
 
   // ── Form submission ────────────────────────────────────────
@@ -381,13 +394,13 @@ export function PostFormClient({
                     </div>
                     <Button
                       type="button"
-                      variant="outline"
+                      variant={showAiPanel ? 'secondary' : 'outline'}
                       size="sm"
                       className="gap-1.5"
                       onClick={() => setShowAiPanel(!showAiPanel)}
                     >
                       <Sparkles className="h-4 w-4" />
-                      AI Assist
+                      {showAiPanel ? 'Hide AI Assistant' : 'Show AI Assistant'}
                     </Button>
                   </div>
                 </CardHeader>

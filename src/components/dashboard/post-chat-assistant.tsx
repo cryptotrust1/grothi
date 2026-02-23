@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect, type ChangeEvent } from 'react';
 import {
   Sparkles, Send, Upload, X, Loader2, Image as ImageIcon,
-  CheckCircle2, AlertCircle, MessageSquare, Coins,
+  CheckCircle2, AlertCircle, MessageSquare, Coins, ChevronDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -23,6 +23,21 @@ interface ChatMessage {
   images?: ChatImage[];
   isStreaming?: boolean;
 }
+
+// ── Model definitions ──
+
+interface AIModel {
+  id: string;
+  label: string;
+  provider: 'anthropic';
+  apiModel: string;
+}
+
+const AI_MODELS: AIModel[] = [
+  { id: 'sonnet-4.5', label: 'Claude Sonnet 4.5', provider: 'anthropic', apiModel: 'claude-sonnet-4-5-20250514' },
+  { id: 'haiku-3.5', label: 'Claude Haiku 3.5', provider: 'anthropic', apiModel: 'claude-haiku-4-5-20251001' },
+  { id: 'sonnet-3.5', label: 'Claude Sonnet 3.5', provider: 'anthropic', apiModel: 'claude-3-5-sonnet-20241022' },
+];
 
 interface PostChatAssistantProps {
   botId: string;
@@ -57,21 +72,60 @@ export function PostChatAssistant({ botId, platforms, onUseContent, onClose }: P
   const [pendingImages, setPendingImages] = useState<ChatImage[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<string>(AI_MODELS[0].id);
+  const [showModelDropdown, setShowModelDropdown] = useState(false);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // Track whether user has manually scrolled up
+  const userScrolledUpRef = useRef(false);
+  const lastScrollTopRef = useRef(0);
 
-  // Auto-scroll to bottom on new messages
+  // Scroll to bottom of chat container only (not the page)
+  const scrollToBottom = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    container.scrollTop = container.scrollHeight;
+  }, []);
+
+  // Auto-scroll only if user hasn't scrolled up
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    if (!userScrolledUpRef.current) {
+      scrollToBottom();
+    }
+  }, [messages, scrollToBottom]);
+
+  // Detect user scrolling up in the chat container
+  const handleScroll = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 60;
+    // User scrolled up if scroll position decreased and not at bottom
+    if (scrollTop < lastScrollTopRef.current && !isAtBottom) {
+      userScrolledUpRef.current = true;
+    }
+    // Reset when user scrolls back to bottom
+    if (isAtBottom) {
+      userScrolledUpRef.current = false;
+    }
+    lastScrollTopRef.current = scrollTop;
+  }, []);
 
   // Focus input on mount
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  // Close model dropdown when clicking outside
+  useEffect(() => {
+    if (!showModelDropdown) return;
+    const handleClickOutside = () => setShowModelDropdown(false);
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [showModelDropdown]);
 
   // ── Image upload ──
 
@@ -156,6 +210,9 @@ export function PostChatAssistant({ botId, platforms, onUseContent, onClose }: P
     abortRef.current = controller;
 
     try {
+      // Find the selected model config
+      const modelConfig = AI_MODELS.find(m => m.id === selectedModel) || AI_MODELS[0];
+
       const res = await fetch('/api/chat/post-assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -163,6 +220,7 @@ export function PostChatAssistant({ botId, platforms, onUseContent, onClose }: P
           botId,
           messages: apiMessages,
           platforms,
+          model: modelConfig.apiModel,
         }),
         signal: controller.signal,
       });
@@ -256,7 +314,7 @@ export function PostChatAssistant({ botId, platforms, onUseContent, onClose }: P
       abortRef.current = null;
       inputRef.current?.focus();
     }
-  }, [input, pendingImages, isSending, messages, botId, platforms]);
+  }, [input, pendingImages, isSending, messages, botId, platforms, selectedModel]);
 
   // ── Cancel generation ──
 
@@ -320,7 +378,11 @@ export function PostChatAssistant({ botId, platforms, onUseContent, onClose }: P
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+      <div
+        ref={messagesContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto px-4 py-3 space-y-3"
+      >
         {messages.map((msg) => (
           <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div
@@ -376,7 +438,6 @@ export function PostChatAssistant({ botId, platforms, onUseContent, onClose }: P
             </div>
           </div>
         ))}
-        <div ref={messagesEndRef} />
       </div>
 
       {/* Error */}
@@ -475,9 +536,37 @@ export function PostChatAssistant({ botId, platforms, onUseContent, onClose }: P
           <p className="text-[10px] text-muted-foreground">
             Shift+Enter for new line. Upload images for AI analysis.
           </p>
-          <p className="text-[10px] text-muted-foreground">
-            Claude Sonnet 4.5
-          </p>
+          {/* Model selector */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowModelDropdown(!showModelDropdown)}
+              className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-muted"
+              disabled={isSending}
+            >
+              {AI_MODELS.find(m => m.id === selectedModel)?.label || 'Select model'}
+              <ChevronDown className="h-2.5 w-2.5" />
+            </button>
+            {showModelDropdown && (
+              <div className="absolute bottom-full right-0 mb-1 w-48 bg-white rounded-md border shadow-lg z-50 py-1">
+                {AI_MODELS.map((model) => (
+                  <button
+                    key={model.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedModel(model.id);
+                      setShowModelDropdown(false);
+                    }}
+                    className={`w-full text-left px-3 py-1.5 text-xs hover:bg-muted transition-colors ${
+                      selectedModel === model.id ? 'text-purple-700 font-medium bg-purple-50' : 'text-gray-700'
+                    }`}
+                  >
+                    {model.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
