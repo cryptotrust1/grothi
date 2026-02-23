@@ -537,7 +537,12 @@ export interface FacebookFeedPost {
   message?: string;
   story?: string;
   created_time: string;
-  attachments?: any;
+  attachments?: {
+    data?: Array<{
+      type: string;
+      media?: { image?: { src: string } };
+    }>;
+  };
   shares?: { count: number };
 }
 
