@@ -2,7 +2,7 @@
  * POST /api/cron/collect-engagement
  *
  * Collects engagement metrics (likes, comments, shares) from published posts
- * on Facebook (and other platforms in the future).
+ * on Facebook, Instagram, and Threads. Triggers RL learning after collection.
  *
  * Called periodically (e.g., every 15 minutes or hourly) by external cron.
  *
@@ -19,8 +19,15 @@ import {
   decryptInstagramCredentials,
   getMediaInsights,
 } from '@/lib/instagram';
+import {
+  decryptThreadsCredentials,
+  getPostInsights,
+} from '@/lib/threads';
 import { processEngagementFeedback } from '@/lib/rl-engine';
 import type { PlatformType } from '@prisma/client';
+
+/** Platforms that support engagement collection via API. */
+const SUPPORTED_PLATFORMS = new Set(['FACEBOOK', 'INSTAGRAM', 'THREADS']);
 
 const CRON_SECRET = process.env.CRON_SECRET;
 
@@ -44,7 +51,7 @@ export async function POST(request: NextRequest) {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - COLLECTION_WINDOW_DAYS);
 
-  // Find recently published posts with Facebook/Instagram as a platform
+  // Find recently published posts on supported platforms (Facebook, Instagram, Threads)
   // Race condition protection: We check isNewEngagement flag before incrementing daily stats
   const publishedPosts = await db.scheduledPost.findMany({
     where: {
@@ -73,7 +80,7 @@ export async function POST(request: NextRequest) {
 
     for (const [platform, result] of Object.entries(results)) {
       if (!result.success || !result.externalId) continue;
-      if (platform !== 'FACEBOOK' && platform !== 'INSTAGRAM') continue;
+      if (!SUPPORTED_PLATFORMS.has(platform)) continue;
 
       // Get platform connection
       const conn = await db.platformConnection.findUnique({
@@ -97,6 +104,16 @@ export async function POST(request: NextRequest) {
               likes: insights.likes || 0,
               comments: insights.comments || 0,
               shares: insights.shares || 0,
+            };
+          }
+        } else if (platform === 'THREADS') {
+          const creds = decryptThreadsCredentials(conn);
+          const insights = await getPostInsights(creds, result.externalId);
+          if (insights) {
+            engagement = {
+              likes: insights.likes || 0,
+              comments: insights.replies || 0,
+              shares: insights.reposts || 0,
             };
           }
         }
