@@ -3,9 +3,11 @@ import { notFound, redirect } from 'next/navigation';
 import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { getActionCost, hasEnoughCredits } from '@/lib/credits';
+import { getContentRecommendation } from '@/lib/rl-engine';
 import { PLATFORM_NAMES, PLATFORM_REQUIREMENTS, POST_STATUS_COLORS } from '@/lib/constants';
 import { BotNav } from '@/components/dashboard/bot-nav';
 import { PostFormClient } from '@/components/dashboard/post-form-client';
+import type { PlatformType } from '@prisma/client';
 
 export const metadata: Metadata = { title: 'Create Post', robots: { index: false } };
 
@@ -216,17 +218,39 @@ export default async function ManualPostPage({
       }
     }
 
+    // Get RL content recommendation for the first platform to set toneStyle/hashtagPattern.
+    // These dimensions feed back into the RL engine when engagement is collected.
+    let toneStyle: string | null = null;
+    let hashtagPattern: string | null = null;
+    let contentType: string = 'custom';
+
+    try {
+      const firstPlatform = platformsRaw[0] as PlatformType;
+      const recommendation = await getContentRecommendation(
+        id, firstPlatform, currentBot.safetyLevel || 'MODERATE'
+      );
+      if (recommendation) {
+        toneStyle = recommendation.toneStyle;
+        hashtagPattern = recommendation.hashtagPattern;
+        contentType = recommendation.contentType;
+      }
+    } catch {
+      // RL recommendation is best-effort; don't block post creation
+    }
+
     await db.scheduledPost.create({
       data: {
         botId: id,
         content,
-        contentType: 'custom',
+        contentType,
         mediaId,
         postType: postType || null,
         platforms: platformsRaw,
         scheduledAt: finalScheduledAt,
         autoSchedule: false,
         status: finalStatus,
+        toneStyle,
+        hashtagPattern,
       },
     });
 
