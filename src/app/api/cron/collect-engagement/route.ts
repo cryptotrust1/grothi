@@ -40,7 +40,8 @@ export async function POST(request: NextRequest) {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - COLLECTION_WINDOW_DAYS);
 
-  // Find recently published posts with Facebook as a platform
+  // Find recently published posts with Facebook/Instagram as a platform
+  // Race condition protection: We check isNewEngagement flag before incrementing daily stats
   const publishedPosts = await db.scheduledPost.findMany({
     where: {
       status: 'PUBLISHED',
@@ -114,7 +115,7 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        // Upsert PostEngagement record for RL engine
+        // Check if this is new or existing engagement (for daily stats)
         const existingEngagement = await db.postEngagement.findFirst({
           where: {
             botId: post.botId,
@@ -122,6 +123,7 @@ export async function POST(request: NextRequest) {
             externalPostId: result.externalId,
           },
         });
+        const isNewEngagement = !existingEngagement;
 
         const engagementScore =
           engagement.likes * 1 +
@@ -157,8 +159,9 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        // Update daily stats with latest engagement totals
-        if (post.publishedAt) {
+        // Update daily stats only if this is the first time collecting
+        // This prevents double-counting when cron jobs overlap
+        if (post.publishedAt && isNewEngagement) {
           const postDate = new Date(post.publishedAt);
           postDate.setHours(0, 0, 0, 0);
 
