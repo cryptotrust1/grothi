@@ -1,20 +1,24 @@
 import { db } from './db';
-import type { ActionType } from '@prisma/client';
+import type { ActionType, CreditSource } from '@prisma/client';
+import { CREDIT_COSTS, BILLING_LIMITS } from './billing';
+
+// ============ DEFAULT ACTION COSTS ============
+// Kept for backward compatibility — getActionCost checks DB override first
 
 const DEFAULT_ACTION_COSTS: Record<string, number> = {
-  GENERATE_CONTENT: 5,
-  POST: 2,
-  REPLY: 3,
-  FAVOURITE: 1,
-  BOOST: 1,
-  SCAN_FEEDS: 2,
-  COLLECT_METRICS: 1,
-  GENERATE_IMAGE: 3,
-  GENERATE_VIDEO: 8,
-  SAFETY_BLOCK: 0,
-  BAN_DETECTED: 0,
-  SEND_EMAIL: 1,
-  GENERATE_EMAIL: 3,
+  GENERATE_CONTENT: CREDIT_COSTS.GENERATE_CONTENT,
+  POST: CREDIT_COSTS.POST,
+  REPLY: CREDIT_COSTS.REPLY,
+  FAVOURITE: CREDIT_COSTS.FAVOURITE,
+  BOOST: CREDIT_COSTS.BOOST,
+  SCAN_FEEDS: CREDIT_COSTS.SCAN_FEEDS,
+  COLLECT_METRICS: CREDIT_COSTS.COLLECT_METRICS,
+  GENERATE_IMAGE: CREDIT_COSTS.GENERATE_IMAGE,
+  GENERATE_VIDEO: CREDIT_COSTS.GENERATE_VIDEO,
+  SAFETY_BLOCK: CREDIT_COSTS.SAFETY_BLOCK,
+  BAN_DETECTED: CREDIT_COSTS.BAN_DETECTED,
+  SEND_EMAIL: CREDIT_COSTS.SEND_EMAIL,
+  GENERATE_EMAIL: CREDIT_COSTS.GENERATE_EMAIL,
 };
 
 export async function getActionCost(actionType: ActionType): Promise<number> {
@@ -23,6 +27,8 @@ export async function getActionCost(actionType: ActionType): Promise<number> {
   });
   return customCost?.credits ?? DEFAULT_ACTION_COSTS[actionType] ?? 1;
 }
+
+// ============ BALANCE QUERIES ============
 
 export async function getUserBalance(userId: string): Promise<number> {
   const balance = await db.creditBalance.findUnique({
@@ -36,21 +42,73 @@ export async function hasEnoughCredits(userId: string, amount: number): Promise<
   return balance >= amount;
 }
 
+/**
+ * Get detailed credit breakdown from ledger.
+ * Returns how many credits are from each source.
+ */
+export async function getCreditBreakdown(userId: string): Promise<{
+  total: number;
+  topup: number;
+  rollover: number;
+  subscription: number;
+  bonus: number;
+}> {
+  const now = new Date();
+  const entries = await db.creditLedger.findMany({
+    where: {
+      userId,
+      remaining: { gt: 0 },
+      OR: [
+        { expiresAt: null },
+        { expiresAt: { gt: now } },
+      ],
+    },
+    select: { source: true, remaining: true },
+  });
+
+  const breakdown = { total: 0, topup: 0, rollover: 0, subscription: 0, bonus: 0 };
+  for (const entry of entries) {
+    breakdown.total += entry.remaining;
+    switch (entry.source) {
+      case 'TOPUP': breakdown.topup += entry.remaining; break;
+      case 'ROLLOVER': breakdown.rollover += entry.remaining; break;
+      case 'SUBSCRIPTION': breakdown.subscription += entry.remaining; break;
+      case 'BONUS': breakdown.bonus += entry.remaining; break;
+    }
+  }
+  return breakdown;
+}
+
+// ============ FIFO CREDIT DEDUCTION ============
+// Priority: TOPUP → ROLLOVER → SUBSCRIPTION → BONUS
+
+const DEDUCTION_PRIORITY: CreditSource[] = ['TOPUP', 'ROLLOVER', 'SUBSCRIPTION', 'BONUS'];
+
+/**
+ * Deduct credits using FIFO ordering.
+ * Consumes from ledger entries in priority: TOPUP > ROLLOVER > SUBSCRIPTION > BONUS.
+ * Within each priority, consumes oldest entries first.
+ *
+ * Also decrements CreditBalance.balance and logs a CreditTransaction.
+ *
+ * @returns true if deduction succeeded, false if insufficient credits.
+ */
 export async function deductCredits(
   userId: string,
   amount: number,
   description: string,
   botId?: string
 ): Promise<boolean> {
+  if (amount <= 0) return true;
+
   return await db.$transaction(async (tx) => {
-    // Atomically check and deduct credits using update with where condition
-    // This prevents race conditions - only succeeds if balance >= amount
+    // 1. Atomically check and deduct balance (prevents race conditions)
     const updated = await tx.creditBalance.updateMany({
-      where: { 
+      where: {
         userId,
         balance: { gte: amount },
       },
-      data: { 
+      data: {
         balance: { decrement: amount },
       },
     });
@@ -60,12 +118,49 @@ export async function deductCredits(
       return false;
     }
 
-    // Get the new balance for transaction record
+    // 2. FIFO deduction from ledger
+    const now = new Date();
+    let remaining = amount;
+
+    for (const source of DEDUCTION_PRIORITY) {
+      if (remaining <= 0) break;
+
+      // Get non-expired entries with remaining credits, oldest first
+      const entries = await tx.creditLedger.findMany({
+        where: {
+          userId,
+          source,
+          remaining: { gt: 0 },
+          OR: [
+            { expiresAt: null },
+            { expiresAt: { gt: now } },
+          ],
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      for (const entry of entries) {
+        if (remaining <= 0) break;
+
+        const consume = Math.min(remaining, entry.remaining);
+        await tx.creditLedger.update({
+          where: { id: entry.id },
+          data: { remaining: entry.remaining - consume },
+        });
+        remaining -= consume;
+      }
+    }
+
+    // If ledger didn't have enough, this means ledger is out of sync with balance.
+    // Proceed anyway (balance was sufficient) — ledger sync will be fixed by reconciliation.
+
+    // 3. Get the new balance for transaction record
     const newBalanceRecord = await tx.creditBalance.findUnique({
       where: { userId },
       select: { balance: true },
     });
 
+    // 4. Log transaction
     await tx.creditTransaction.create({
       data: {
         userId,
@@ -77,24 +172,46 @@ export async function deductCredits(
       },
     });
 
+    // 5. Update subscription usage counter if active
+    await tx.subscription.updateMany({
+      where: { userId, status: 'ACTIVE' },
+      data: { creditsUsedThisPeriod: { increment: amount } },
+    });
+
     return true;
   });
 }
 
+// ============ CREDIT ADDITION ============
+
+/**
+ * Add credits to a user's account.
+ * Creates both a CreditBalance increment and a CreditLedger entry.
+ */
 export async function addCredits(
   userId: string,
   amount: number,
-  type: 'PURCHASE' | 'BONUS' | 'REFUND' | 'SUBSCRIPTION',
+  type: 'PURCHASE' | 'BONUS' | 'REFUND' | 'SUBSCRIPTION' | 'TOPUP' | 'ROLLOVER',
   description: string,
-  stripePaymentId?: string
+  stripePaymentId?: string,
+  options?: {
+    source?: CreditSource;
+    expiresAt?: Date | null;
+    subscriptionId?: string;
+    topupPurchaseId?: string;
+  }
 ): Promise<number> {
+  if (amount <= 0) return await getUserBalance(userId);
+
   return await db.$transaction(async (tx) => {
+    // 1. Update aggregate balance
     const balance = await tx.creditBalance.upsert({
       where: { userId },
       create: { userId, balance: amount },
       update: { balance: { increment: amount } },
     });
 
+    // 2. Log transaction
     await tx.creditTransaction.create({
       data: {
         userId,
@@ -106,8 +223,285 @@ export async function addCredits(
       },
     });
 
+    // 3. Create ledger entry for FIFO tracking
+    const source = options?.source ?? mapTxnTypeToSource(type);
+    await tx.creditLedger.create({
+      data: {
+        userId,
+        source,
+        amount,
+        remaining: amount,
+        expiresAt: options?.expiresAt ?? null,
+        subscriptionId: options?.subscriptionId,
+        topupPurchaseId: options?.topupPurchaseId,
+        description,
+      },
+    });
+
     return balance.balance;
   });
 }
 
-export const WELCOME_BONUS_CREDITS = 100;
+function mapTxnTypeToSource(type: string): CreditSource {
+  switch (type) {
+    case 'SUBSCRIPTION': return 'SUBSCRIPTION';
+    case 'TOPUP':
+    case 'PURCHASE': return 'TOPUP';
+    case 'ROLLOVER': return 'ROLLOVER';
+    default: return 'BONUS';
+  }
+}
+
+// ============ SUBSCRIPTION CREDIT ALLOCATION ============
+
+/**
+ * Allocate monthly credits for a subscription renewal.
+ * Called when Stripe invoice.paid fires for a subscription.
+ *
+ * Handles rollover for Gold/Diamond plans.
+ */
+export async function allocateSubscriptionCredits(
+  userId: string,
+  subscriptionId: string,
+  monthlyCredits: number,
+  allowRollover: boolean,
+  maxRolloverCredits: number,
+  periodEnd: Date,
+): Promise<void> {
+  await db.$transaction(async (tx) => {
+    // 1. Handle rollover from previous period
+    if (allowRollover && maxRolloverCredits > 0) {
+      // Sum up remaining SUBSCRIPTION credits from previous period
+      const prevEntries = await tx.creditLedger.findMany({
+        where: {
+          userId,
+          source: 'SUBSCRIPTION',
+          remaining: { gt: 0 },
+          subscriptionId,
+        },
+      });
+
+      let rolloverAmount = 0;
+      for (const entry of prevEntries) {
+        rolloverAmount += entry.remaining;
+        // Zero out old subscription entries
+        await tx.creditLedger.update({
+          where: { id: entry.id },
+          data: { remaining: 0 },
+        });
+      }
+
+      // Also zero out old ROLLOVER entries
+      const prevRollovers = await tx.creditLedger.findMany({
+        where: {
+          userId,
+          source: 'ROLLOVER',
+          remaining: { gt: 0 },
+        },
+      });
+
+      for (const entry of prevRollovers) {
+        rolloverAmount += entry.remaining;
+        await tx.creditLedger.update({
+          where: { id: entry.id },
+          data: { remaining: 0 },
+        });
+      }
+
+      // Cap rollover at max allowed
+      rolloverAmount = Math.min(rolloverAmount, maxRolloverCredits);
+
+      if (rolloverAmount > 0) {
+        // Create rollover ledger entry (expires at end of next period)
+        await tx.creditLedger.create({
+          data: {
+            userId,
+            source: 'ROLLOVER',
+            amount: rolloverAmount,
+            remaining: rolloverAmount,
+            expiresAt: periodEnd,
+            subscriptionId,
+            description: `Rollover from previous period (${rolloverAmount} credits)`,
+          },
+        });
+
+        // Log rollover transaction
+        await tx.creditTransaction.create({
+          data: {
+            userId,
+            type: 'ROLLOVER',
+            amount: rolloverAmount,
+            balance: 0, // Will be updated below
+            description: `Credit rollover: ${rolloverAmount} credits`,
+          },
+        });
+      }
+    } else {
+      // No rollover — expire old subscription credits
+      await tx.creditLedger.updateMany({
+        where: {
+          userId,
+          source: 'SUBSCRIPTION',
+          remaining: { gt: 0 },
+          subscriptionId,
+        },
+        data: { remaining: 0 },
+      });
+
+      // Also expire old rollover entries
+      await tx.creditLedger.updateMany({
+        where: {
+          userId,
+          source: 'ROLLOVER',
+          remaining: { gt: 0 },
+        },
+        data: { remaining: 0 },
+      });
+    }
+
+    // 2. Add new subscription credits
+    if (monthlyCredits > 0) {
+      await tx.creditLedger.create({
+        data: {
+          userId,
+          source: 'SUBSCRIPTION',
+          amount: monthlyCredits,
+          remaining: monthlyCredits,
+          expiresAt: periodEnd,
+          subscriptionId,
+          description: `Monthly subscription credits (${monthlyCredits})`,
+        },
+      });
+    }
+
+    // 3. Recalculate total balance from all ledger entries
+    const now = new Date();
+    const allEntries = await tx.creditLedger.findMany({
+      where: {
+        userId,
+        remaining: { gt: 0 },
+        OR: [
+          { expiresAt: null },
+          { expiresAt: { gt: now } },
+        ],
+      },
+      select: { remaining: true },
+    });
+
+    const totalBalance = allEntries.reduce((sum, e) => sum + e.remaining, 0);
+
+    await tx.creditBalance.upsert({
+      where: { userId },
+      create: { userId, balance: totalBalance },
+      update: { balance: totalBalance },
+    });
+
+    // 4. Log subscription credit allocation
+    if (monthlyCredits > 0) {
+      await tx.creditTransaction.create({
+        data: {
+          userId,
+          type: 'SUBSCRIPTION',
+          amount: monthlyCredits,
+          balance: totalBalance,
+          description: `Monthly subscription: +${monthlyCredits} credits`,
+        },
+      });
+    }
+
+    // 5. Reset subscription period counters
+    await tx.subscription.updateMany({
+      where: { userId, id: subscriptionId },
+      data: {
+        creditsAllocatedThisPeriod: monthlyCredits,
+        creditsUsedThisPeriod: 0,
+      },
+    });
+  });
+}
+
+// ============ EXPIRE CREDITS ============
+
+/**
+ * Expire all ledger entries past their expiresAt date.
+ * Called by a scheduled cron job (e.g., daily at 3 AM).
+ */
+export async function expireCredits(): Promise<number> {
+  const now = new Date();
+
+  // Find all expired entries with remaining credits
+  const expired = await db.creditLedger.findMany({
+    where: {
+      expiresAt: { lte: now },
+      remaining: { gt: 0 },
+    },
+  });
+
+  let totalExpired = 0;
+
+  for (const entry of expired) {
+    await db.$transaction(async (tx) => {
+      // Zero out the entry
+      await tx.creditLedger.update({
+        where: { id: entry.id },
+        data: { remaining: 0 },
+      });
+
+      // Decrement balance
+      await tx.creditBalance.update({
+        where: { userId: entry.userId },
+        data: { balance: { decrement: entry.remaining } },
+      });
+
+      // Log expiration
+      await tx.creditTransaction.create({
+        data: {
+          userId: entry.userId,
+          type: 'EXPIRED',
+          amount: -entry.remaining,
+          balance: 0, // Best effort — balance is approximate
+          description: `Credits expired: ${entry.remaining} ${entry.source} credits`,
+        },
+      });
+    });
+
+    totalExpired += entry.remaining;
+  }
+
+  return totalExpired;
+}
+
+// ============ RECONCILE BALANCE ============
+
+/**
+ * Recalculate a user's CreditBalance from their ledger entries.
+ * Used for admin correction / debugging.
+ */
+export async function reconcileBalance(userId: string): Promise<number> {
+  const now = new Date();
+  const entries = await db.creditLedger.findMany({
+    where: {
+      userId,
+      remaining: { gt: 0 },
+      OR: [
+        { expiresAt: null },
+        { expiresAt: { gt: now } },
+      ],
+    },
+    select: { remaining: true },
+  });
+
+  const total = entries.reduce((sum, e) => sum + e.remaining, 0);
+
+  await db.creditBalance.upsert({
+    where: { userId },
+    create: { userId, balance: total },
+    update: { balance: total },
+  });
+
+  return total;
+}
+
+// ============ CONSTANTS ============
+
+export const WELCOME_BONUS_CREDITS = BILLING_LIMITS.WELCOME_BONUS;

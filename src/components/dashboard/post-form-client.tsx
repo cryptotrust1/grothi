@@ -13,6 +13,7 @@ import {
   FileVideo, Info, ChevronDown, ChevronUp, Download,
 } from 'lucide-react';
 import { HelpTip } from '@/components/ui/help-tip';
+import { PostChatAssistant } from '@/components/dashboard/post-chat-assistant';
 import type { PlatformRequirement } from '@/lib/constants';
 
 // ── Types ────────────────────────────────────────────────────
@@ -120,12 +121,7 @@ export function PostFormClient({
     setIsSubmitting(false);
   }, [successMessage, errorMessage]);
 
-  // AI generation state
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
-  const [aiPlatformSuggestions, setAiPlatformSuggestions] = useState<Record<string, string> | null>(null);
-  const [aiError, setAiError] = useState<string | null>(null);
-  const [aiPrompt, setAiPrompt] = useState('');
+  // AI chat state
   const [showAiPanel, setShowAiPanel] = useState(false);
 
   // ── Derived data ───────────────────────────────────────────
@@ -276,50 +272,11 @@ export function PostFormClient({
   const selectAllPlatforms = () => setSelectedPlatforms(new Set(connectedPlatforms));
   const deselectAllPlatforms = () => setSelectedPlatforms(new Set());
 
-  // ── AI Generation ──────────────────────────────────────────
+  // ── AI Chat callback ──────────────────────────────────────
 
-  const generateContent = useCallback(async () => {
-    if (!aiPrompt.trim()) {
-      setAiError('Please describe what you want to post about.');
-      return;
-    }
-
-    setIsGenerating(true);
-    setAiError(null);
-    setAiSuggestion(null);
-    setAiPlatformSuggestions(null);
-
-    try {
-      const res = await fetch('/api/generate/post-content', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          botId,
-          prompt: aiPrompt,
-          platforms: Array.from(selectedPlatforms),
-        }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({ error: 'AI generation failed' }));
-        setAiError(data.error || `AI generation failed (HTTP ${res.status})`);
-        return;
-      }
-
-      const data = await res.json();
-      setAiSuggestion(data.content || null);
-      setAiPlatformSuggestions(data.platformContent || null);
-    } catch {
-      setAiError('Network error. Check your connection and try again.');
-    } finally {
-      setIsGenerating(false);
-    }
-  }, [aiPrompt, botId, selectedPlatforms]);
-
-  const applyAiSuggestion = (text: string) => {
+  const handleUseAiContent = useCallback((text: string) => {
     setContent(text);
-    setShowAiPanel(false);
-  };
+  }, []);
 
   // ── Form submission ────────────────────────────────────────
 
@@ -435,108 +392,14 @@ export function PostFormClient({
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {/* AI Generation Panel */}
+                  {/* AI Chat Assistant Panel */}
                   {showAiPanel && (
-                    <div className="rounded-lg border border-purple-200 bg-purple-50/50 p-4 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <h4 className="font-medium text-sm flex items-center gap-1.5 text-purple-900">
-                          <Sparkles className="h-4 w-4" /> AI Content Generator
-                        </h4>
-                        <button
-                          type="button"
-                          onClick={() => setShowAiPanel(false)}
-                          className="text-muted-foreground hover:text-foreground"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      </div>
-                      <p className="text-xs text-purple-700">
-                        Describe your topic and AI will generate platform-optimized content. Cost: 5 credits.
-                      </p>
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={aiPrompt}
-                          onChange={(e) => setAiPrompt(e.target.value)}
-                          placeholder="e.g., Announce our new product launch for spring collection..."
-                          className="flex-1 h-9 rounded-md border border-input bg-white px-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); generateContent(); } }}
-                        />
-                        <Button
-                          type="button"
-                          size="sm"
-                          className="gap-1.5 h-9"
-                          onClick={generateContent}
-                          disabled={isGenerating || !aiPrompt.trim()}
-                        >
-                          {isGenerating ? (
-                            <><Loader2 className="h-4 w-4 animate-spin" /> Generating...</>
-                          ) : (
-                            <><Sparkles className="h-4 w-4" /> Generate</>
-                          )}
-                        </Button>
-                      </div>
-
-                      {aiError && (
-                        <p className="text-xs text-destructive flex items-center gap-1">
-                          <AlertCircle className="h-3 w-3" /> {aiError}
-                        </p>
-                      )}
-
-                      {/* AI suggestion result */}
-                      {aiSuggestion && (
-                        <div className="space-y-3">
-                          <div className="rounded-md border bg-white p-3">
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-xs font-medium text-purple-700">Universal version</span>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                className="h-6 text-xs gap-1"
-                                onClick={() => applyAiSuggestion(aiSuggestion)}
-                              >
-                                <CheckCircle2 className="h-3 w-3" /> Use this
-                              </Button>
-                            </div>
-                            <p className="text-sm whitespace-pre-wrap">{aiSuggestion}</p>
-                          </div>
-
-                          {/* Per-platform suggestions */}
-                          {aiPlatformSuggestions && Object.keys(aiPlatformSuggestions).length > 0 && (
-                            <div className="space-y-2">
-                              <p className="text-xs font-medium text-purple-700">Platform-optimized versions:</p>
-                              {Object.entries(aiPlatformSuggestions).map(([p, text]) => {
-                                const req = platformRequirements[p];
-                                if (!req || !selectedPlatforms.has(p)) return null;
-                                return (
-                                  <div key={p} className="rounded-md border bg-white p-3">
-                                    <div className="flex items-center justify-between mb-1">
-                                      <span className="text-xs font-medium">{req.name}</span>
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-[10px] text-muted-foreground">
-                                          {text.length}/{req.maxCharacters}
-                                        </span>
-                                        <Button
-                                          type="button"
-                                          variant="ghost"
-                                          size="sm"
-                                          className="h-6 text-xs gap-1"
-                                          onClick={() => applyAiSuggestion(text)}
-                                        >
-                                          Use
-                                        </Button>
-                                      </div>
-                                    </div>
-                                    <p className="text-xs whitespace-pre-wrap text-muted-foreground">{text}</p>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                    <PostChatAssistant
+                      botId={botId}
+                      platforms={Array.from(selectedPlatforms)}
+                      onUseContent={handleUseAiContent}
+                      onClose={() => setShowAiPanel(false)}
+                    />
                   )}
 
                   {/* Content textarea */}
