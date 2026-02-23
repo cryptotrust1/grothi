@@ -3,9 +3,9 @@
  *
  * AI-powered post content generation.
  * Takes a topic/prompt and generates platform-optimized post text.
- * Uses Claude to generate a universal version + per-platform versions.
+ * Supports Anthropic (Claude), OpenAI (GPT), and Google (Gemini).
  *
- * Cost: GENERATE_CONTENT credits (default 5).
+ * Cost: GENERATE_CONTENT credits (default 2).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -13,11 +13,22 @@ import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { deductCredits, getActionCost } from '@/lib/credits';
 import { PLATFORM_REQUIREMENTS } from '@/lib/constants';
+import { generateText, isValidModelId, type TextProvider } from '@/lib/ai-providers';
+import { aiGenerationLimiter } from '@/lib/rate-limit';
 
 export async function POST(request: NextRequest) {
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // Rate limit per user (prevents credit-draining abuse)
+  const rateCheck = aiGenerationLimiter.check(`postcontent:${user.id}`);
+  if (!rateCheck.allowed) {
+    return NextResponse.json(
+      { error: `Too many AI requests. Try again in ${Math.ceil(rateCheck.retryAfterMs / 1000)} seconds.` },
+      { status: 429 }
+    );
   }
 
   let body: Record<string, unknown>;
@@ -45,6 +56,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Validate and resolve AI model selection
+  const requestedModel = typeof body.model === 'string' ? body.model : undefined;
+  const requestedProvider = typeof body.provider === 'string' ? body.provider as TextProvider : undefined;
+
+  // Validate model ID against whitelist (prevents model injection)
+  if (requestedModel && !isValidModelId(requestedModel)) {
+    return NextResponse.json({ error: 'Invalid model selection.' }, { status: 400 });
+  }
+
   // Verify bot ownership
   const bot = await db.bot.findFirst({
     where: { id: botId, userId: user.id },
@@ -62,17 +82,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Bot not found' }, { status: 404 });
   }
 
-  // Check API configuration first (before deducting credits)
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: 'AI service not configured. Set ANTHROPIC_API_KEY in environment.' },
-      { status: 503 }
-    );
-  }
-
   // Deduct credits atomically before calling the API
-  // This prevents race conditions - deductCredits returns false if insufficient credits
   const cost = await getActionCost('GENERATE_CONTENT');
   const deducted = await deductCredits(
     user.id,
@@ -126,39 +136,19 @@ Format your response EXACTLY as JSON:
 Return ONLY valid JSON, no markdown code blocks.`;
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 2000,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: userPrompt }],
-      }),
+    const result = await generateText({
+      modelId: requestedModel,
+      provider: requestedProvider,
+      systemPrompt,
+      userPrompt,
+      maxTokens: 2000,
+      timeoutMs: 60000,
     });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Anthropic API error:', errorText);
-      return NextResponse.json(
-        { error: 'AI service returned an error. Please try again later.' },
-        { status: 502 }
-      );
-    }
-
-    const result = await response.json();
-    const textContent = result.content?.find(
-      (c: { type: string; text?: string }) => c.type === 'text'
-    )?.text || '';
 
     // Parse the JSON response
     let parsed: { content?: string; platformContent?: Record<string, string> };
     try {
-      const jsonMatch = textContent.match(/\{[\s\S]*\}/);
+      const jsonMatch = result.text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('No JSON found');
       parsed = JSON.parse(jsonMatch[0]);
     } catch {
@@ -171,12 +161,14 @@ Return ONLY valid JSON, no markdown code blocks.`;
     return NextResponse.json({
       content: parsed.content || '',
       platformContent: parsed.platformContent || {},
+      modelUsed: result.modelUsed,
+      provider: result.provider,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('AI post generation error:', message);
     return NextResponse.json(
-      { error: 'AI generation failed: ' + message },
+      { error: message },
       { status: 500 }
     );
   }

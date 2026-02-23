@@ -133,6 +133,12 @@ export const forgotPasswordLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000, // 15 minutes
 });
 
+/** AI generation: max 60 requests per hour per user ID. Prevents credit-draining abuse. */
+export const aiGenerationLimiter = createRateLimiter({
+  maxRequests: 60,
+  windowMs: 60 * 60 * 1000, // 1 hour
+});
+
 // ── IP extraction helper ──────────────────────────────────────
 
 /**

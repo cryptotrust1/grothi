@@ -5,6 +5,8 @@ import { deductCredits, getActionCost } from '@/lib/credits';
 import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, resolve } from 'path';
+import { generateText, isValidModelId, type TextProvider } from '@/lib/ai-providers';
+import { aiGenerationLimiter } from '@/lib/rate-limit';
 
 const UPLOAD_DIR = join(process.cwd(), 'data', 'uploads');
 
@@ -36,6 +38,15 @@ export async function POST(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // Rate limit per user (prevents credit-draining abuse)
+  const rateCheck = aiGenerationLimiter.check(`caption:${user.id}`);
+  if (!rateCheck.allowed) {
+    return NextResponse.json(
+      { error: `Too many AI requests. Try again in ${Math.ceil(rateCheck.retryAfterMs / 1000)} seconds.` },
+      { status: 429 }
+    );
+  }
+
   const { id } = await params;
   let body: Record<string, unknown> = {};
   try {
@@ -44,6 +55,15 @@ export async function POST(
     // Default to empty body - platforms will use defaults
   }
   const platforms = Array.isArray(body.platforms) ? (body.platforms as string[]) : ['FACEBOOK', 'INSTAGRAM', 'TWITTER'];
+
+  // Validate and resolve AI model selection
+  const requestedModel = typeof body.model === 'string' ? body.model : undefined;
+  const requestedProvider = typeof body.provider === 'string' ? body.provider as TextProvider : undefined;
+
+  // Validate model ID against whitelist (prevents model injection)
+  if (requestedModel && !isValidModelId(requestedModel)) {
+    return NextResponse.json({ error: 'Invalid model selection.' }, { status: 400 });
+  }
 
   const media = await db.media.findUnique({
     where: { id },
@@ -135,15 +155,6 @@ Format your response EXACTLY as JSON:
 
 Return ONLY valid JSON, no markdown code blocks.`;
 
-  // Call Claude Vision API
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: 'AI service not configured. Set ANTHROPIC_API_KEY in environment.' },
-      { status: 503 }
-    );
-  }
-
   // Deduct credits BEFORE generation (atomically check and deduct)
   const cost = await getActionCost('GENERATE_CONTENT');
   const deducted = await deductCredits(
@@ -164,63 +175,21 @@ Return ONLY valid JSON, no markdown code blocks.`;
                        media.mimeType === 'image/webp' ? 'image/webp' :
                        media.mimeType === 'image/png' ? 'image/png' : 'image/jpeg';
 
-    // 60-second timeout for AI generation
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
-
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 2000,
-        system: systemPrompt,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'image',
-                source: {
-                  type: 'base64',
-                  media_type: mediaType,
-                  data: base64Image,
-                },
-              },
-              {
-                type: 'text',
-                text: userPrompt,
-              },
-            ],
-          },
-        ],
-      }),
+    const result = await generateText({
+      modelId: requestedModel,
+      provider: requestedProvider,
+      systemPrompt,
+      userPrompt,
+      image: { base64: base64Image, mediaType },
+      maxTokens: 2000,
+      timeoutMs: 60000,
     });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Anthropic API error:', errorText);
-      return NextResponse.json(
-        { error: 'AI service returned an error. Please try again later.' },
-        { status: 502 }
-      );
-    }
-
-    const result = await response.json();
-    const textContent = result.content?.find((c: { type: string; text?: string }) => c.type === 'text')?.text || '';
 
     // Parse the JSON response
     let parsed: { altText?: string; description?: string; captions?: Record<string, string> };
     try {
       // Try to extract JSON from the response (handle potential markdown wrapping)
-      const jsonMatch = textContent.match(/\{[\s\S]*\}/);
+      const jsonMatch = result.text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('No JSON found in response');
       parsed = JSON.parse(jsonMatch[0]);
     } catch {
@@ -230,7 +199,6 @@ Return ONLY valid JSON, no markdown code blocks.`;
       );
     }
 
-    // Credits were already deducted before generation (atomically)
     // Update media with AI-generated content
     await db.media.update({
       where: { id },
@@ -245,22 +213,15 @@ Return ONLY valid JSON, no markdown code blocks.`;
       altText: parsed.altText,
       description: parsed.description,
       captions: parsed.captions,
+      modelUsed: result.modelUsed,
+      provider: result.provider,
     });
   } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') {
-      return NextResponse.json(
-        { error: 'AI generation timed out. Please try again.' },
-        { status: 504 }
-      );
-    }
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('AI generation error:', message);
-    // Sanitize error message — never expose API keys or internal details
-    const safeMessage = message.includes('api') || message.includes('key') || message.includes('token')
-      ? 'AI service error. Please try again.'
-      : message;
+    // Error messages from generateText are already sanitized
     return NextResponse.json(
-      { error: 'AI generation failed: ' + safeMessage },
+      { error: message },
       { status: 500 }
     );
   }
