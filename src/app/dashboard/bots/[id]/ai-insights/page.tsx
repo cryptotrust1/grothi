@@ -257,15 +257,31 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
           <CardTitle className="text-base flex items-center gap-2">
             <Brain className="h-5 w-5 text-indigo-600" />
             How AI learning works
-            <HelpTip text="Your bot uses an epsilon-greedy multi-armed bandit algorithm. It explores different content strategies (time, type, tone, hashtags) and learns which combinations get the best engagement on each platform." />
+            <HelpTip text="Your bot uses Thompson Sampling (a Bayesian multi-armed bandit algorithm) to explore different content strategies. It models uncertainty with probability distributions and naturally focuses on proven winners while still discovering new opportunities. Engagement scores are time-decay adjusted and normalized per platform." />
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground">
-            Your bot uses reinforcement learning to optimize posting strategy. It learns from engagement metrics
-            (likes, comments, shares, saves) to improve future posts. Every post teaches the AI which content type,
-            posting time, tone, and hashtag strategy works best for each platform.
-          </p>
+          <div className="text-sm text-muted-foreground space-y-2">
+            <p>
+              Your bot uses <strong>Thompson Sampling</strong> (a Bayesian reinforcement learning algorithm) to
+              optimize posting strategy. It learns from engagement metrics (likes, comments, shares, saves) and
+              automatically detects content characteristics using content fingerprinting.
+            </p>
+            <div className="grid gap-1.5 sm:grid-cols-2 text-xs mt-2">
+              <div className="flex items-start gap-1.5">
+                <span className="font-medium text-foreground">Thompson Sampling</span> — Bayesian posterior sampling for natural exploration/exploitation balance
+              </div>
+              <div className="flex items-start gap-1.5">
+                <span className="font-medium text-foreground">Content Fingerprinting</span> — Auto-detects tone, content type, hashtag patterns from post text
+              </div>
+              <div className="flex items-start gap-1.5">
+                <span className="font-medium text-foreground">Time-Decay Adjustment</span> — Normalizes scores for post age (newer posts get fair comparison)
+              </div>
+              <div className="flex items-start gap-1.5">
+                <span className="font-medium text-foreground">Bayesian Normalization</span> — Z-score normalization makes scores comparable across platforms
+              </div>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
