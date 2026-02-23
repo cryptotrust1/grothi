@@ -6,15 +6,22 @@ import { redirect } from 'next/navigation';
 import { addCredits, WELCOME_BONUS_CREDITS } from './credits';
 import { randomBytes } from 'crypto';
 
-function getJwtSecret() {
+// Lazy-loaded JWT secret with caching - prevents build-time errors
+let JWT_SECRET_CACHE: Uint8Array | null = null;
+
+function getJwtSecret(): Uint8Array {
+  if (JWT_SECRET_CACHE) {
+    return JWT_SECRET_CACHE;
+  }
+  
   const secret = process.env.NEXTAUTH_SECRET;
   if (!secret) {
     throw new Error('NEXTAUTH_SECRET environment variable is required');
   }
-  return new TextEncoder().encode(secret);
+  
+  JWT_SECRET_CACHE = new TextEncoder().encode(secret);
+  return JWT_SECRET_CACHE;
 }
-
-const JWT_SECRET = getJwtSecret();
 
 const SESSION_DURATION = 30 * 24 * 60 * 60 * 1000; // 30 days
 
@@ -31,7 +38,7 @@ export async function createSession(userId: string): Promise<string> {
     .setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('30d')
     .setIssuedAt()
-    .sign(JWT_SECRET);
+    .sign(getJwtSecret());
 
   const expiresAt = new Date(Date.now() + SESSION_DURATION);
 
@@ -62,7 +69,7 @@ export async function getCurrentUser() {
   if (!token) return null;
 
   try {
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const { payload } = await jwtVerify(token, getJwtSecret());
     const userId = payload.userId as string;
 
     const session = await db.session.findFirst({

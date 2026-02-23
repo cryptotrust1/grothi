@@ -34,36 +34,37 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const { id } = await params;
-
-  const post = await db.scheduledPost.findUnique({
-    where: { id },
-    include: { bot: { select: { userId: true } } },
-  });
-
-  if (!post || post.bot.userId !== user.id) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 });
-  }
-
-  // Only allow editing DRAFT and SCHEDULED posts
-  if (!['DRAFT', 'SCHEDULED'].includes(post.status)) {
-    return NextResponse.json(
-      { error: `Cannot edit a post with status ${post.status}` },
-      { status: 400 }
-    );
-  }
-
-  let body: Record<string, unknown>;
   try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
-  }
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { id } = await params;
+
+    const post = await db.scheduledPost.findUnique({
+      where: { id },
+      include: { bot: { select: { userId: true } } },
+    });
+
+    if (!post || post.bot.userId !== user.id) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
+
+    // Only allow editing DRAFT and SCHEDULED posts
+    if (!['DRAFT', 'SCHEDULED'].includes(post.status)) {
+      return NextResponse.json(
+        { error: `Cannot edit a post with status ${post.status}` },
+        { status: 400 }
+      );
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
   const updates: Record<string, unknown> = {};
 
   if (body.content !== undefined) updates.content = body.content;
@@ -116,12 +117,19 @@ export async function PATCH(
     updates.status = 'CANCELLED';
   }
 
-  const updated = await db.scheduledPost.update({
-    where: { id },
-    data: updates,
-  });
+    const updated = await db.scheduledPost.update({
+      where: { id },
+      data: updates,
+    });
 
-  return NextResponse.json(updated);
+    return NextResponse.json(updated);
+  } catch (error) {
+    console.error('[scheduled-posts PATCH] Error:', error instanceof Error ? error.message : error);
+    return NextResponse.json(
+      { error: 'Failed to update scheduled post' },
+      { status: 500 }
+    );
+  }
 }
 
 // DELETE: Delete a scheduled post
@@ -129,26 +137,34 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { id } = await params;
+
+    const post = await db.scheduledPost.findUnique({
+      where: { id },
+      include: { bot: { select: { userId: true } } },
+    });
+
+    if (!post || post.bot.userId !== user.id) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
+
+    if (post.status === 'PUBLISHING') {
+      return NextResponse.json({ error: 'Cannot delete a post that is currently publishing' }, { status: 400 });
+    }
+
+    await db.scheduledPost.delete({ where: { id } });
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('[scheduled-posts DELETE] Error:', error instanceof Error ? error.message : error);
+    return NextResponse.json(
+      { error: 'Failed to delete scheduled post' },
+      { status: 500 }
+    );
   }
-
-  const { id } = await params;
-
-  const post = await db.scheduledPost.findUnique({
-    where: { id },
-    include: { bot: { select: { userId: true } } },
-  });
-
-  if (!post || post.bot.userId !== user.id) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 });
-  }
-
-  if (post.status === 'PUBLISHING') {
-    return NextResponse.json({ error: 'Cannot delete a post that is currently publishing' }, { status: 400 });
-  }
-
-  await db.scheduledPost.delete({ where: { id } });
-  return NextResponse.json({ success: true });
 }

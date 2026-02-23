@@ -11,16 +11,17 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = await params;
+  try {
+    const { id } = await params;
 
-  const media = await db.media.findUnique({
-    where: { id },
-    include: { bot: { select: { userId: true } } },
-  });
+    const media = await db.media.findUnique({
+      where: { id },
+      include: { bot: { select: { userId: true } } },
+    });
 
-  if (!media) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 });
-  }
+    if (!media) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
 
   // Detect if request is from Meta's servers (Instagram/Facebook/Threads).
   // Meta crawlers use user-agents like "facebookexternalhit/1.1" and "Instagram".
@@ -162,17 +163,24 @@ export async function GET(
   // For logged-in users, keep private caching.
   const cacheControl = isMetaCrawler ? 'public, max-age=86400' : 'private, max-age=86400';
 
-  return new NextResponse(buffer, {
-    headers: {
-      'Content-Type': media.mimeType,
-      'Content-Length': String(media.fileSize),
-      'Cache-Control': cacheControl,
-      'Content-Disposition': `${disposition}; filename="${safeFilename}"`,
-      'X-Content-Type-Options': 'nosniff',
-      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'",
-      'Access-Control-Allow-Origin': '*',
-    },
-  });
+    return new NextResponse(buffer, {
+      headers: {
+        'Content-Type': media.mimeType,
+        'Content-Length': String(media.fileSize),
+        'Cache-Control': cacheControl,
+        'Content-Disposition': `${disposition}; filename="${safeFilename}"`,
+        'X-Content-Type-Options': 'nosniff',
+        'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'",
+        'Access-Control-Allow-Origin': '*',
+      },
+    });
+  } catch (error) {
+    console.error('[media GET] Error:', error instanceof Error ? error.message : error);
+    return NextResponse.json(
+      { error: 'Failed to serve media file' },
+      { status: 500 }
+    );
+  }
 }
 
 // Delete media
