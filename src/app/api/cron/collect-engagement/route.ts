@@ -19,6 +19,7 @@ import {
   decryptInstagramCredentials,
   getMediaInsights,
 } from '@/lib/instagram';
+import { processEngagementFeedback } from '@/lib/rl-engine';
 import type { PlatformType } from '@prisma/client';
 
 const CRON_SECRET = process.env.CRON_SECRET;
@@ -135,6 +136,13 @@ export async function POST(request: NextRequest) {
           engagement.comments * 3 +
           engagement.shares * 5;
 
+        // Derive content dimensions from post data for RL learning
+        const postTime = post.publishedAt || post.createdAt;
+        const timeSlot = postTime.getHours();
+        const dayOfWeek = postTime.getDay();
+
+        let engagementId: string;
+
         if (existingEngagement) {
           await db.postEngagement.update({
             where: { id: existingEngagement.id },
@@ -143,11 +151,18 @@ export async function POST(request: NextRequest) {
               comments: engagement.comments,
               shares: engagement.shares,
               engagementScore,
+              // Backfill content dimensions if they were missing
+              timeSlot: existingEngagement.timeSlot ?? timeSlot,
+              dayOfWeek: existingEngagement.dayOfWeek ?? dayOfWeek,
+              toneStyle: existingEngagement.toneStyle || post.toneStyle || undefined,
+              hashtagPattern: existingEngagement.hashtagPattern || post.hashtagPattern || undefined,
+              contentType: existingEngagement.contentType || post.contentType || undefined,
               collectedAt: new Date(),
             },
           });
+          engagementId = existingEngagement.id;
         } else {
-          await db.postEngagement.create({
+          const created = await db.postEngagement.create({
             data: {
               botId: post.botId,
               platform: platform as PlatformType,
@@ -158,10 +173,25 @@ export async function POST(request: NextRequest) {
               shares: engagement.shares,
               engagementScore,
               contentType: post.contentType || undefined,
-              postedAt: post.publishedAt || post.createdAt,
+              timeSlot,
+              dayOfWeek,
+              toneStyle: post.toneStyle || undefined,
+              hashtagPattern: post.hashtagPattern || undefined,
+              postedAt: postTime,
               collectedAt: new Date(),
             },
           });
+          engagementId = created.id;
+        }
+
+        // Trigger RL learning from the engagement data
+        if (engagementScore > 0) {
+          try {
+            await processEngagementFeedback(engagementId);
+          } catch (rlError) {
+            const rlMsg = rlError instanceof Error ? rlError.message : 'Unknown';
+            console.error(`[collect-engagement] RL learning failed for ${engagementId}: ${rlMsg}`);
+          }
         }
 
         // Update daily stats only if this is the first time collecting

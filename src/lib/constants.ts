@@ -134,6 +134,7 @@ export const BOT_NAV_TABS = [
   { key: 'scheduler', label: 'Scheduler', path: '/scheduler' },
   { key: 'creative-style', label: 'Creative Style', path: '/creative-style' },
   { key: 'analytics', label: 'Analytics', path: '/analytics' },
+  { key: 'ai-insights', label: 'AI Insights', path: '/ai-insights' },
   { key: 'settings', label: 'Settings', path: '/settings' },
 ] as const;
 

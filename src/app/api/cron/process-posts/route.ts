@@ -297,6 +297,30 @@ export async function POST(request: NextRequest) {
           },
         });
 
+        // Create PostEngagement record for RL learning pipeline
+        if (result.success) {
+          try {
+            await db.postEngagement.create({
+              data: {
+                botId: post.botId,
+                platform: platform as PlatformType,
+                scheduledPostId: post.id,
+                externalPostId: result.externalId || undefined,
+                contentType: post.contentType || 'custom',
+                timeSlot: now.getHours(),
+                dayOfWeek: now.getDay(),
+                toneStyle: post.toneStyle || undefined,
+                hashtagPattern: post.hashtagPattern || undefined,
+                postedAt: now,
+              },
+            });
+          } catch (peError) {
+            // Don't fail the post if engagement tracking fails
+            const peMsg = peError instanceof Error ? peError.message : 'Unknown';
+            console.error(`[process-posts] PostEngagement creation failed: ${peMsg}`);
+          }
+        }
+
         // Update connection last post time
         if (result.success) {
           await db.platformConnection.updateMany({
