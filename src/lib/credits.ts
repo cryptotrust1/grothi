@@ -102,12 +102,19 @@ export async function deductCredits(
   if (amount <= 0) return true;
 
   return await db.$transaction(async (tx) => {
-    // 1. Check CreditBalance (fast path — avoids scanning ledger if balance is low)
-    const balance = await tx.creditBalance.findUnique({
-      where: { userId },
+    // 1. Atomically check and deduct balance (prevents race conditions)
+    const updated = await tx.creditBalance.updateMany({
+      where: {
+        userId,
+        balance: { gte: amount },
+      },
+      data: {
+        balance: { decrement: amount },
+      },
     });
 
-    if (!balance || balance.balance < amount) {
+    // If no rows updated, user didn't have enough credits
+    if (updated.count === 0) {
       return false;
     }
 
@@ -147,11 +154,10 @@ export async function deductCredits(
     // If ledger didn't have enough, this means ledger is out of sync with balance.
     // Proceed anyway (balance was sufficient) — ledger sync will be fixed by reconciliation.
 
-    // 3. Update aggregate balance
-    const newBalance = balance.balance - amount;
-    await tx.creditBalance.update({
+    // 3. Get the new balance for transaction record
+    const newBalanceRecord = await tx.creditBalance.findUnique({
       where: { userId },
-      data: { balance: newBalance },
+      select: { balance: true },
     });
 
     // 4. Log transaction
@@ -160,7 +166,7 @@ export async function deductCredits(
         userId,
         type: 'USAGE',
         amount: -amount,
-        balance: newBalance,
+        balance: newBalanceRecord?.balance ?? 0,
         description,
         botId,
       },

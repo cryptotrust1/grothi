@@ -37,10 +37,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  console.log('[collect-engagement] Starting engagement collection...');
+  const startTime = Date.now();
+
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - COLLECTION_WINDOW_DAYS);
 
-  // Find recently published posts with Facebook as a platform
+  // Find recently published posts with Facebook/Instagram as a platform
+  // Race condition protection: We check isNewEngagement flag before incrementing daily stats
   const publishedPosts = await db.scheduledPost.findMany({
     where: {
       status: 'PUBLISHED',
@@ -53,6 +57,8 @@ export async function POST(request: NextRequest) {
       bot: { select: { id: true, userId: true } },
     },
   });
+
+  console.log(`[collect-engagement] Found ${publishedPosts.length} posts to check`);
 
   let collected = 0;
   let errors = 0;
@@ -114,7 +120,7 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        // Upsert PostEngagement record for RL engine
+        // Check if this is new or existing engagement (for daily stats)
         const existingEngagement = await db.postEngagement.findFirst({
           where: {
             botId: post.botId,
@@ -122,6 +128,7 @@ export async function POST(request: NextRequest) {
             externalPostId: result.externalId,
           },
         });
+        const isNewEngagement = !existingEngagement;
 
         const engagementScore =
           engagement.likes * 1 +
@@ -157,8 +164,9 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        // Update daily stats with latest engagement totals
-        if (post.publishedAt) {
+        // Update daily stats only if this is the first time collecting
+        // This prevents double-counting when cron jobs overlap
+        if (post.publishedAt && isNewEngagement) {
           const postDate = new Date(post.publishedAt);
           postDate.setHours(0, 0, 0, 0);
 
@@ -190,6 +198,9 @@ export async function POST(request: NextRequest) {
       await new Promise((r) => setTimeout(r, 1000));
     }
   }
+
+  const duration = Date.now() - startTime;
+  console.log(`[collect-engagement] Completed in ${duration}ms: ${collected} collected, ${errors} errors`);
 
   return NextResponse.json({
     postsScanned: publishedPosts.length,

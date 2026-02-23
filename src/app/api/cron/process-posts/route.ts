@@ -17,7 +17,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { deductCredits, getActionCost, hasEnoughCredits } from '@/lib/credits';
+import { deductCredits, getActionCost, hasEnoughCredits, addCredits } from '@/lib/credits';
 import {
   decryptFacebookCredentials,
   postText,
@@ -46,7 +46,7 @@ import {
   isTokenNearExpiry,
   type ThreadsPostResult,
 } from '@/lib/threads';
-import type { PlatformType } from '@prisma/client';
+import type { PlatformType, PlatformConnection } from '@prisma/client';
 import path from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import sharp from 'sharp';
@@ -172,23 +172,51 @@ export async function POST(request: NextRequest) {
     console.error(`[process-posts] Stuck post recovery failed: ${msg}`);
   }
 
-  // Find posts due for publishing
+  // Atomically claim posts for processing to prevent race conditions.
+  // First, update BATCH_SIZE posts from SCHEDULED to PUBLISHING.
+  // This ensures that even if multiple cron instances run simultaneously,
+  // each post is processed by only one instance.
+  const claimResult = await db.$transaction(async (tx) => {
+    // Find candidate posts
+    const candidates = await tx.scheduledPost.findMany({
+      where: {
+        status: 'SCHEDULED',
+        scheduledAt: { lte: now },
+      },
+      orderBy: { scheduledAt: 'asc' },
+      take: BATCH_SIZE,
+      select: { id: true },
+    });
+
+    if (candidates.length === 0) {
+      return [];
+    }
+
+    // Atomically update them to PUBLISHING
+    await tx.scheduledPost.updateMany({
+      where: {
+        id: { in: candidates.map(c => c.id) },
+        status: 'SCHEDULED', // Extra safety: only update if still SCHEDULED
+      },
+      data: { status: 'PUBLISHING' },
+    });
+
+    // Return the claimed IDs
+    return candidates.map(c => c.id);
+  });
+
+  if (claimResult.length === 0) {
+    return NextResponse.json({ processed: 0, message: 'No posts due' });
+  }
+
+  // Fetch full data for the claimed posts
   const duePosts = await db.scheduledPost.findMany({
-    where: {
-      status: 'SCHEDULED',
-      scheduledAt: { lte: now },
-    },
-    orderBy: { scheduledAt: 'asc' },
-    take: BATCH_SIZE,
+    where: { id: { in: claimResult } },
     include: {
       bot: { select: { id: true, userId: true, name: true, status: true } },
       media: { select: { id: true, filePath: true, type: true, mimeType: true } },
     },
   });
-
-  if (duePosts.length === 0) {
-    return NextResponse.json({ processed: 0, message: 'No posts due' });
-  }
 
   const results: Array<{
     postId: string;
@@ -210,12 +238,6 @@ export async function POST(request: NextRequest) {
       continue;
     }
 
-    // Mark as PUBLISHING
-    await db.scheduledPost.update({
-      where: { id: post.id },
-      data: { status: 'PUBLISHING' },
-    });
-
     const platforms = (Array.isArray(post.platforms) ? post.platforms : []) as string[];
     const platformResults: Record<string, { success: boolean; externalId?: string; error?: string }> = {};
     let allSucceeded = true;
@@ -223,9 +245,12 @@ export async function POST(request: NextRequest) {
 
     for (const platform of platforms) {
       try {
-        // Check credit balance before posting
-        const hasCreds = await hasEnoughCredits(post.bot.userId, await getActionCost('POST'));
-        if (!hasCreds) {
+        // Deduct credits BEFORE posting to prevent race conditions
+        // If posting fails, we'll refund the credits
+        const cost = await getActionCost('POST');
+        const deducted = await deductCredits(post.bot.userId, cost, `Post to ${platform}`, post.botId);
+        
+        if (!deducted) {
           platformResults[platform] = {
             success: false,
             error: 'Insufficient credits. Buy more credits to continue posting.',
@@ -250,15 +275,14 @@ export async function POST(request: NextRequest) {
 
         if (result.success) {
           anySucceeded = true;
-          // Deduct credits on successful post
-          const cost = await getActionCost('POST');
-          await deductCredits(post.bot.userId, cost, `Post to ${platform}`, post.botId);
         } else {
+          // Refund credits if posting failed
+          await addCredits(post.bot.userId, cost, 'REFUND', `Refund for failed post to ${platform}`);
           allSucceeded = false;
         }
 
         // Record activity
-        const cost = result.success ? await getActionCost('POST') : 0;
+        const activityCost = result.success ? cost : 0;
         await db.botActivity.create({
           data: {
             botId: post.botId,
@@ -269,7 +293,7 @@ export async function POST(request: NextRequest) {
             contentType: post.contentType || 'custom',
             success: result.success,
             error: result.error || null,
-            creditsUsed: cost,
+            creditsUsed: activityCost,
           },
         });
 
@@ -429,7 +453,7 @@ async function publishToPlatform(
 }
 
 async function publishToFacebook(
-  conn: any,
+  conn: PlatformConnection,
   content: string,
   mediaPath: string | null,
   mediaType: 'IMAGE' | 'VIDEO' | 'GIF' | null,
@@ -506,7 +530,7 @@ async function publishToFacebook(
  * Requires a publicly accessible image URL (uses /api/media/{id} endpoint).
  */
 async function publishToInstagram(
-  conn: any,
+  conn: PlatformConnection,
   content: string,
   mediaPath: string | null,
   mediaType: 'IMAGE' | 'VIDEO' | 'GIF' | null,
@@ -760,7 +784,7 @@ async function publishToInstagram(
  * - CAROUSEL: 2-20 images/videos in a swipeable gallery
  */
 async function publishToThreads(
-  conn: any,
+  conn: PlatformConnection,
   botId: string,
   content: string,
   mediaPath: string | null,

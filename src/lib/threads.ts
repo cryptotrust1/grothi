@@ -63,6 +63,16 @@ interface ThreadsApiError {
   };
 }
 
+interface ThreadsApiSuccessResponse {
+  id?: string;
+  creation_id?: string;
+  media_id?: string;
+  status_code?: string;
+  [key: string]: unknown;
+}
+
+type ThreadsApiResponse = ThreadsApiSuccessResponse | ThreadsApiError;
+
 type ContainerStatus = 'FINISHED' | 'IN_PROGRESS' | 'ERROR' | 'EXPIRED';
 
 // ── Credential Helpers ─────────────────────────────────────────
@@ -115,7 +125,7 @@ const FETCH_TIMEOUT = 30_000;
 async function threadsFetch(
   url: string,
   options?: RequestInit
-): Promise<{ data: any }> {
+): Promise<{ data: ThreadsApiResponse }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
 
@@ -143,15 +153,15 @@ async function threadsFetch(
   }
 }
 
-function isApiError(data: any): data is ThreadsApiError {
-  return data && typeof data === 'object' && 'error' in data;
+function isApiError(data: unknown): data is ThreadsApiError {
+  return typeof data === 'object' && data !== null && 'error' in data;
 }
 
 /**
  * Transform raw Threads API errors into user-friendly messages.
  */
 function friendlyThreadsError(data: ThreadsApiError): string {
-  const err = data.error;
+  const err = (data as ThreadsApiError).error;
   const code = err.code;
 
   if (code === 190) return 'Threads token expired. Please reconnect Threads in Platforms.';
@@ -165,9 +175,9 @@ function friendlyThreadsError(data: ThreadsApiError): string {
 /**
  * Check if a Threads API error indicates an invalid/expired token.
  */
-function isTokenError(data: any): boolean {
+function isTokenError(data: unknown): boolean {
   if (!isApiError(data)) return false;
-  return data.error.code === 190;
+  return (data as ThreadsApiError).error.code === 190;
 }
 
 // ── Token Validation & Management ──────────────────────────────
@@ -186,7 +196,8 @@ export async function validateToken(
   try {
     const { data } = await threadsFetch(url.toString());
     if (isApiError(data)) return null;
-    return { id: data.id, username: data.username };
+    const d = data as Record<string, unknown>;
+    return { id: d.id as string, username: d.username as string };
   } catch {
     return null;
   }
@@ -251,13 +262,14 @@ export async function refreshToken(
   try {
     const { data } = await threadsFetch(url.toString());
 
-    if (isApiError(data) || !data.access_token) {
+    const d = data as Record<string, unknown>;
+    if (isApiError(data) || !d.access_token) {
       return null;
     }
 
     return {
-      accessToken: data.access_token,
-      expiresIn: data.expires_in || 5184000, // Default 60 days
+      accessToken: d.access_token as string,
+      expiresIn: (d.expires_in as number) || 5184000, // Default 60 days
     };
   } catch {
     return null;
@@ -283,17 +295,18 @@ async function waitForContainer(
     const { data } = await threadsFetch(url.toString());
 
     if (isApiError(data)) {
-      return { status: 'ERROR', error: data.error.message };
+      return { status: 'ERROR', error: (data as ThreadsApiError).error.message };
     }
 
-    const status = (data.status || 'IN_PROGRESS') as ContainerStatus;
+    const d = data as Record<string, unknown>;
+    const status = ((d.status as string) || 'IN_PROGRESS') as ContainerStatus;
 
     if (status === 'FINISHED') {
       return { status: 'FINISHED' };
     }
 
     if (status === 'ERROR' || status === 'EXPIRED') {
-      return { status, error: data.error_message || 'Container processing failed' };
+      return { status, error: (d.error_message as string) || 'Container processing failed' };
     }
 
     await new Promise((r) => setTimeout(r, CONTAINER_POLL_INTERVAL));
@@ -567,7 +580,11 @@ export async function postCarousel(
         return { success: false, error: `Carousel item failed: ${containerData.error.message}` };
       }
 
-      childContainerIds.push(containerData.id);
+      const containerId = (containerData as Record<string, unknown>).id as string;
+      if (!containerId) {
+        return { success: false, error: 'Threads did not return container ID for carousel item' };
+      }
+      childContainerIds.push(containerId);
     }
 
     // Step 2: Wait for all child containers
@@ -598,7 +615,11 @@ export async function postCarousel(
     }
 
     // Step 4: Wait for carousel container
-    const carouselStatus = await waitForContainer(carouselData.id, creds.accessToken);
+    const carouselId = (carouselData as Record<string, unknown>).id as string;
+    if (!carouselId) {
+      return { success: false, error: 'Threads did not return carousel container ID' };
+    }
+    const carouselStatus = await waitForContainer(carouselId, creds.accessToken);
     if (carouselStatus.status !== 'FINISHED') {
       return { success: false, error: carouselStatus.error || 'Carousel processing failed' };
     }
@@ -610,7 +631,7 @@ export async function postCarousel(
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
-        creation_id: carouselData.id,
+        creation_id: carouselId,
         access_token: creds.accessToken,
       }).toString(),
     });

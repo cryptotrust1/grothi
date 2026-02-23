@@ -144,10 +144,15 @@ Return ONLY valid JSON, no markdown code blocks.`;
     );
   }
 
-  // Check credits are sufficient BEFORE calling API (deduct after success)
+  // Deduct credits BEFORE generation (atomically check and deduct)
   const cost = await getActionCost('GENERATE_CONTENT');
-  const balance = await db.creditBalance.findUnique({ where: { userId: user.id } });
-  if (!balance || balance.balance < cost) {
+  const deducted = await deductCredits(
+    user.id,
+    cost,
+    'AI caption generation',
+    media.botId
+  );
+  if (!deducted) {
     return NextResponse.json(
       { error: 'Insufficient credits. You need ' + cost + ' credits for AI generation.' },
       { status: 402 }
@@ -225,20 +230,7 @@ Return ONLY valid JSON, no markdown code blocks.`;
       );
     }
 
-    // Deduct credits AFTER successful generation
-    const deducted = await deductCredits(
-      user.id,
-      cost,
-      'AI caption generation',
-      media.bot.userId === user.id ? media.botId : undefined
-    );
-    if (!deducted) {
-      return NextResponse.json(
-        { error: 'Insufficient credits.' },
-        { status: 402 }
-      );
-    }
-
+    // Credits were already deducted before generation (atomically)
     // Update media with AI-generated content
     await db.media.update({
       where: { id },

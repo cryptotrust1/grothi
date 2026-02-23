@@ -69,6 +69,17 @@ interface GraphApiError {
   };
 }
 
+interface GraphApiSuccessResponse {
+  id?: string;
+  creation_id?: string;
+  media_id?: string;
+  status_code?: string;
+  data?: unknown[];
+  [key: string]: unknown;
+}
+
+type GraphApiResponse = GraphApiSuccessResponse | GraphApiError;
+
 interface RateLimitInfo {
   callCount: number;
   totalCputime: number;
@@ -148,7 +159,7 @@ const FETCH_TIMEOUT = 30_000;
 async function graphFetch(
   url: string,
   options?: RequestInit
-): Promise<{ data: any; rateLimits: RateLimitInfo }> {
+): Promise<{ data: GraphApiResponse; rateLimits: RateLimitInfo }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
 
@@ -198,10 +209,10 @@ async function graphFetch(
         wwwAuthenticate: wwwAuth,
         url: url.replace(/access_token=[^&]+/, 'access_token=***').substring(0, 150),
         method: options?.method || 'GET',
-        errorCode: data.error.code,
-        errorType: data.error.type,
-        errorSubcode: data.error.error_subcode || 'none',
-        errorMessage: data.error.message?.substring(0, 200),
+        errorCode: (data as GraphApiError).error.code,
+        errorType: (data as GraphApiError).error.type,
+        errorSubcode: (data as GraphApiError).error.error_subcode || 'none',
+        errorMessage: (data as GraphApiError).error.message?.substring(0, 200),
       });
     }
 
@@ -219,8 +230,8 @@ async function graphFetch(
   }
 }
 
-function isGraphError(data: any): data is GraphApiError {
-  return data && typeof data === 'object' && 'error' in data;
+function isGraphError(data: unknown): data is GraphApiError {
+  return typeof data === 'object' && data !== null && 'error' in data;
 }
 
 /**
@@ -228,7 +239,7 @@ function isGraphError(data: any): data is GraphApiError {
  * Always logs the raw error for server-side debugging (visible in PM2 logs).
  */
 function friendlyIgError(data: GraphApiError): string {
-  const err = data.error;
+  const err = (data as GraphApiError).error;
   const code = err.code;
   const sub = err.error_subcode;
 
@@ -264,9 +275,9 @@ function friendlyIgError(data: GraphApiError): string {
 /**
  * Check if a Graph API error indicates an invalid/expired token.
  */
-function isTokenError(data: any): boolean {
+function isTokenError(data: unknown): boolean {
   if (!isGraphError(data)) return false;
-  return data.error.code === 190;
+  return (data as GraphApiError).error.code === 190;
 }
 
 /**
@@ -276,9 +287,9 @@ function isTokenError(data: any): boolean {
  * Note: Code 4 (rate limit) is NOT retried here — it requires longer waits
  * and is handled by the 429/throttle logic in graphFetch.
  */
-function isTransientError(data: any): boolean {
+function isTransientError(data: unknown): boolean {
   if (!isGraphError(data)) return false;
-  return data.error.code === 1 || data.error.code === 2;
+  return (data as GraphApiError).error.code === 1 || (data as GraphApiError).error.code === 2;
 }
 
 /** Max retries for transient errors (code 1, 2). */
@@ -301,10 +312,11 @@ export async function validateToken(
   try {
     const { data } = await graphFetch(url.toString());
     if (isGraphError(data)) return null;
+    const d = data as Record<string, unknown>;
     return {
-      id: data.id,
-      username: data.username,
-      followersCount: data.followers_count,
+      id: d.id as string,
+      username: d.username as string,
+      followersCount: d.followers_count as number,
     };
   } catch {
     return null;
@@ -363,14 +375,15 @@ export async function refreshToken(
   try {
     const { data } = await graphFetch(url.toString());
 
-    if (isGraphError(data) || !data.access_token) {
+    const d = data as Record<string, unknown>;
+    if (isGraphError(data) || !d.access_token) {
       console.error('[instagram] Token refresh failed:', JSON.stringify(data));
       return null;
     }
 
     return {
-      accessToken: data.access_token,
-      expiresIn: data.expires_in || 5184000, // Default 60 days
+      accessToken: d.access_token as string,
+      expiresIn: (d.expires_in as number) || 5184000, // Default 60 days
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error';
@@ -490,17 +503,18 @@ async function waitForContainer(
     const { data } = await graphFetch(url.toString());
 
     if (isGraphError(data)) {
-      return { status: 'ERROR', error: data.error.message };
+      return { status: 'ERROR', error: (data as GraphApiError).error.message };
     }
 
-    const status = (data.status_code || data.status || 'IN_PROGRESS') as ContainerStatus;
+    const d = data as Record<string, unknown>;
+    const status = ((d.status_code as string) || (d.status as string) || 'IN_PROGRESS') as ContainerStatus;
 
     if (status === 'FINISHED') {
       return { status: 'FINISHED' };
     }
 
     if (status === 'ERROR' || status === 'EXPIRED') {
-      return { status, error: data.status || 'Container processing failed' };
+      return { status, error: (d.status as string) || 'Container processing failed' };
     }
 
     // Wait before polling again
@@ -681,7 +695,11 @@ export async function postCarousel(
           return { success: false, error: `Carousel item failed: ${friendlyIgError(containerData)}` };
         }
 
-        childContainerIds.push(containerData.id);
+        const containerId = (containerData as Record<string, unknown>).id as string;
+        if (!containerId) {
+          return { success: false, error: 'Instagram did not return container ID for carousel item' };
+        }
+        childContainerIds.push(containerId);
       }
 
       // If we broke out of the inner loop due to transient error, retry
@@ -719,7 +737,11 @@ export async function postCarousel(
       }
 
       // Step 4: Wait for carousel container
-      const carouselStatus = await waitForContainer(carouselData.id, creds.accessToken);
+      const carouselId = (carouselData as Record<string, unknown>).id as string;
+      if (!carouselId) {
+        return { success: false, error: 'Instagram did not return carousel container ID' };
+      }
+      const carouselStatus = await waitForContainer(carouselId, creds.accessToken);
       if (carouselStatus.status !== 'FINISHED') {
         return { success: false, error: carouselStatus.error || 'Carousel processing failed' };
       }
@@ -731,7 +753,7 @@ export async function postCarousel(
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
-          creation_id: carouselData.id,
+          creation_id: carouselId,
           access_token: creds.accessToken,
         }).toString(),
       });

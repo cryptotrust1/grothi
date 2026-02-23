@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { deductCredits, getActionCost, hasEnoughCredits } from '@/lib/credits';
+import { deductCredits, getActionCost } from '@/lib/credits';
 import { PLATFORM_REQUIREMENTS } from '@/lib/constants';
 
 export async function POST(request: NextRequest) {
@@ -62,16 +62,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Bot not found' }, { status: 404 });
   }
 
-  // Check and deduct credits
-  const cost = await getActionCost('GENERATE_CONTENT');
-  const canAfford = await hasEnoughCredits(user.id, cost);
-  if (!canAfford) {
-    return NextResponse.json(
-      { error: `Not enough credits. You need ${cost} credits for AI generation.` },
-      { status: 402 }
-    );
-  }
-
+  // Check API configuration first (before deducting credits)
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
@@ -80,7 +71,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Deduct credits before calling the API
+  // Deduct credits atomically before calling the API
+  // This prevents race conditions - deductCredits returns false if insufficient credits
+  const cost = await getActionCost('GENERATE_CONTENT');
   const deducted = await deductCredits(
     user.id,
     cost,
@@ -89,7 +82,7 @@ export async function POST(request: NextRequest) {
   );
   if (!deducted) {
     return NextResponse.json(
-      { error: 'Failed to deduct credits. Please try again.' },
+      { error: `Not enough credits. You need ${cost} credits for AI generation.` },
       { status: 402 }
     );
   }

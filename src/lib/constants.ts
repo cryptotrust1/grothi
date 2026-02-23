@@ -49,6 +49,69 @@ export const POST_STATUS_COLORS: Record<string, string> = {
   CANCELLED: 'bg-gray-100 text-gray-500',
 };
 
+// ============ CONNECTION STATUS CONFIG ============
+export const CONN_STATUS_CONFIG: Record<string, {
+  variant: 'success' | 'destructive' | 'warning' | 'secondary';
+  label: string;
+}> = {
+  CONNECTED: { variant: 'success', label: 'Connected' },
+  DISCONNECTED: { variant: 'secondary', label: 'Disconnected' },
+  ERROR: { variant: 'destructive', label: 'Error' },
+  SUSPENDED: { variant: 'warning', label: 'Suspended' },
+};
+
+// ============ SAFETY LEVEL CONFIG ============
+export const SAFETY_LEVEL_CONFIG: Record<string, {
+  variant: 'success' | 'warning' | 'destructive';
+  label: string;
+  description: string;
+}> = {
+  CONSERVATIVE: { 
+    variant: 'success', 
+    label: 'Conservative', 
+    description: 'Max 5 posts/day, safest approach' 
+  },
+  MODERATE: { 
+    variant: 'warning', 
+    label: 'Moderate', 
+    description: '10 posts/day, balanced approach' 
+  },
+  AGGRESSIVE: { 
+    variant: 'destructive', 
+    label: 'Aggressive', 
+    description: '20 posts/day, maximum reach' 
+  },
+};
+
+// ============ TRANSACTION TYPE CONFIG ============
+export const TXN_TYPE_CONFIG: Record<string, {
+  variant: 'default' | 'secondary' | 'success' | 'destructive' | 'outline';
+  label: string;
+}> = {
+  PURCHASE: { variant: 'default', label: 'Purchase' },
+  USAGE: { variant: 'secondary', label: 'Usage' },
+  BONUS: { variant: 'success', label: 'Bonus' },
+  REFUND: { variant: 'destructive', label: 'Refund' },
+  SUBSCRIPTION: { variant: 'outline', label: 'Subscription' },
+};
+
+// ============ MEDIA TYPE CONFIG ============
+export const MEDIA_TYPE_CONFIG: Record<string, {
+  label: string;
+}> = {
+  IMAGE: { label: 'Image' },
+  VIDEO: { label: 'Video' },
+  GIF: { label: 'GIF' },
+};
+
+// ============ USER ROLE CONFIG ============
+export const USER_ROLE_CONFIG: Record<string, {
+  label: string;
+}> = {
+  USER: { label: 'User' },
+  ADMIN: { label: 'Admin' },
+};
+
 // ============ GOAL LABELS ============
 export const GOAL_LABELS: Record<string, string> = {
   TRAFFIC: 'Drive Traffic',

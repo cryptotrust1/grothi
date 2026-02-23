@@ -6,8 +6,11 @@ import { maskApiKey } from '@/lib/encryption';
 // GET /api/admin/settings — Get current provider settings
 export async function GET() {
   const user = await getCurrentUser();
-  if (!user || user.role !== 'ADMIN') {
+  if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  if (user.role !== 'ADMIN') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
   const [videoProvider, replicateKey, runwayKey] = await Promise.all([
@@ -28,8 +31,11 @@ export async function GET() {
 // POST /api/admin/settings — Update provider settings
 export async function POST(request: NextRequest) {
   const user = await getCurrentUser();
-  if (!user || user.role !== 'ADMIN') {
+  if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  if (user.role !== 'ADMIN') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
   let body: Record<string, string>;

@@ -79,7 +79,7 @@ interface SendCampaignEmailOptions {
  * Automatically adds CAN-SPAM compliant unsubscribe header.
  * Injects tracking pixel for open tracking if provided.
  */
-export async function sendCampaignEmail(options: SendCampaignEmailOptions) {
+export async function sendCampaignEmail(options: SendCampaignEmailOptions): Promise<{ success: boolean; messageId?: string; error?: string; accepted?: string[]; rejected?: string[] }> {
   const transporter = options.transporter || createTransporter(options.config);
 
   const headers: Record<string, string> = {};
@@ -436,7 +436,7 @@ function baseLayout(content: string) {
 
 // ============ TRANSACTIONAL EMAIL FUNCTIONS ============
 
-export async function sendWelcomeEmail(to: string, name: string) {
+export async function sendWelcomeEmail(to: string, name: string): Promise<{ success: boolean }> {
   const appUrl = getAppUrl();
   const html = baseLayout(`
     <h2>Welcome to Grothi, ${escapeHtml(name)}!</h2>
@@ -457,7 +457,7 @@ export async function sendWelcomeEmail(to: string, name: string) {
   );
 }
 
-export async function sendEmailVerificationEmail(to: string, name: string, token: string) {
+export async function sendEmailVerificationEmail(to: string, name: string, token: string): Promise<{ success: boolean }> {
   const verifyUrl = `${getAppUrl()}/auth/verify-email?token=${encodeURIComponent(token)}`;
 
   const html = baseLayout(`
@@ -481,7 +481,7 @@ export async function sendEmailVerificationEmail(to: string, name: string, token
   );
 }
 
-export async function sendPasswordResetEmail(to: string, name: string, token: string) {
+export async function sendPasswordResetEmail(to: string, name: string, token: string): Promise<{ success: boolean }> {
   const resetUrl = `${getAppUrl()}/auth/reset-password?token=${encodeURIComponent(token)}`;
 
   const html = baseLayout(`
@@ -505,7 +505,7 @@ export async function sendPasswordResetEmail(to: string, name: string, token: st
   );
 }
 
-export async function sendContactNotificationEmail(name: string, email: string, message: string) {
+export async function sendContactNotificationEmail(name: string, email: string, message: string): Promise<{ success: boolean }> {
   const adminEmail = process.env.CONTACT_NOTIFY_EMAIL || 'support@grothi.com';
 
   const html = baseLayout(`
@@ -524,7 +524,7 @@ export async function sendContactNotificationEmail(name: string, email: string, 
   );
 }
 
-export async function sendContactConfirmationEmail(to: string, name: string) {
+export async function sendContactConfirmationEmail(to: string, name: string): Promise<{ success: boolean }> {
   const html = baseLayout(`
     <h2>We received your message</h2>
     <p>Hi ${escapeHtml(name)},</p>
