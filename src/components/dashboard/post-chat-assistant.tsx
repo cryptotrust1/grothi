@@ -36,8 +36,8 @@ interface AIModel {
 
 const AI_MODELS: AIModel[] = [
   // Anthropic
-  { id: 'sonnet-4.5', label: 'Claude Sonnet 4.5', provider: 'anthropic', apiModel: 'claude-sonnet-4-5-20250514', vision: true },
-  { id: 'haiku-3.5', label: 'Claude Haiku 3.5', provider: 'anthropic', apiModel: 'claude-haiku-4-5-20251001', vision: true },
+  { id: 'sonnet-4.5', label: 'Claude Sonnet 4.5', provider: 'anthropic', apiModel: 'claude-sonnet-4-5-20250929', vision: true },
+  { id: 'haiku-4.5', label: 'Claude Haiku 4.5', provider: 'anthropic', apiModel: 'claude-haiku-4-5-20251001', vision: true },
   // OpenAI
   { id: 'gpt-4o', label: 'GPT-4o', provider: 'openai', apiModel: 'gpt-4o', vision: true },
   { id: 'gpt-4o-mini', label: 'GPT-4o Mini', provider: 'openai', apiModel: 'gpt-4o-mini', vision: true },
