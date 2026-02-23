@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { deductCredits } from '@/lib/credits';
 import { getModelById, getDefaultVideoModel, buildModelInput, VIDEO_MODELS } from '@/lib/ai-models';
 import { getProviderApiKey } from '@/lib/video-provider';
+import { BOT_STORAGE_LIMIT_BYTES, BOT_STORAGE_LIMIT_MB } from '@/lib/constants';
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, resolve } from 'path';
@@ -27,6 +28,7 @@ export async function POST(request: NextRequest) {
       platform,
       prompt,
       referenceImage,
+      endImage,
       modelId,
       params: userParams,
       negativePrompt,
@@ -40,6 +42,21 @@ export async function POST(request: NextRequest) {
     const bot = await db.bot.findFirst({ where: { id: botId, userId: user.id } });
     if (!bot) {
       return NextResponse.json({ error: 'Bot not found' }, { status: 404 });
+    }
+
+    // Check storage limit (200MB per bot)
+    const storageUsed = await db.media.aggregate({
+      where: { botId },
+      _sum: { fileSize: true },
+    });
+    const currentUsageBytes = storageUsed._sum.fileSize || 0;
+    // Estimate ~20MB for a generated video (conservative)
+    const estimatedSizeBytes = 20 * 1024 * 1024;
+    if (currentUsageBytes + estimatedSizeBytes > BOT_STORAGE_LIMIT_BYTES) {
+      const usedMB = (currentUsageBytes / (1024 * 1024)).toFixed(1);
+      return NextResponse.json({
+        error: `Storage limit exceeded. This bot uses ${usedMB} MB of ${BOT_STORAGE_LIMIT_MB} MB. Delete some media to free up space before generating new videos.`,
+      }, { status: 413 });
     }
 
     // Resolve model — user picks any video model, default is MiniMax Hailuo
@@ -106,7 +123,7 @@ export async function POST(request: NextRequest) {
 
     // Build input from model params
     const parsedParams: Record<string, unknown> = userParams && typeof userParams === 'object' ? userParams : {};
-    const replicateInput = buildModelInput(model, fullPrompt, parsedParams, referenceImage, negativePrompt);
+    const replicateInput = buildModelInput(model, fullPrompt, parsedParams, referenceImage, negativePrompt, endImage);
 
     // Create async prediction
     const prediction = await replicate.predictions.create({

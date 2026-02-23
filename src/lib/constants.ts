@@ -1,6 +1,12 @@
 // Shared constants used across the Grothi platform
 // Single source of truth - all pages import from here
 
+// ============ BOT STORAGE LIMIT ============
+/** Maximum storage per bot in bytes (200 MB) */
+export const BOT_STORAGE_LIMIT_BYTES = 200 * 1024 * 1024;
+/** Maximum storage per bot in MB (for display) */
+export const BOT_STORAGE_LIMIT_MB = 200;
+
 // ============ PLATFORM NAMES ============
 export const PLATFORM_NAMES: Record<string, string> = {
   MASTODON: 'Mastodon',

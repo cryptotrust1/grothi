@@ -48,6 +48,14 @@ export interface AIModel {
   requiresReferenceImage?: boolean;
   /** The key name for reference image in API input */
   referenceImageKey?: string;
+  /** Description of what the reference image does for this specific model */
+  referenceDescription?: string;
+  /** Supports an end/last frame image (video models only) */
+  supportsEndImage?: boolean;
+  /** API key name for the end image parameter */
+  endImageKey?: string;
+  /** Description of what the end image does for this model */
+  endImageDescription?: string;
   /** Supports negative prompt */
   supportsNegativePrompt: boolean;
   /** All configurable parameters */
@@ -102,6 +110,7 @@ export const IMAGE_MODELS: AIModel[] = [
     creditCost: 3,
     supportsReferenceImage: true,
     referenceImageKey: 'image_prompt',
+    referenceDescription: 'Style reference image. The model blends visual elements (style, colors, composition) from this image into the generated output. Lower image_prompt_strength = subtle influence, higher = stronger match.',
     supportsNegativePrompt: false,
     provider: 'replicate',
     estimatedTime: '~5 seconds',
@@ -156,6 +165,17 @@ export const IMAGE_MODELS: AIModel[] = [
         group: 'basic',
       },
       {
+        key: 'image_prompt_strength',
+        label: 'Reference Image Strength',
+        type: 'number',
+        description: 'How strongly the reference image influences the output (0-1). Low values (0.1) = subtle style hint, high values (0.9) = closely match the reference.',
+        min: 0,
+        max: 1,
+        step: 0.05,
+        default: 0.1,
+        group: 'basic',
+      },
+      {
         key: 'seed',
         label: 'Seed',
         type: 'number',
@@ -179,6 +199,7 @@ export const IMAGE_MODELS: AIModel[] = [
     creditCost: 5,
     supportsReferenceImage: true,
     referenceImageKey: 'image_prompt',
+    referenceDescription: 'Style reference image. The model blends visual elements from this image into the 4MP output. Use with Raw Mode for natural photography-style blending.',
     supportsNegativePrompt: false,
     provider: 'replicate',
     estimatedTime: '~10 seconds',
@@ -230,6 +251,17 @@ export const IMAGE_MODELS: AIModel[] = [
         type: 'boolean',
         description: 'Less processed, more natural look. Great for photography-style images.',
         default: false,
+        group: 'basic',
+      },
+      {
+        key: 'image_prompt_strength',
+        label: 'Reference Image Strength',
+        type: 'number',
+        description: 'How strongly the reference image influences the output (0-1). Low values (0.1) = subtle style hint, high values (0.9) = closely match the reference.',
+        min: 0,
+        max: 1,
+        step: 0.05,
+        default: 0.1,
         group: 'basic',
       },
       {
@@ -593,6 +625,7 @@ export const IMAGE_MODELS: AIModel[] = [
     creditCost: 1,
     supportsReferenceImage: true,
     referenceImageKey: 'image',
+    referenceDescription: 'Input image for image-to-image transformation. The model uses this as a starting point and transforms it based on your prompt. Adjust "Prompt Strength" to control how much the original image changes (lower = closer to original).',
     supportsNegativePrompt: true,
     provider: 'replicate',
     estimatedTime: '~8 seconds',
@@ -746,6 +779,7 @@ export const VIDEO_MODELS: AIModel[] = [
     creditCost: 15,
     supportsReferenceImage: true,
     referenceImageKey: 'start_image',
+    referenceDescription: 'Starting frame image. The video begins from this image and animates it based on your prompt. When provided, aspect ratio is determined by the image dimensions.',
     supportsNegativePrompt: true,
     provider: 'replicate',
     estimatedTime: '~3-6 minutes',
@@ -818,6 +852,7 @@ export const VIDEO_MODELS: AIModel[] = [
     creditCost: 10,
     supportsReferenceImage: true,
     referenceImageKey: 'image',
+    referenceDescription: 'Image to animate into video. The model transforms this still image into motion based on your prompt. When provided, the aspect ratio is determined by the image.',
     supportsNegativePrompt: false,
     provider: 'replicate',
     estimatedTime: '~2-4 minutes',
@@ -879,6 +914,7 @@ export const VIDEO_MODELS: AIModel[] = [
     creditCost: 12,
     supportsReferenceImage: true,
     referenceImageKey: 'input_reference',
+    referenceDescription: 'Visual reference image to guide the video style and content. The model uses this image as creative guidance for the generated video.',
     supportsNegativePrompt: false,
     provider: 'replicate',
     estimatedTime: '~3-5 minutes',
@@ -925,6 +961,10 @@ export const VIDEO_MODELS: AIModel[] = [
     creditCost: 10,
     supportsReferenceImage: true,
     referenceImageKey: 'image',
+    referenceDescription: 'First frame image. The video starts from this image and animates based on your prompt. Works with end image for smooth start-to-end transitions.',
+    supportsEndImage: true,
+    endImageKey: 'end_image',
+    endImageDescription: 'Last frame image. The video smoothly transitions from the start image to this end image. Both images should have compatible aspect ratios (the first frame is used as reference if they differ).',
     supportsNegativePrompt: false,
     provider: 'replicate',
     estimatedTime: '~2-4 minutes',
@@ -1005,6 +1045,7 @@ export const VIDEO_MODELS: AIModel[] = [
     creditCost: 10,
     supportsReferenceImage: true,
     referenceImageKey: 'start_image',
+    referenceDescription: 'Starting frame image. The video begins from this image with cinematic motion and optional synchronized audio. Aspect ratio is determined by the image.',
     supportsNegativePrompt: true,
     provider: 'replicate',
     estimatedTime: '~3-5 minutes',
@@ -1061,11 +1102,15 @@ export const VIDEO_MODELS: AIModel[] = [
     replicateId: 'google/veo-3.1',
     name: 'Google Veo 3.1',
     brand: 'Google DeepMind',
-    description: 'Latest Google model. Up to 8 seconds with context-aware audio. 1080p. Reference image support.',
+    description: 'Latest Google model. Up to 8 seconds with context-aware audio. 1080p. Reference image + first/last frame support.',
     category: 'video',
     creditCost: 15,
     supportsReferenceImage: true,
     referenceImageKey: 'image',
+    referenceDescription: 'Reference image for visual guidance. The model preserves the visual style and elements from this image while generating motion with context-aware audio.',
+    supportsEndImage: true,
+    endImageKey: 'last_frame',
+    endImageDescription: 'Last frame of the video. The model generates a smooth transition from the reference image to this end frame. Both images should be visually compatible with a plausible motion sequence.',
     supportsNegativePrompt: true,
     provider: 'replicate',
     estimatedTime: '~3-5 minutes',
@@ -1149,6 +1194,7 @@ export const VIDEO_MODELS: AIModel[] = [
     creditCost: 12,
     supportsReferenceImage: true,
     referenceImageKey: 'image',
+    referenceDescription: 'Reference image to animate. The model preserves the unique visual style of this image while generating cinematic motion with dialogue lip-sync and native audio.',
     supportsNegativePrompt: true,
     provider: 'replicate',
     estimatedTime: '~3-5 minutes',
@@ -1232,6 +1278,7 @@ export const VIDEO_MODELS: AIModel[] = [
     creditCost: 10,
     supportsReferenceImage: true,
     referenceImageKey: 'first_frame_image',
+    referenceDescription: 'First frame image. The video starts from this image with realistic human motion and cinematic VFX effects. Best with high-quality, well-composed images.',
     supportsNegativePrompt: false,
     provider: 'replicate',
     estimatedTime: '~1-3 minutes',
@@ -1285,6 +1332,7 @@ export const VIDEO_MODELS: AIModel[] = [
     creditCost: 12,
     supportsReferenceImage: true,
     referenceImageKey: 'start_image',
+    referenceDescription: 'Starting frame image for premium video generation. The model creates video with superior dynamics and prompt adherence starting from this image.',
     supportsNegativePrompt: true,
     provider: 'replicate',
     estimatedTime: '~3-5 minutes',
@@ -1406,11 +1454,15 @@ export const VIDEO_MODELS: AIModel[] = [
     replicateId: 'luma/ray-2-720p',
     name: 'Luma Ray 2',
     brand: 'Luma AI',
-    description: 'Up to 9 seconds. Cinematic quality with smooth camera motion. Photorealistic at 720p.',
+    description: 'Up to 9 seconds. Cinematic quality with smooth camera motion. Photorealistic at 720p. Supports start + end frame interpolation.',
     category: 'video',
     creditCost: 10,
     supportsReferenceImage: true,
     referenceImageKey: 'start_image',
+    referenceDescription: 'Starting frame image. The video begins from this image with smooth cinematic camera motion. Min 512x512, max 4096x4096 pixels.',
+    supportsEndImage: true,
+    endImageKey: 'end_image',
+    endImageDescription: 'Ending frame image for dual-keyframe interpolation. The model smoothly transitions from the start image to this end image. Define both start and end states for predictable motion trajectories.',
     supportsNegativePrompt: false,
     provider: 'replicate',
     estimatedTime: '~3-5 minutes',
@@ -1471,6 +1523,7 @@ export const VIDEO_MODELS: AIModel[] = [
     creditCost: 8,
     supportsReferenceImage: true,
     referenceImageKey: 'first_frame_image',
+    referenceDescription: 'First frame of the video. The model generates a reliable 6-second video starting from this image with good motion quality.',
     supportsNegativePrompt: false,
     provider: 'replicate',
     estimatedTime: '~2-3 minutes',
@@ -1501,6 +1554,7 @@ export const VIDEO_MODELS: AIModel[] = [
     supportsReferenceImage: true,
     requiresReferenceImage: true,
     referenceImageKey: 'first_frame_image',
+    referenceDescription: 'Image to animate (REQUIRED). This model specializes in bringing still images to life with Live2D-style animation. Upload a character illustration or photo to see it animated.',
     supportsNegativePrompt: false,
     provider: 'replicate',
     estimatedTime: '~2-3 minutes',
@@ -1531,6 +1585,7 @@ export const VIDEO_MODELS: AIModel[] = [
     supportsReferenceImage: true,
     requiresReferenceImage: true,
     referenceImageKey: 'start_image',
+    referenceDescription: 'Starting image (REQUIRED). This is an image-to-video model that requires a starting image. The model creates 720p or 1080p video from this image with high-quality motion.',
     supportsNegativePrompt: true,
     provider: 'replicate',
     estimatedTime: '~3-5 minutes',
@@ -1583,6 +1638,7 @@ export const VIDEO_MODELS: AIModel[] = [
     creditCost: 8,
     supportsReferenceImage: true,
     referenceImageKey: 'image',
+    referenceDescription: 'Reference image for visual guidance. The model generates realistic video motion while preserving the style and visual elements of this image.',
     supportsNegativePrompt: false,
     provider: 'replicate',
     estimatedTime: '~2-4 minutes',
@@ -1691,6 +1747,7 @@ export function buildModelInput(
   userParams: Record<string, unknown>,
   referenceImage?: string,
   negativePrompt?: string,
+  endImage?: string,
 ): Record<string, unknown> {
   const input: Record<string, unknown> = { prompt };
 
@@ -1707,6 +1764,11 @@ export function buildModelInput(
   // Add reference image
   if (referenceImage && model.supportsReferenceImage && model.referenceImageKey) {
     input[model.referenceImageKey] = referenceImage;
+  }
+
+  // Add end/last frame image
+  if (endImage && model.supportsEndImage && model.endImageKey) {
+    input[model.endImageKey] = endImage;
   }
 
   // Add negative prompt

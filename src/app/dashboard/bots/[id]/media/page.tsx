@@ -6,7 +6,8 @@ import { db } from '@/lib/db';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Image, Film, Upload, Trash2, Sparkles, ChevronLeft, ChevronRight, Wand2 } from 'lucide-react';
+import { Image, Film, Upload, Trash2, Sparkles, ChevronLeft, ChevronRight, Wand2, HardDrive } from 'lucide-react';
+import { BOT_STORAGE_LIMIT_BYTES, BOT_STORAGE_LIMIT_MB } from '@/lib/constants';
 import { MediaUploadForm } from '@/components/dashboard/media-upload-form';
 import { MediaGenerateForm } from '@/components/dashboard/media-generate-form';
 import { MediaCardActions } from '@/components/dashboard/media-card-actions';
@@ -45,7 +46,7 @@ export default async function BotMediaPage({
   };
   if (typeFilter) where.type = typeFilter;
 
-  const [media, totalCount] = await Promise.all([
+  const [media, totalCount, storageAgg] = await Promise.all([
     db.media.findMany({
       where: where as any,
       orderBy: { createdAt: 'desc' },
@@ -53,7 +54,16 @@ export default async function BotMediaPage({
       take: PAGE_SIZE,
     }),
     db.media.count({ where: where as any }),
+    db.media.aggregate({
+      where: { botId: bot.id },
+      _sum: { fileSize: true },
+    }),
   ]);
+
+  const storageUsedBytes = storageAgg._sum.fileSize || 0;
+  const storageUsedMB = storageUsedBytes / (1024 * 1024);
+  const storagePercent = Math.min(100, (storageUsedBytes / BOT_STORAGE_LIMIT_BYTES) * 100);
+  const storageFull = storageUsedBytes >= BOT_STORAGE_LIMIT_BYTES;
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
@@ -84,25 +94,75 @@ export default async function BotMediaPage({
       {sp.success && <div className="rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-800">{sp.success}</div>}
       {sp.error && <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">{sp.error}</div>}
 
-      {/* Upload Card */}
+      {/* Storage Usage */}
       <Card>
+        <CardContent className="py-4">
+          <div className="flex items-center gap-3">
+            <HardDrive className={`h-5 w-5 shrink-0 ${storageFull ? 'text-destructive' : storagePercent > 75 ? 'text-yellow-500' : 'text-muted-foreground'}`} />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-sm font-medium">
+                  Storage: {storageUsedMB < 0.1 ? '0' : storageUsedMB.toFixed(1)} MB / {BOT_STORAGE_LIMIT_MB} MB
+                </span>
+                <span className={`text-xs font-medium ${storageFull ? 'text-destructive' : storagePercent > 90 ? 'text-red-500' : storagePercent > 75 ? 'text-yellow-600' : 'text-muted-foreground'}`}>
+                  {storagePercent.toFixed(0)}% used
+                  {storageFull && ' — FULL'}
+                </span>
+              </div>
+              <div className="w-full bg-muted rounded-full h-2.5 overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${
+                    storageFull ? 'bg-destructive' : storagePercent > 90 ? 'bg-red-500' : storagePercent > 75 ? 'bg-yellow-500' : 'bg-primary'
+                  }`}
+                  style={{ width: `${Math.max(storagePercent, 0.5)}%` }}
+                />
+              </div>
+              {storageFull && (
+                <p className="text-xs text-destructive mt-1.5">Storage limit reached. Delete some media to free up space before uploading or generating new files.</p>
+              )}
+              {!storageFull && storagePercent > 75 && (
+                <p className="text-xs text-yellow-600 mt-1.5">Running low on storage. Consider deleting unused media to free up space.</p>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Upload Card */}
+      <Card className={storageFull ? 'opacity-60' : ''}>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Upload className="h-5 w-5" /> Upload Media</CardTitle>
-          <CardDescription>Drag & drop or click to upload. Supports JPEG, PNG, WebP, GIF, AVIF (up to 10MB) and MP4, WebM, MOV (up to 50MB). Select multiple files at once.</CardDescription>
+          <CardTitle className="flex items-center gap-2">
+            <Upload className="h-5 w-5" /> Upload Media
+            {storageFull && <Badge variant="destructive" className="ml-2 text-[10px]">Storage Full</Badge>}
+          </CardTitle>
+          <CardDescription>
+            {storageFull
+              ? 'Storage limit reached. Delete some media below to free up space.'
+              : `Drag & drop or click to upload. Supports JPEG, PNG, WebP, GIF, AVIF (up to 10MB) and MP4, WebM, MOV (up to 50MB). ${(BOT_STORAGE_LIMIT_MB - storageUsedMB).toFixed(1)} MB remaining.`
+            }
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <MediaUploadForm botId={bot.id} />
+          <MediaUploadForm botId={bot.id} storageFull={storageFull} storageRemainingMB={Math.max(0, BOT_STORAGE_LIMIT_MB - storageUsedMB)} />
         </CardContent>
       </Card>
 
       {/* AI Generate Card */}
-      <Card>
+      <Card className={storageFull ? 'opacity-60' : ''}>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Wand2 className="h-5 w-5" /> AI Generate</CardTitle>
-          <CardDescription>Generate images and videos with AI. Uses your Creative Style preferences. Images cost 3 credits, videos cost 8 credits.</CardDescription>
+          <CardTitle className="flex items-center gap-2">
+            <Wand2 className="h-5 w-5" /> AI Generate
+            {storageFull && <Badge variant="destructive" className="ml-2 text-[10px]">Storage Full</Badge>}
+          </CardTitle>
+          <CardDescription>
+            {storageFull
+              ? 'Storage limit reached. Delete some media below to free up space.'
+              : 'Generate images and videos with AI. Uses your Creative Style preferences. Images cost 3 credits, videos cost 8 credits.'
+            }
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <MediaGenerateForm botId={bot.id} />
+          <MediaGenerateForm botId={bot.id} storageFull={storageFull} />
         </CardContent>
       </Card>
 
