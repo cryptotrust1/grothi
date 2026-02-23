@@ -124,6 +124,10 @@ export function PostFormClient({
   // AI chat state — open by default
   const [showAiPanel, setShowAiPanel] = useState(true);
 
+  // Optimize for platforms state
+  const [isOptimizing, setIsOptimizing] = useState(false);
+  const [optimizeError, setOptimizeError] = useState<string | null>(null);
+
   // ── Derived data ───────────────────────────────────────────
 
   const selectedMedia = useMemo(
@@ -291,6 +295,105 @@ export function PostFormClient({
     setContent(cleaned);
   }, []);
 
+  // ── Optimize content for selected platforms ──────────────
+
+  const optimizeForPlatforms = useCallback(async () => {
+    if (!content.trim() || selectedPlatforms.size === 0 || isOptimizing) return;
+
+    setIsOptimizing(true);
+    setOptimizeError(null);
+
+    // Build platform constraints for the prompt
+    const constraints = Array.from(selectedPlatforms)
+      .map(p => {
+        const req = platformRequirements[p];
+        if (!req) return null;
+        return `- ${req.name}: max ${req.maxCharacters.toLocaleString()} characters`;
+      })
+      .filter(Boolean)
+      .join('\n');
+
+    const optimizePrompt = `Optimize the following text for posting on all these platforms simultaneously. Respect each platform's character limit strictly. Return ONLY the optimized text, nothing else — no explanations, no platform labels, no markdown formatting.
+
+Platform limits:
+${constraints}
+
+The output text must fit within the SMALLEST character limit (${Math.min(...Array.from(selectedPlatforms).map(p => platformRequirements[p]?.maxCharacters ?? 99999)).toLocaleString()} chars). Keep the core message, tone, and meaning. Make it engaging and natural.
+
+Original text:
+${content}`;
+
+    try {
+      const res = await fetch('/api/chat/post-assistant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          botId,
+          messages: [{ role: 'user', content: optimizePrompt }],
+          platforms: Array.from(selectedPlatforms),
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setOptimizeError(data?.error || 'Optimization failed. Try again.');
+        return;
+      }
+
+      // Read streaming response and collect full text
+      const reader = res.body?.getReader();
+      if (!reader) {
+        setOptimizeError('No response from AI.');
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let optimizedText = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const jsonStr = line.slice(6).trim();
+          if (!jsonStr) continue;
+          try {
+            const event = JSON.parse(jsonStr);
+            if (event.text) optimizedText += event.text;
+            if (event.error) setOptimizeError(event.error);
+          } catch { /* skip */ }
+        }
+      }
+
+      if (optimizedText.trim()) {
+        // Strip markdown just like handleUseAiContent
+        const cleaned = optimizedText.trim()
+          .replace(/\*\*(.+?)\*\*/g, '$1')
+          .replace(/\*(.+?)\*/g, '$1')
+          .replace(/__(.+?)__/g, '$1')
+          .replace(/_(.+?)_/g, '$1')
+          .replace(/~~(.+?)~~/g, '$1')
+          .replace(/^#{1,6}\s+/gm, '')
+          .replace(/^[>\s]*>\s?/gm, '')
+          .replace(/^[-*+]\s+/gm, '')
+          .replace(/^\d+\.\s+/gm, '')
+          .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+          .replace(/`([^`]+)`/g, '$1');
+        setContent(cleaned);
+      }
+    } catch {
+      setOptimizeError('Network error. Check your connection.');
+    } finally {
+      setIsOptimizing(false);
+    }
+  }, [content, selectedPlatforms, isOptimizing, botId, platformRequirements]);
+
   // ── Form submission ────────────────────────────────────────
 
   const handleSubmit = (action: 'now' | 'schedule' | 'draft') => {
@@ -426,6 +529,36 @@ export function PostFormClient({
                       className="flex min-h-[180px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-y"
                       required
                     />
+
+                    {/* Optimize for platforms button */}
+                    {content.trim().length > 0 && selectedPlatforms.size > 0 && (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5 text-xs"
+                          onClick={optimizeForPlatforms}
+                          disabled={isOptimizing}
+                        >
+                          {isOptimizing ? (
+                            <><Loader2 className="h-3 w-3 animate-spin" /> Optimizing...</>
+                          ) : (
+                            <><Sparkles className="h-3 w-3" /> Optimize for {selectedPlatforms.size} platform{selectedPlatforms.size > 1 ? 's' : ''}</>
+                          )}
+                        </Button>
+                        <span className="text-[10px] text-muted-foreground">
+                          AI will adapt your text to fit all selected platforms ({
+                            Math.min(...Array.from(selectedPlatforms).map(p => platformRequirements[p]?.maxCharacters ?? 99999)).toLocaleString()
+                          } char limit) — ~2 credits
+                        </span>
+                        {optimizeError && (
+                          <span className="text-[10px] text-destructive flex items-center gap-1">
+                            <AlertCircle className="h-3 w-3" /> {optimizeError}
+                          </span>
+                        )}
+                      </div>
+                    )}
 
                     {/* Live character counts per platform */}
                     {content.length > 0 && (

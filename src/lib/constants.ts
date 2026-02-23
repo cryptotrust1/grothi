@@ -354,7 +354,7 @@ export const PLATFORM_REQUIREMENTS: Record<string, PlatformRequirement> = {
     name: 'TikTok',
     mediaRequired: true,
     textOnly: false,
-    maxCharacters: 2200,
+    maxCharacters: 4000,
     supportedMediaTypes: ['IMAGE', 'VIDEO'],
     imageFormats: ['JPEG', 'PNG', 'WebP'],
     videoFormats: ['MP4', 'MOV', 'WebM'],
@@ -363,7 +363,7 @@ export const PLATFORM_REQUIREMENTS: Record<string, PlatformRequirement> = {
     recommendedDimensions: [
       { width: 1080, height: 1920, aspect: '9:16', label: 'Vertical (required)' },
     ],
-    note: 'Video or image REQUIRED. Vertical 9:16 format preferred. Text-only not supported.',
+    note: 'Video or image REQUIRED. Vertical 9:16 format preferred. Max 4,000 chars. Text-only not supported.',
   },
   PINTEREST: {
     name: 'Pinterest',

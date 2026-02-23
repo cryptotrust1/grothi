@@ -74,6 +74,7 @@ export function PostChatAssistant({ botId, platforms, onUseContent, onClose }: P
   const [error, setError] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<string>(AI_MODELS[0].id);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
+  const [creditCostPerMsg, setCreditCostPerMsg] = useState<number | null>(null);
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -283,6 +284,10 @@ export function PostChatAssistant({ botId, platforms, onUseContent, onClose }: P
             }
 
             if (event.done) {
+              // Update credit cost from actual API response
+              if (typeof event.creditCost === 'number') {
+                setCreditCostPerMsg(event.creditCost);
+              }
               setMessages(prev => prev.map(m =>
                 m.id === assistantMessage.id
                   ? { ...m, content: accumulatedText, isStreaming: false }
@@ -355,7 +360,8 @@ export function PostChatAssistant({ botId, platforms, onUseContent, onClose }: P
           <Sparkles className="h-4 w-4 text-purple-600" />
           <span className="font-medium text-sm text-purple-900">AI Post Assistant</span>
           <span className="text-[10px] text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">
-            <Coins className="h-2.5 w-2.5 inline mr-0.5" />5 credits/msg
+            <Coins className="h-2.5 w-2.5 inline mr-0.5" />
+            {creditCostPerMsg !== null ? `${creditCostPerMsg} credits/msg` : '~2 credits/msg'}
           </span>
         </div>
         <div className="flex items-center gap-1">
