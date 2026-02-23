@@ -62,9 +62,14 @@ export async function POST(request: NextRequest) {
       }, { status: 503 });
     }
 
-    // Check credits
-    const balance = await db.creditBalance.findUnique({ where: { userId: user.id } });
-    if (!balance || balance.balance < creditCost) {
+    // Deduct credits BEFORE generation (atomically check and deduct)
+    const deducted = await deductCredits(
+      user.id,
+      creditCost,
+      `AI video generation (${model.name})`,
+      botId
+    );
+    if (!deducted) {
       return NextResponse.json({
         error: `Insufficient credits. You need ${creditCost} credits to generate with ${model.name}. Buy more credits in the Credits page.`,
       }, { status: 402 });
@@ -423,23 +428,7 @@ async function finalizeVideo(
   }
   const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
 
-  // Deduct credits AFTER successful generation + download
-  const deducted = await deductCredits(
-    userId,
-    creditCost,
-    `AI video (${modelName}) for ${platform}`,
-    botId
-  );
-  if (!deducted) {
-    if (existingMediaId) {
-      await db.media.update({ where: { id: existingMediaId }, data: { generationStatus: 'FAILED' } });
-    }
-    return NextResponse.json({
-      status: 'failed',
-      error: `Insufficient credits. You need ${creditCost} credits.`,
-    }, { status: 402 });
-  }
-
+  // Credits were already deducted before generation (atomically)
   // Save to filesystem
   const botDir = resolve(join(UPLOAD_DIR, botId));
   if (!botDir.startsWith(resolve(UPLOAD_DIR))) {

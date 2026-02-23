@@ -17,7 +17,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { deductCredits, getActionCost, hasEnoughCredits } from '@/lib/credits';
+import { deductCredits, getActionCost, hasEnoughCredits, addCredits } from '@/lib/credits';
 import {
   decryptFacebookCredentials,
   postText,
@@ -245,9 +245,12 @@ export async function POST(request: NextRequest) {
 
     for (const platform of platforms) {
       try {
-        // Check credit balance before posting
-        const hasCreds = await hasEnoughCredits(post.bot.userId, await getActionCost('POST'));
-        if (!hasCreds) {
+        // Deduct credits BEFORE posting to prevent race conditions
+        // If posting fails, we'll refund the credits
+        const cost = await getActionCost('POST');
+        const deducted = await deductCredits(post.bot.userId, cost, `Post to ${platform}`, post.botId);
+        
+        if (!deducted) {
           platformResults[platform] = {
             success: false,
             error: 'Insufficient credits. Buy more credits to continue posting.',
@@ -272,15 +275,14 @@ export async function POST(request: NextRequest) {
 
         if (result.success) {
           anySucceeded = true;
-          // Deduct credits on successful post
-          const cost = await getActionCost('POST');
-          await deductCredits(post.bot.userId, cost, `Post to ${platform}`, post.botId);
         } else {
+          // Refund credits if posting failed
+          await addCredits(post.bot.userId, cost, 'REFUND', `Refund for failed post to ${platform}`);
           allSucceeded = false;
         }
 
         // Record activity
-        const cost = result.success ? await getActionCost('POST') : 0;
+        const activityCost = result.success ? cost : 0;
         await db.botActivity.create({
           data: {
             botId: post.botId,
@@ -291,7 +293,7 @@ export async function POST(request: NextRequest) {
             contentType: post.contentType || 'custom',
             success: result.success,
             error: result.error || null,
-            creditsUsed: cost,
+            creditsUsed: activityCost,
           },
         });
 

@@ -43,19 +43,27 @@ export async function deductCredits(
   botId?: string
 ): Promise<boolean> {
   return await db.$transaction(async (tx) => {
-    const balance = await tx.creditBalance.findUnique({
-      where: { userId },
+    // Atomically check and deduct credits using update with where condition
+    // This prevents race conditions - only succeeds if balance >= amount
+    const updated = await tx.creditBalance.updateMany({
+      where: { 
+        userId,
+        balance: { gte: amount },
+      },
+      data: { 
+        balance: { decrement: amount },
+      },
     });
 
-    if (!balance || balance.balance < amount) {
+    // If no rows updated, user didn't have enough credits
+    if (updated.count === 0) {
       return false;
     }
 
-    const newBalance = balance.balance - amount;
-
-    await tx.creditBalance.update({
+    // Get the new balance for transaction record
+    const newBalanceRecord = await tx.creditBalance.findUnique({
       where: { userId },
-      data: { balance: newBalance },
+      select: { balance: true },
     });
 
     await tx.creditTransaction.create({
@@ -63,7 +71,7 @@ export async function deductCredits(
         userId,
         type: 'USAGE',
         amount: -amount,
-        balance: newBalance,
+        balance: newBalanceRecord?.balance ?? 0,
         description,
         botId,
       },

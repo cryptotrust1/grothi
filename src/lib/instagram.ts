@@ -287,7 +287,7 @@ function isTokenError(data: unknown): boolean {
  * Note: Code 4 (rate limit) is NOT retried here — it requires longer waits
  * and is handled by the 429/throttle logic in graphFetch.
  */
-function isTransientError(data: any): boolean {
+function isTransientError(data: unknown): boolean {
   if (!isGraphError(data)) return false;
   return (data as GraphApiError).error.code === 1 || (data as GraphApiError).error.code === 2;
 }

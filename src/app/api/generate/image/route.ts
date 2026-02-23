@@ -61,9 +61,14 @@ export async function POST(request: NextRequest) {
     // Dynamic credit cost from model
     const creditCost = model.creditCost;
 
-    // Check credits
-    const balance = await db.creditBalance.findUnique({ where: { userId: user.id } });
-    if (!balance || balance.balance < creditCost) {
+    // Deduct credits BEFORE generation (atomically check and deduct)
+    const deducted = await deductCredits(
+      user.id,
+      creditCost,
+      `AI image generation (${model.name})`,
+      botId
+    );
+    if (!deducted) {
       return NextResponse.json({
         error: `Insufficient credits. You need ${creditCost} credits to generate with ${model.name}. Buy more credits in the Credits page.`,
       }, { status: 402 });
@@ -196,19 +201,7 @@ export async function POST(request: NextRequest) {
     const filePath = join(botDir, filename);
     await writeFile(filePath, imageBuffer);
 
-    // Deduct credits AFTER successful generation
-    const deducted = await deductCredits(
-      user.id,
-      creditCost,
-      `AI image (${model.name}) for ${platform || 'general'}`,
-      botId
-    );
-    if (!deducted) {
-      return NextResponse.json({
-        error: `Insufficient credits. You need ${creditCost} credits.`,
-      }, { status: 402 });
-    }
-
+    // Credits were already deducted before generation (atomically)
     // Get dimensions for DB
     const dims = PLATFORM_IMAGE_DIMENSIONS[platform || 'INSTAGRAM'] || { width: 1024, height: 1024 };
 
