@@ -36,14 +36,19 @@ interface AIModel {
 
 const AI_MODELS: AIModel[] = [
   // Anthropic
+  { id: 'opus-4.6', label: 'Claude Opus 4.6', provider: 'anthropic', apiModel: 'claude-opus-4-6', vision: true },
   { id: 'sonnet-4.5', label: 'Claude Sonnet 4.5', provider: 'anthropic', apiModel: 'claude-sonnet-4-5-20250929', vision: true },
   { id: 'haiku-4.5', label: 'Claude Haiku 4.5', provider: 'anthropic', apiModel: 'claude-haiku-4-5-20251001', vision: true },
   // OpenAI
+  { id: 'gpt-4.1', label: 'GPT-4.1', provider: 'openai', apiModel: 'gpt-4.1', vision: true },
+  { id: 'gpt-4.1-mini', label: 'GPT-4.1 Mini', provider: 'openai', apiModel: 'gpt-4.1-mini', vision: true },
+  { id: 'gpt-4.1-nano', label: 'GPT-4.1 Nano', provider: 'openai', apiModel: 'gpt-4.1-nano', vision: true },
   { id: 'gpt-4o', label: 'GPT-4o', provider: 'openai', apiModel: 'gpt-4o', vision: true },
   { id: 'gpt-4o-mini', label: 'GPT-4o Mini', provider: 'openai', apiModel: 'gpt-4o-mini', vision: true },
   // Google
-  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', provider: 'google', apiModel: 'gemini-2.5-flash', vision: true },
   { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', provider: 'google', apiModel: 'gemini-2.5-pro', vision: true },
+  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', provider: 'google', apiModel: 'gemini-2.5-flash', vision: true },
+  { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite', provider: 'google', apiModel: 'gemini-2.5-flash-lite', vision: true },
 ];
 
 interface PostChatAssistantProps {

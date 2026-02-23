@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { deductCredits, getActionCost, hasEnoughCredits } from '@/lib/credits';
+import { aiGenerationLimiter } from '@/lib/rate-limit';
 
 export const maxDuration = 120;
 
@@ -31,22 +32,27 @@ interface ChatMessage {
 
 const ALLOWED_MODELS: Record<Provider, string[]> = {
   anthropic: [
+    'claude-opus-4-6',
     'claude-sonnet-4-5-20250929',
     'claude-haiku-4-5-20251001',
   ],
   openai: [
+    'gpt-4.1',
+    'gpt-4.1-mini',
+    'gpt-4.1-nano',
     'gpt-4o',
     'gpt-4o-mini',
   ],
   google: [
-    'gemini-2.5-flash',
     'gemini-2.5-pro',
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
   ],
 };
 
 const DEFAULT_MODELS: Record<Provider, string> = {
   anthropic: 'claude-sonnet-4-5-20250929',
-  openai: 'gpt-4o',
+  openai: 'gpt-4.1-mini',
   google: 'gemini-2.5-flash',
 };
 
@@ -377,6 +383,15 @@ export async function POST(request: NextRequest) {
 
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized. Please sign in.' }, { status: 401 });
+  }
+
+  // Rate limit per user (prevents credit-draining abuse)
+  const rateCheck = aiGenerationLimiter.check(`chat:${user.id}`);
+  if (!rateCheck.allowed) {
+    return NextResponse.json(
+      { error: `Too many AI requests. Try again in ${Math.ceil(rateCheck.retryAfterMs / 1000)} seconds.` },
+      { status: 429 }
+    );
   }
 
   try {
