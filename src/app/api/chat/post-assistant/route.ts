@@ -63,10 +63,11 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { botId, messages, platforms } = body as {
+    const { botId, messages, platforms, model } = body as {
       botId?: string;
       messages?: ChatMessage[];
       platforms?: string[];
+      model?: string;
     };
 
     // ── Validate request ──
@@ -164,6 +165,14 @@ export async function POST(request: NextRequest) {
     // ── Build Anthropic messages ──
     const anthropicMessages = buildAnthropicMessages(messages);
 
+    // ── Resolve model (whitelist only allowed models) ──
+    const ALLOWED_MODELS = [
+      'claude-sonnet-4-5-20250514',
+      'claude-haiku-4-5-20251001',
+      'claude-3-5-sonnet-20241022',
+    ];
+    const selectedModel = model && ALLOWED_MODELS.includes(model) ? model : 'claude-sonnet-4-5-20250514';
+
     // ── Call Anthropic API with streaming ──
     const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -173,7 +182,7 @@ export async function POST(request: NextRequest) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: selectedModel,
         max_tokens: 2000,
         system: systemPrompt,
         messages: anthropicMessages,
