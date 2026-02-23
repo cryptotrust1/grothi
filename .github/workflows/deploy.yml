@@ -2,9 +2,9 @@
 # Triggered when PRs are merged or code is pushed directly to main
 #
 # Required GitHub Secrets:
-#   SSH_HOST       - Server IP (89.167.18.92)
-#   SSH_USER       - SSH user (root)
-#   SSH_PASSWORD   - SSH password
+#   SSH_HOST     - Server IP (e.g. 89.167.18.92)
+#   SSH_USER     - SSH user (e.g. root)
+#   SSH_PASSWORD - SSH password
 
 name: Deploy to Production
 
@@ -13,7 +13,7 @@ on:
     branches:
       - main
 
-# Prevent concurrent deployments
+# Prevent concurrent deployments - queue instead of cancel
 concurrency:
   group: deploy-production
   cancel-in-progress: false
@@ -27,10 +27,16 @@ jobs:
     steps:
       - name: Validate secrets
         run: |
-          if [ -z "${{ secrets.SSH_HOST }}" ] || [ -z "${{ secrets.SSH_USER }}" ] || [ -z "${{ secrets.SSH_PASSWORD }}" ]; then
-            echo "::error::Missing required secrets. Set SSH_HOST, SSH_USER, and SSH_PASSWORD in GitHub Settings > Secrets."
+          MISSING=""
+          if [ -z "${{ secrets.SSH_HOST }}" ]; then MISSING="$MISSING SSH_HOST"; fi
+          if [ -z "${{ secrets.SSH_USER }}" ]; then MISSING="$MISSING SSH_USER"; fi
+          if [ -z "${{ secrets.SSH_PASSWORD }}" ]; then MISSING="$MISSING SSH_PASSWORD"; fi
+          if [ -n "$MISSING" ]; then
+            echo "::error::Missing required secrets:$MISSING"
+            echo "Go to GitHub → Settings → Secrets → Actions and add them."
             exit 1
           fi
+          echo "All required secrets are configured."
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
@@ -42,39 +48,49 @@ jobs:
           timeout: 30s
           command_timeout: 12m
           script: |
-            set -e
             cd /home/acechange-bot/grothi || {
-              echo "ERROR: Deploy path not found"
+              echo "ERROR: Deploy path /home/acechange-bot/grothi not found"
               exit 1
             }
-
             echo "=== Grothi Auto-Deploy ==="
-            echo "Triggered by GitHub Actions"
+            echo "Commit: ${{ github.sha }}"
+            echo "Actor: ${{ github.actor }}"
             echo ""
-
             bash deploy.sh
-
             echo ""
             echo "=== Auto-Deploy Complete ==="
 
-      - name: Deployment summary
+      - name: Verify deployment
         if: success()
         run: |
-          echo "## Deployment Successful" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Server:** ${{ secrets.SSH_HOST }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Time:** $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "Waiting 10s for app to start..."
+          sleep 10
+          HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 15 "https://grothi.com/" 2>/dev/null || echo "000")
+          echo "Health check: HTTP $HTTP_CODE"
+          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "302" ] || [ "$HTTP_CODE" = "307" ]; then
+            echo "grothi.com is responding normally."
+          else
+            echo "::warning::grothi.com returned HTTP $HTTP_CODE - site may need manual check"
+          fi
 
-      - name: Deployment failed
-        if: failure()
+      - name: Deployment summary
+        if: always()
         run: |
-          echo "## Deployment FAILED" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Check the logs above for details." >> $GITHUB_STEP_SUMMARY
-          echo "You may need to deploy manually:" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" >> $GITHUB_STEP_SUMMARY
-          echo "cd /home/acechange-bot/grothi && bash deploy.sh" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "## Deployment Successful" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- **Server:** \`${{ secrets.SSH_HOST }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Commit:** \`${GITHUB_SHA::8}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Time:** $(date -u)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## Deployment FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Check the logs above for details." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Manual deploy:**" >> $GITHUB_STEP_SUMMARY
+            echo '```bash' >> $GITHUB_STEP_SUMMARY
+            echo "ssh root@89.167.18.92" >> $GITHUB_STEP_SUMMARY
+            echo "cd /home/acechange-bot/grothi && bash deploy.sh" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
