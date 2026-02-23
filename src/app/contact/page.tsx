@@ -324,6 +324,7 @@ export default async function ContactPage({
               <ul className="space-y-2.5 text-sm text-muted-foreground">
                 <li><Link href="/faq" className="hover:text-foreground transition-colors">FAQ</Link></li>
                 <li><Link href="/contact" className="hover:text-foreground transition-colors">Help Center</Link></li>
+                <li><Link href="/affiliate" className="hover:text-foreground transition-colors">Affiliate Program</Link></li>
               </ul>
             </div>
             <div>
