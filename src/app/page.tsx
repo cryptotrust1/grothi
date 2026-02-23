@@ -152,7 +152,7 @@ export default function LandingPage() {
               <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight leading-[1.1]">
                 AI Marketing Bot{' '}
                 <span className="bg-gradient-to-r from-primary to-indigo-400 bg-clip-text text-transparent">
-                  Indistinguishable From a Human TEST
+                  Indistinguishable From a Human
                 </span>
               </h1>
               <p className="mt-2 text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight leading-[1.1] text-muted-foreground/80">
