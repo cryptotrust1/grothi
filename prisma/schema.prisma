@@ -31,12 +31,21 @@ model User {
   bots             Bot[]
   creditBalance    CreditBalance?
   creditTxns       CreditTransaction[]
+  creditLedger     CreditLedger[]
+  subscription     Subscription?
+  topupPurchases   TopupPurchase[]
   stripeCustomerId String?  @unique
   sessions         Session[]
   emailVerificationTokens EmailVerificationToken[]
   passwordResetTokens     PasswordResetToken[]
 
+  // Affiliate system
+  affiliateProfile Affiliate?       @relation("AffiliateUser")
+  referredByCode   String?          // Affiliate code that referred this user
+  referredAt       DateTime?
+
   @@index([email])
+  @@index([referredByCode])
 }
 
 model Session {
@@ -304,6 +313,151 @@ enum TxnType {
   BONUS
   REFUND
   SUBSCRIPTION
+  TOPUP
+  ROLLOVER
+  EXPIRED
+}
+
+// ── Credit Ledger (FIFO entries) ──
+// Each entry = a batch of credits from a specific source.
+// Consumed in priority order: TOPUP → ROLLOVER → SUBSCRIPTION.
+
+model CreditLedger {
+  id     String       @id @default(cuid())
+  userId String
+  source CreditSource
+  amount Int          // Original amount added
+  remaining Int       // How many are still available
+  expiresAt DateTime? // Null = never expires (topup credits)
+
+  // Tracking
+  subscriptionId String?
+  topupPurchaseId String?
+  description     String?
+
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, source])
+  @@index([userId, remaining])
+  @@index([expiresAt])
+}
+
+enum CreditSource {
+  SUBSCRIPTION  // Monthly credits from subscription plan
+  TOPUP         // One-time top-up purchase (never expire)
+  ROLLOVER      // Rolled over from previous billing period (Gold/Diamond only)
+  BONUS         // Welcome bonus, promo, admin grant
+}
+
+// ── Subscription Plans ──
+
+model SubscriptionPlan {
+  id           String  @id @default(cuid())
+  slug         String  @unique         // bronze, silver, gold, diamond
+  name         String                  // Bronze, Silver, Gold, Diamond
+  priceUsd     Int                     // Price in cents (e.g., 1500 = $15)
+  credits      Int                     // Monthly credits included
+  maxBots      Int     @default(1)     // Max active bots
+  maxPlatforms Int     @default(5)     // Max platforms per bot
+  features     Json?                   // Feature flags and limits
+  isActive     Boolean @default(true)
+  sortOrder    Int     @default(0)
+
+  // Rollover config
+  allowRollover    Boolean @default(false)
+  maxRolloverCredits Int   @default(0)  // 0 = no rollover
+
+  // Stripe
+  stripePriceId  String? @unique       // Stripe recurring Price ID
+  stripeProductId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  subscriptions Subscription[]
+}
+
+// ── Subscriptions ──
+
+model Subscription {
+  id     String             @id @default(cuid())
+  userId String             @unique
+  planId String
+  status SubscriptionStatus @default(ACTIVE)
+
+  // Stripe
+  stripeSubscriptionId String? @unique
+  stripeCurrentPeriodStart DateTime?
+  stripeCurrentPeriodEnd   DateTime?
+
+  // Billing cycle
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  cancelAtPeriodEnd  Boolean @default(false)
+  cancelledAt        DateTime?
+
+  // Credit tracking per period
+  creditsAllocatedThisPeriod Int @default(0)
+  creditsUsedThisPeriod      Int @default(0)
+
+  // Trial
+  trialEnd DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan SubscriptionPlan @relation(fields: [planId], references: [id])
+
+  @@index([status])
+  @@index([stripeSubscriptionId])
+  @@index([currentPeriodEnd])
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  TRIALING
+  PAUSED
+}
+
+// ── Top-up Packs ──
+
+model TopupPack {
+  id       String  @id @default(cuid())
+  slug     String  @unique            // mini, starter, etc.
+  name     String
+  credits  Int
+  priceUsd Int                        // Price in cents
+  isActive Boolean @default(true)
+  sortOrder Int    @default(0)
+
+  // Stripe
+  stripePriceId String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  purchases TopupPurchase[]
+}
+
+model TopupPurchase {
+  id     String @id @default(cuid())
+  userId String
+  packId String
+
+  credits         Int
+  amountPaid      Int               // Amount in cents
+  stripePaymentId String? @unique
+
+  createdAt DateTime @default(now())
+
+  user User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pack TopupPack @relation(fields: [packId], references: [id])
+
+  @@index([userId, createdAt])
 }
 
 // ============ ADMIN: PRICING ============
@@ -344,6 +498,110 @@ model PromoCode {
   isActive     Boolean   @default(true)
 
   createdAt DateTime @default(now())
+}
+
+// ============ AFFILIATE SYSTEM ============
+
+model Affiliate {
+  id     String @id @default(cuid())
+  userId String @unique
+  code   String @unique              // Unique referral code (e.g., "john2026")
+
+  // Payout info
+  paypalEmail   String?
+  bankDetails   String?              // Encrypted
+  payoutMethod  String   @default("paypal") // paypal, bank
+
+  // Stats
+  totalReferrals    Int   @default(0)
+  totalEarnings     Int   @default(0) // In cents
+  pendingBalance    Int   @default(0) // In cents, available for payout
+  paidOut           Int   @default(0) // In cents
+
+  // Status
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user        User                 @relation("AffiliateUser", fields: [userId], references: [id], onDelete: Cascade)
+  referrals   AffiliateReferral[]
+  commissions AffiliateCommission[]
+  payouts     AffiliatePayout[]
+
+  @@index([code])
+}
+
+model AffiliateReferral {
+  id          String @id @default(cuid())
+  affiliateId String
+  referredUserId String @unique      // The user who signed up
+
+  createdAt DateTime @default(now())
+
+  affiliate Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+
+  @@index([affiliateId])
+}
+
+model AffiliateCommission {
+  id          String          @id @default(cuid())
+  affiliateId String
+  type        CommissionType
+  amount      Int             // In cents
+  sourceAmount Int            // Original payment amount in cents
+  rate        Float           // Commission rate (e.g., 0.30 = 30%)
+
+  // Source tracking
+  referredUserId  String?
+  stripePaymentId String?
+  description     String?
+
+  status CommissionStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+
+  affiliate Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+
+  @@index([affiliateId, status])
+  @@index([affiliateId, createdAt])
+}
+
+enum CommissionType {
+  SUBSCRIPTION_NEW       // First subscription payment
+  SUBSCRIPTION_RECURRING // Recurring subscription payment
+  TOPUP                  // Top-up purchase
+}
+
+enum CommissionStatus {
+  PENDING     // Waiting for payout period
+  APPROVED    // Ready for payout
+  PAID        // Paid out
+  REFUNDED    // Revoked due to refund/chargeback
+}
+
+model AffiliatePayout {
+  id          String        @id @default(cuid())
+  affiliateId String
+  amount      Int           // In cents
+  method      String        // paypal, bank
+  reference   String?       // PayPal transaction ID, bank transfer ref
+  status      PayoutStatus  @default(PENDING)
+
+  processedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  affiliate Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+
+  @@index([affiliateId])
+  @@index([status])
+}
+
+enum PayoutStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
 }
 
 // ============ MEDIA LIBRARY ============
