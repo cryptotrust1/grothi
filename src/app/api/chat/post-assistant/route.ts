@@ -9,6 +9,8 @@ export const maxDuration = 120;
 const MAX_MESSAGES = 40;
 // Max image size in bytes (5MB)
 const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
+// Upstream API timeout (55 seconds — Nginx default is 60s)
+const UPSTREAM_TIMEOUT_MS = 55_000;
 
 // ── Provider types ──
 
@@ -29,7 +31,7 @@ interface ChatMessage {
 
 const ALLOWED_MODELS: Record<Provider, string[]> = {
   anthropic: [
-    'claude-sonnet-4-5-20250514',
+    'claude-sonnet-4-5-20250929',
     'claude-haiku-4-5-20251001',
   ],
   openai: [
@@ -43,9 +45,17 @@ const ALLOWED_MODELS: Record<Provider, string[]> = {
 };
 
 const DEFAULT_MODELS: Record<Provider, string> = {
-  anthropic: 'claude-sonnet-4-5-20250514',
+  anthropic: 'claude-sonnet-4-5-20250929',
   openai: 'gpt-4o',
   google: 'gemini-2.5-flash',
+};
+
+// ── ENV key names per provider ──
+
+const ENV_KEYS: Record<Provider, string> = {
+  anthropic: 'ANTHROPIC_API_KEY',
+  openai: 'OPENAI_API_KEY',
+  google: 'GOOGLE_AI_API_KEY',
 };
 
 // ── Message builders per provider ──
@@ -118,59 +128,80 @@ function buildGeminiContents(messages: ChatMessage[]): Array<Record<string, unkn
   });
 }
 
-// ── Provider-specific API callers ──
+// ── Provider-specific API callers (with timeout) ──
 
 async function callAnthropic(
   apiKey: string, model: string, systemPrompt: string, messages: ChatMessage[],
 ): Promise<Response> {
-  return fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 2000,
-      system: systemPrompt,
-      messages: buildAnthropicMessages(messages),
-      stream: true,
-    }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  try {
+    return await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 2000,
+        system: systemPrompt,
+        messages: buildAnthropicMessages(messages),
+        stream: true,
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function callOpenAI(
   apiKey: string, model: string, systemPrompt: string, messages: ChatMessage[],
 ): Promise<Response> {
-  return fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: buildOpenAIMessages(systemPrompt, messages),
-      max_completion_tokens: 2000,
-      stream: true,
-    }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  try {
+    return await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: buildOpenAIMessages(systemPrompt, messages),
+        max_completion_tokens: 2000,
+        stream: true,
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function callGemini(
   apiKey: string, model: string, systemPrompt: string, messages: ChatMessage[],
 ): Promise<Response> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`;
-  return fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: buildGeminiContents(messages),
-      systemInstruction: { parts: [{ text: systemPrompt }] },
-      generationConfig: { maxOutputTokens: 2000, temperature: 0.7, topP: 0.95 },
-    }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  try {
+    return await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: buildGeminiContents(messages),
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        generationConfig: { maxOutputTokens: 2000, temperature: 0.7, topP: 0.95 },
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 // ── Stream parsers: each provider SSE → unified { text } / { done } / { error } events ──
@@ -184,6 +215,7 @@ function createAnthropicStreamParser(
     async start(controller) {
       const reader = upstreamBody.getReader();
       let buffer = '';
+      let sentDone = false;
       try {
         while (true) {
           const { done, value } = await reader.read();
@@ -203,19 +235,23 @@ function createAnthropicStreamParser(
               if (event.type === 'error') {
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: event.error?.message || 'AI error' })}\n\n`));
               }
-              if (event.type === 'message_stop') {
+              if (event.type === 'message_stop' && !sentDone) {
+                sentDone = true;
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, creditCost })}\n\n`));
               }
-            } catch { /* skip */ }
+            } catch { /* skip unparseable */ }
           }
         }
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, creditCost })}\n\n`));
+        // Final done (only if not already sent)
+        if (!sentDone) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, creditCost })}\n\n`));
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Stream error';
-        console.error('Anthropic stream error:', msg);
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Stream interrupted.' })}\n\n`));
+        console.error('[chat] Anthropic stream error:', msg);
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Stream interrupted. Try again.' })}\n\n`));
       } finally {
-        controller.close();
+        try { controller.close(); } catch { /* already closed */ }
       }
     },
   });
@@ -230,6 +266,7 @@ function createOpenAIStreamParser(
     async start(controller) {
       const reader = upstreamBody.getReader();
       let buffer = '';
+      let sentDone = false;
       try {
         while (true) {
           const { done, value } = await reader.read();
@@ -242,7 +279,10 @@ function createOpenAIStreamParser(
             const jsonStr = line.slice(6).trim();
             if (!jsonStr) continue;
             if (jsonStr === '[DONE]') {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, creditCost })}\n\n`));
+              if (!sentDone) {
+                sentDone = true;
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, creditCost })}\n\n`));
+              }
               continue;
             }
             try {
@@ -251,21 +291,22 @@ function createOpenAIStreamParser(
               if (delta?.content) {
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: delta.content })}\n\n`));
               }
-              // Check finish_reason
               const finishReason = chunk.choices?.[0]?.finish_reason;
               if (finishReason === 'content_filter') {
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Content blocked by safety filter.' })}\n\n`));
               }
-            } catch { /* skip */ }
+            } catch { /* skip unparseable */ }
           }
         }
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, creditCost })}\n\n`));
+        if (!sentDone) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, creditCost })}\n\n`));
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Stream error';
-        console.error('OpenAI stream error:', msg);
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Stream interrupted.' })}\n\n`));
+        console.error('[chat] OpenAI stream error:', msg);
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Stream interrupted. Try again.' })}\n\n`));
       } finally {
-        controller.close();
+        try { controller.close(); } catch { /* already closed */ }
       }
     },
   });
@@ -280,6 +321,7 @@ function createGeminiStreamParser(
     async start(controller) {
       const reader = upstreamBody.getReader();
       let buffer = '';
+      let sentDone = false;
       try {
         while (true) {
           const { done, value } = await reader.read();
@@ -301,19 +343,22 @@ function createGeminiStreamParser(
               if (finishReason === 'SAFETY') {
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Content blocked by safety filter.' })}\n\n`));
               }
-              if (finishReason && finishReason !== 'SAFETY') {
+              if (finishReason && finishReason !== 'SAFETY' && !sentDone) {
+                sentDone = true;
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, creditCost })}\n\n`));
               }
-            } catch { /* skip */ }
+            } catch { /* skip unparseable */ }
           }
         }
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, creditCost })}\n\n`));
+        if (!sentDone) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, creditCost })}\n\n`));
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Stream error';
-        console.error('Gemini stream error:', msg);
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Stream interrupted.' })}\n\n`));
+        console.error('[chat] Gemini stream error:', msg);
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Stream interrupted. Try again.' })}\n\n`));
       } finally {
-        controller.close();
+        try { controller.close(); } catch { /* already closed */ }
       }
     },
   });
@@ -322,13 +367,26 @@ function createGeminiStreamParser(
 // ── Main handler ──
 
 export async function POST(request: NextRequest) {
-  const user = await getCurrentUser();
+  let user;
+  try {
+    user = await getCurrentUser();
+  } catch (err) {
+    console.error('[chat] Auth error:', err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: 'Authentication error. Please sign in again.' }, { status: 401 });
+  }
+
   if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return NextResponse.json({ error: 'Unauthorized. Please sign in.' }, { status: 401 });
   }
 
   try {
-    const body = await request.json();
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 });
+    }
+
     const { botId, messages, platforms, model, provider: rawProvider } = body as {
       botId?: string;
       messages?: ChatMessage[];
@@ -372,16 +430,14 @@ export async function POST(request: NextRequest) {
     const selectedModel = model && allowedForProvider.includes(model) ? model : DEFAULT_MODELS[provider];
 
     // ── Check API key for selected provider ──
-    let apiKey: string;
-    if (provider === 'anthropic') {
-      apiKey = process.env.ANTHROPIC_API_KEY || '';
-      if (!apiKey) return NextResponse.json({ error: 'Anthropic API key not configured. Contact admin.' }, { status: 503 });
-    } else if (provider === 'openai') {
-      apiKey = process.env.OPENAI_API_KEY || '';
-      if (!apiKey) return NextResponse.json({ error: 'OpenAI API key not configured. Contact admin.' }, { status: 503 });
-    } else {
-      apiKey = process.env.GOOGLE_AI_API_KEY || '';
-      if (!apiKey) return NextResponse.json({ error: 'Google AI API key not configured. Contact admin.' }, { status: 503 });
+    const envKey = ENV_KEYS[provider];
+    const apiKey = process.env[envKey] || '';
+    if (!apiKey) {
+      const providerName = provider === 'anthropic' ? 'Anthropic' : provider === 'openai' ? 'OpenAI' : 'Google AI';
+      console.error(`[chat] Missing ${envKey} env var`);
+      return NextResponse.json({
+        error: `${providerName} API key not configured. Contact admin to add ${envKey} to server environment.`,
+      }, { status: 503 });
     }
 
     // ── Verify bot ownership ──
@@ -432,21 +488,43 @@ export async function POST(request: NextRequest) {
 
     // ── Call provider API ──
     let upstreamResponse: Response;
-    if (provider === 'openai') {
-      upstreamResponse = await callOpenAI(apiKey, selectedModel, systemPrompt, messages);
-    } else if (provider === 'google') {
-      upstreamResponse = await callGemini(apiKey, selectedModel, systemPrompt, messages);
-    } else {
-      upstreamResponse = await callAnthropic(apiKey, selectedModel, systemPrompt, messages);
+    try {
+      if (provider === 'openai') {
+        upstreamResponse = await callOpenAI(apiKey, selectedModel, systemPrompt, messages);
+      } else if (provider === 'google') {
+        upstreamResponse = await callGemini(apiKey, selectedModel, systemPrompt, messages);
+      } else {
+        upstreamResponse = await callAnthropic(apiKey, selectedModel, systemPrompt, messages);
+      }
+    } catch (fetchErr) {
+      const isTimeout = fetchErr instanceof DOMException && fetchErr.name === 'AbortError';
+      const msg = fetchErr instanceof Error ? fetchErr.message : 'Unknown error';
+      console.error(`[chat] ${provider} fetch failed (timeout=${isTimeout}):`, msg);
+      return NextResponse.json({
+        error: isTimeout
+          ? 'AI service took too long to respond. Try a shorter message or a different model.'
+          : `Could not reach ${provider} API. Try again in a moment.`,
+      }, { status: 504 });
     }
 
     // ── Handle upstream errors ──
     if (!upstreamResponse.ok) {
       const errBody = await upstreamResponse.text().catch(() => '');
-      console.error(`${provider} API error ${upstreamResponse.status}:`, errBody.slice(0, 500));
+      console.error(`[chat] ${provider} API error ${upstreamResponse.status}:`, errBody.slice(0, 500));
 
-      if (upstreamResponse.status === 401) {
-        return NextResponse.json({ error: `${provider} API authentication failed. Contact admin.` }, { status: 502 });
+      if (upstreamResponse.status === 401 || upstreamResponse.status === 403) {
+        return NextResponse.json({
+          error: `${provider} API authentication failed. The API key may be expired or invalid. Contact admin.`,
+        }, { status: 502 });
+      }
+      if (upstreamResponse.status === 400) {
+        // Try to extract error message from response
+        let detail = 'Invalid request to AI service.';
+        try {
+          const parsed = JSON.parse(errBody);
+          detail = parsed.error?.message || parsed.error?.status || detail;
+        } catch { /* use default */ }
+        return NextResponse.json({ error: `AI error: ${detail}` }, { status: 400 });
       }
       if (upstreamResponse.status === 429) {
         return NextResponse.json({ error: 'AI service rate limited. Wait a moment and try again.' }, { status: 429 });
@@ -454,11 +532,13 @@ export async function POST(request: NextRequest) {
       if (upstreamResponse.status === 529 || upstreamResponse.status === 503) {
         return NextResponse.json({ error: 'AI service temporarily overloaded. Try again in a minute.' }, { status: 503 });
       }
-      return NextResponse.json({ error: 'AI service error. Please try again.' }, { status: 502 });
+      return NextResponse.json({
+        error: `AI service error (HTTP ${upstreamResponse.status}). Try a different model or try again later.`,
+      }, { status: 502 });
     }
 
     if (!upstreamResponse.body) {
-      return NextResponse.json({ error: 'No response from AI service.' }, { status: 502 });
+      return NextResponse.json({ error: 'No response body from AI service.' }, { status: 502 });
     }
 
     // ── Parse provider-specific SSE → unified stream ──
@@ -472,16 +552,19 @@ export async function POST(request: NextRequest) {
     }
 
     // Log activity (don't block response)
+    const logPlatform = Array.isArray(platforms) && platforms.length > 0 ? platforms[0] : 'FACEBOOK';
     db.botActivity.create({
       data: {
         botId,
-        platform: 'FACEBOOK',
+        platform: logPlatform as 'FACEBOOK',
         action: 'GENERATE_CONTENT',
         content: `[AI Chat: ${selectedModel}] ${lastMessage.content.slice(0, 460)}`,
         success: true,
         creditsUsed: creditCost,
       },
-    }).catch(() => {});
+    }).catch((err) => {
+      console.error('[chat] Activity log failed:', err instanceof Error ? err.message : err);
+    });
 
     return new Response(clientStream, {
       headers: {
@@ -493,7 +576,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
-    console.error('Chat API error:', message);
+    console.error('[chat] Unhandled error:', message);
     return NextResponse.json({ error: 'Chat failed. Please try again.' }, { status: 500 });
   }
 }
