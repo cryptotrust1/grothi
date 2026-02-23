@@ -43,7 +43,7 @@ function isVideoFile(file: File): boolean {
   return file.type.startsWith('video/');
 }
 
-export function MediaUploadForm({ botId }: { botId: string }) {
+export function MediaUploadForm({ botId, storageFull = false, storageRemainingMB }: { botId: string; storageFull?: boolean; storageRemainingMB?: number }) {
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [showFormats, setShowFormats] = useState(false);
@@ -171,14 +171,18 @@ export function MediaUploadForm({ botId }: { botId: string }) {
     <div className="space-y-4">
       {/* Drop zone */}
       <div
-        className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
-          isUploading ? 'pointer-events-none opacity-60 border-input' : 'border-input hover:border-primary/50'
+        className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+          storageFull
+            ? 'pointer-events-none opacity-50 border-destructive/30 bg-destructive/5'
+            : isUploading
+              ? 'pointer-events-none opacity-60 border-input'
+              : 'cursor-pointer border-input hover:border-primary/50'
         }`}
-        onClick={() => !isUploading && inputRef.current?.click()}
+        onClick={() => !isUploading && !storageFull && inputRef.current?.click()}
         onDragOver={(e) => { e.preventDefault(); }}
         onDrop={(e) => {
           e.preventDefault();
-          if (!isUploading && e.dataTransfer.files.length > 0) {
+          if (!isUploading && !storageFull && e.dataTransfer.files.length > 0) {
             handleFiles(e.dataTransfer.files);
           }
         }}
@@ -189,9 +193,16 @@ export function MediaUploadForm({ botId }: { botId: string }) {
           accept={ACCEPTED_TYPES}
           multiple
           className="hidden"
+          disabled={storageFull}
           onChange={(e) => e.target.files && handleFiles(e.target.files)}
         />
-        {isUploading ? (
+        {storageFull ? (
+          <div className="flex flex-col items-center gap-2">
+            <Upload className="h-8 w-8 text-destructive/50" />
+            <p className="text-sm font-medium text-destructive">Storage limit reached (200 MB)</p>
+            <p className="text-xs text-muted-foreground">Delete some media below to free up space.</p>
+          </div>
+        ) : isUploading ? (
           <div className="flex flex-col items-center gap-2">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
             <p className="text-sm font-medium">Uploading {queuedCount} file{queuedCount !== 1 ? 's' : ''}...</p>
@@ -202,6 +213,9 @@ export function MediaUploadForm({ botId }: { botId: string }) {
             <p className="text-sm font-medium">Drop files here or click to browse</p>
             <p className="text-xs text-muted-foreground">
               Select multiple files at once. Up to {MAX_FILES_PER_BATCH} files per batch.
+              {storageRemainingMB !== undefined && (
+                <span className="ml-1">({storageRemainingMB.toFixed(1)} MB remaining)</span>
+              )}
             </p>
             <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 mt-1">
               <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">

@@ -311,7 +311,7 @@ function ModelGuidePanel({ model }: { model: AIModel }) {
 
 // ── Main Form ──
 
-export function MediaGenerateForm({ botId }: { botId: string }) {
+export function MediaGenerateForm({ botId, storageFull = false }: { botId: string; storageFull?: boolean }) {
   // Tab state
   const [activeTab, setActiveTab] = useState<'image' | 'video'>('image');
 
@@ -341,6 +341,11 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
   const imageFileRef = useRef<HTMLInputElement>(null);
   const videoFileRef = useRef<HTMLInputElement>(null);
 
+  // End/last frame images (for video models that support it)
+  const [videoEndRef, setVideoEndRef] = useState<string | null>(null);
+  const [videoEndRefName, setVideoEndRefName] = useState('');
+  const videoEndFileRef = useRef<HTMLInputElement>(null);
+
   // Advanced settings
   const [showImageAdvanced, setShowImageAdvanced] = useState(false);
   const [showVideoAdvanced, setShowVideoAdvanced] = useState(false);
@@ -361,6 +366,11 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
     setSelectedVideoModel(model);
     setVideoParams(getDefaultParams(model));
     setShowVideoAdvanced(false);
+    // Clear end image when switching to model that doesn't support it
+    if (!model.supportsEndImage) {
+      setVideoEndRef(null);
+      setVideoEndRefName('');
+    }
   }, []);
 
   const updateImageParam = useCallback((key: string, value: unknown) => {
@@ -474,7 +484,7 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
   }, []);
 
   // Handle reference file selection
-  const handleRefFile = useCallback((e: ChangeEvent<HTMLInputElement>, type: 'image' | 'video') => {
+  const handleRefFile = useCallback((e: ChangeEvent<HTMLInputElement>, type: 'image' | 'video' | 'end') => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 10 * 1024 * 1024) {
@@ -487,9 +497,12 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
       if (type === 'image') {
         setImageRef(dataUrl);
         setImageRefName(file.name);
-      } else {
+      } else if (type === 'video') {
         setVideoRef(dataUrl);
         setVideoRefName(file.name);
+      } else {
+        setVideoEndRef(dataUrl);
+        setVideoEndRefName(file.name);
       }
     };
     reader.readAsDataURL(file);
@@ -561,6 +574,7 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
           platform: videoPlatform,
           prompt: videoPrompt || undefined,
           referenceImage: videoRef || undefined,
+          endImage: videoEndRef || undefined,
           modelId: selectedVideoModel.id,
           params: videoParams,
           negativePrompt: videoNegativePrompt || undefined,
@@ -603,7 +617,7 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
         ...r, status: 'error', error: 'Network error — check your internet connection.',
       } : r));
     }
-  }, [botId, videoPlatform, videoPrompt, videoRef, selectedVideoModel, videoParams, videoNegativePrompt, pollPrediction]);
+  }, [botId, videoPlatform, videoPrompt, videoRef, videoEndRef, selectedVideoModel, videoParams, videoNegativePrompt, pollPrediction]);
 
   const cancelGeneration = useCallback(async (predictionId: string) => {
     const controller = abortRefs.current.get(predictionId);
@@ -748,7 +762,7 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
 
         {/* Reference Image Upload */}
         {currentModel.supportsReferenceImage && (
-          <div>
+          <div className="space-y-2">
             <input
               ref={activeTab === 'image' ? imageFileRef : videoFileRef}
               type="file"
@@ -757,25 +771,88 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
               className="hidden"
             />
             {(activeTab === 'image' ? imageRef : videoRef) ? (
-              <div className="flex items-center gap-2 p-2 rounded-md border border-input bg-muted/50 text-xs">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 p-2 rounded-md border border-input bg-muted/50 text-xs">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={(activeTab === 'image' ? imageRef : videoRef) || ''}
+                    alt="Reference"
+                    className="h-10 w-10 object-cover rounded"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <span className="block truncate">
+                      {activeTab === 'image' ? imageRefName : videoRefName}
+                    </span>
+                    {currentModel.referenceDescription && (
+                      <span className="block text-[10px] text-muted-foreground/70 truncate">
+                        {currentModel.requiresReferenceImage ? 'Required' : 'Optional'} reference
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (activeTab === 'image') {
+                        setImageRef(null);
+                        setImageRefName('');
+                      } else {
+                        setVideoRef(null);
+                        setVideoRefName('');
+                      }
+                    }}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <button
+                  onClick={() => (activeTab === 'image' ? imageFileRef : videoFileRef).current?.click()}
+                  className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Upload className="h-3 w-3" />
+                  {currentModel.requiresReferenceImage
+                    ? `Upload reference image (required)`
+                    : `Add reference image (optional)`
+                  }
+                </button>
+              </div>
+            )}
+            {currentModel.referenceDescription && (
+              <p className="text-[10px] text-muted-foreground/70 leading-relaxed pl-5">
+                {currentModel.referenceDescription}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* End/Last Frame Image Upload (video models only) */}
+        {activeTab === 'video' && currentModel.supportsEndImage && (
+          <div className="space-y-2">
+            <input
+              ref={videoEndFileRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              onChange={e => handleRefFile(e, 'end')}
+              className="hidden"
+            />
+            {videoEndRef ? (
+              <div className="flex items-center gap-2 p-2 rounded-md border border-blue-200 bg-blue-50/50 text-xs">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={(activeTab === 'image' ? imageRef : videoRef) || ''}
-                  alt="Reference"
+                  src={videoEndRef}
+                  alt="End frame"
                   className="h-10 w-10 object-cover rounded"
                 />
-                <span className="flex-1 truncate">
-                  {activeTab === 'image' ? imageRefName : videoRefName}
-                </span>
+                <div className="flex-1 min-w-0">
+                  <span className="block truncate">{videoEndRefName}</span>
+                  <span className="block text-[10px] text-blue-600/70">End frame</span>
+                </div>
                 <button
                   onClick={() => {
-                    if (activeTab === 'image') {
-                      setImageRef(null);
-                      setImageRefName('');
-                    } else {
-                      setVideoRef(null);
-                      setVideoRefName('');
-                    }
+                    setVideoEndRef(null);
+                    setVideoEndRefName('');
                   }}
                   className="text-muted-foreground hover:text-foreground"
                 >
@@ -784,15 +861,17 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
               </div>
             ) : (
               <button
-                onClick={() => (activeTab === 'image' ? imageFileRef : videoFileRef).current?.click()}
-                className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => videoEndFileRef.current?.click()}
+                className="flex items-center gap-2 text-xs text-blue-600/80 hover:text-blue-700 transition-colors"
               >
                 <Upload className="h-3 w-3" />
-                {activeTab === 'image'
-                  ? `Add reference image (${currentModel.referenceImageKey === 'image_prompt' ? 'style guide' : 'input image'})`
-                  : `Add reference image (${currentModel.referenceImageKey === 'first_frame_image' ? 'first frame' : 'input'})`
-                }
+                Add end frame image (optional)
               </button>
+            )}
+            {currentModel.endImageDescription && (
+              <p className="text-[10px] text-muted-foreground/70 leading-relaxed pl-5">
+                {currentModel.endImageDescription}
+              </p>
             )}
           </div>
         )}
@@ -851,14 +930,27 @@ export function MediaGenerateForm({ botId }: { botId: string }) {
         </div>
       )}
 
+      {/* Storage full warning */}
+      {storageFull && (
+        <div className="rounded-md border border-destructive/20 bg-destructive/5 p-3 text-xs text-destructive">
+          <p className="font-medium">Storage limit reached (200 MB)</p>
+          <p className="mt-0.5 text-[11px]">Delete some media to free up space before generating new content.</p>
+        </div>
+      )}
+
       {/* Generate Button */}
       <Button
         onClick={activeTab === 'image' ? generateImage : generateVideo}
-        disabled={(activeTab === 'image' ? isGeneratingImage : isGeneratingVideo) || missingRequiredImage}
+        disabled={(activeTab === 'image' ? isGeneratingImage : isGeneratingVideo) || missingRequiredImage || storageFull}
         className="w-full gap-2"
         size="sm"
       >
-        {(activeTab === 'image' ? isGeneratingImage : isGeneratingVideo) ? (
+        {storageFull ? (
+          <>
+            <Sparkles className="h-4 w-4" />
+            Storage Full — Delete Media to Continue
+          </>
+        ) : (activeTab === 'image' ? isGeneratingImage : isGeneratingVideo) ? (
           <>
             <Loader2 className="h-4 w-4 animate-spin" />
             Generating with {currentModel.name}...

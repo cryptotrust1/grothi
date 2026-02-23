@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { BOT_STORAGE_LIMIT_BYTES, BOT_STORAGE_LIMIT_MB } from '@/lib/constants';
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, resolve } from 'path';
@@ -107,6 +108,21 @@ export async function POST(request: NextRequest) {
     const bot = await db.bot.findFirst({ where: { id: botId, userId: user.id } });
     if (!bot) {
       return NextResponse.json({ error: 'Bot not found' }, { status: 404 });
+    }
+
+    // Check storage limit (200MB per bot)
+    const storageUsed = await db.media.aggregate({
+      where: { botId },
+      _sum: { fileSize: true },
+    });
+    const currentUsageBytes = storageUsed._sum.fileSize || 0;
+
+    if (currentUsageBytes + file.size > BOT_STORAGE_LIMIT_BYTES) {
+      const usedMB = (currentUsageBytes / (1024 * 1024)).toFixed(1);
+      const fileMB = (file.size / (1024 * 1024)).toFixed(1);
+      return NextResponse.json({
+        error: `Storage limit exceeded. This bot uses ${usedMB} MB of ${BOT_STORAGE_LIMIT_MB} MB. The file (${fileMB} MB) would exceed the limit. Delete some media to free up space.`,
+      }, { status: 413 });
     }
 
     const mimeType = file.type;

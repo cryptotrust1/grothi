@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { deductCredits } from '@/lib/credits';
 import { getModelById, getDefaultImageModel, buildModelInput, IMAGE_MODELS } from '@/lib/ai-models';
 import { PLATFORM_IMAGE_DIMENSIONS } from '@/lib/replicate';
+import { BOT_STORAGE_LIMIT_BYTES, BOT_STORAGE_LIMIT_MB } from '@/lib/constants';
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, resolve } from 'path';
@@ -39,6 +40,21 @@ export async function POST(request: NextRequest) {
     const bot = await db.bot.findFirst({ where: { id: botId, userId: user.id } });
     if (!bot) {
       return NextResponse.json({ error: 'Bot not found' }, { status: 404 });
+    }
+
+    // Check storage limit (200MB per bot)
+    const storageUsed = await db.media.aggregate({
+      where: { botId },
+      _sum: { fileSize: true },
+    });
+    const currentUsageBytes = storageUsed._sum.fileSize || 0;
+    // Estimate ~5MB for a generated image (conservative)
+    const estimatedSizeBytes = 5 * 1024 * 1024;
+    if (currentUsageBytes + estimatedSizeBytes > BOT_STORAGE_LIMIT_BYTES) {
+      const usedMB = (currentUsageBytes / (1024 * 1024)).toFixed(1);
+      return NextResponse.json({
+        error: `Storage limit exceeded. This bot uses ${usedMB} MB of ${BOT_STORAGE_LIMIT_MB} MB. Delete some media to free up space before generating new images.`,
+      }, { status: 413 });
     }
 
     // Resolve model — user can pick any image model, defaults to FLUX 1.1 Pro
