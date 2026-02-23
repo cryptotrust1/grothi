@@ -47,6 +47,16 @@ interface GraphApiError {
   };
 }
 
+interface GraphApiSuccessResponse {
+  id?: string;
+  post_id?: string;
+  success?: boolean;
+  data?: unknown[];
+  [key: string]: unknown;
+}
+
+type GraphApiResponse = GraphApiSuccessResponse | GraphApiError;
+
 interface RateLimitInfo {
   callCount: number;
   totalCputime: number;
@@ -125,7 +135,7 @@ const FETCH_TIMEOUT = 30_000;
 async function graphFetch(
   url: string,
   options?: RequestInit
-): Promise<{ data: any; rateLimits: RateLimitInfo }> {
+): Promise<{ data: GraphApiResponse; rateLimits: RateLimitInfo }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
 
@@ -163,15 +173,15 @@ async function graphFetch(
   }
 }
 
-function isGraphError(data: any): data is GraphApiError {
-  return data && typeof data === 'object' && 'error' in data;
+function isGraphError(data: unknown): data is GraphApiError {
+  return typeof data === 'object' && data !== null && 'error' in data;
 }
 
 /**
  * Check if a Graph API error indicates an invalid/expired token.
  * Error code 190 = invalid token, subcodes 458/463/467 = specific revocations.
  */
-function isTokenError(data: any): boolean {
+function isTokenError(data: unknown): boolean {
   if (!isGraphError(data)) return false;
   return data.error.code === 190;
 }
@@ -208,7 +218,7 @@ export async function validateToken(
   try {
     const { data } = await graphFetch(url.toString());
     if (isGraphError(data)) return null;
-    return data as FacebookPageInfo;
+    return data as unknown as FacebookPageInfo;
   } catch {
     return null;
   }
@@ -271,7 +281,7 @@ export async function postText(
       return { success: false, error: friendlyFbError(data) };
     }
 
-    return { success: true, postId: data.id };
+    return { success: true, postId: (data as Record<string, unknown>).id as string };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Network error';
     return { success: false, error: msg };
@@ -323,7 +333,8 @@ export async function postWithImage(
     }
 
     // Photos endpoint returns { id, post_id }
-    return { success: true, postId: data.post_id || data.id };
+    const d = data as Record<string, unknown>;
+    return { success: true, postId: (d.post_id as string) || (d.id as string) };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Network error';
     return { success: false, error: msg };
@@ -373,7 +384,7 @@ export async function postWithVideo(
       return { success: false, error: friendlyFbError(data) };
     }
 
-    return { success: true, postId: data.id };
+    return { success: true, postId: (data as Record<string, unknown>).id as string };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Network error';
     return { success: false, error: msg };
@@ -424,8 +435,8 @@ export async function postReel(
       return { success: false, error: friendlyFbError(initData) };
     }
 
-    const videoId = initData.video_id;
-    if (!videoId) {
+    const videoId = (initData as Record<string, unknown>).video_id;
+    if (!videoId || typeof videoId !== 'string') {
       return { success: false, error: 'Facebook did not return a video_id for Reel upload.' };
     }
 
@@ -476,7 +487,8 @@ export async function postReel(
       return { success: false, error: friendlyFbError(finishData) };
     }
 
-    return { success: true, postId: finishData.video_id || videoId };
+    const finishVideoId = (finishData as Record<string, unknown>).video_id;
+    return { success: true, postId: (typeof finishVideoId === 'string' ? finishVideoId : videoId) };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Network error';
     return { success: false, error: msg };
@@ -511,7 +523,7 @@ export async function postScheduled(
       return { success: false, error: friendlyFbError(data) };
     }
 
-    return { success: true, postId: data.id };
+    return { success: true, postId: (data as Record<string, unknown>).id as string };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Network error';
     return { success: false, error: msg };
@@ -551,7 +563,7 @@ export async function readFeed(
       return { posts: [], error: data.error.message };
     }
 
-    return { posts: data.data || [] };
+    return { posts: ((data as Record<string, unknown>).data as FacebookFeedPost[]) || [] };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Network error';
     return { posts: [], error: msg };
@@ -584,10 +596,14 @@ export async function getPostEngagement(
     const { data } = await graphFetch(url.toString());
     if (isGraphError(data)) return null;
 
+    const d = data as Record<string, unknown>;
+    const likes = (d.likes as Record<string, unknown> | undefined)?.summary as Record<string, number> | undefined;
+    const comments = (d.comments as Record<string, unknown> | undefined)?.summary as Record<string, number> | undefined;
+    const shares = d.shares as Record<string, number> | undefined;
     return {
-      likes: data.likes?.summary?.total_count || 0,
-      comments: data.comments?.summary?.total_count || 0,
-      shares: data.shares?.count || 0,
+      likes: likes?.total_count || 0,
+      comments: comments?.total_count || 0,
+      shares: shares?.count || 0,
     };
   } catch {
     return null;
@@ -716,10 +732,10 @@ export async function deletePost(
     const { data } = await graphFetch(url.toString(), { method: 'DELETE' });
 
     if (isGraphError(data)) {
-      return { success: false, error: data.error.message };
+      return { success: false, error: (data as GraphApiError).error.message };
     }
 
-    return { success: data.success === true };
+    return { success: (data as Record<string, unknown>).success === true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Network error';
     return { success: false, error: msg };

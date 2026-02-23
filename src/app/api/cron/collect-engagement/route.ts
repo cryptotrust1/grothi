@@ -37,6 +37,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  console.log('[collect-engagement] Starting engagement collection...');
+  const startTime = Date.now();
+
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - COLLECTION_WINDOW_DAYS);
 
@@ -54,6 +57,8 @@ export async function POST(request: NextRequest) {
       bot: { select: { id: true, userId: true } },
     },
   });
+
+  console.log(`[collect-engagement] Found ${publishedPosts.length} posts to check`);
 
   let collected = 0;
   let errors = 0;
@@ -193,6 +198,9 @@ export async function POST(request: NextRequest) {
       await new Promise((r) => setTimeout(r, 1000));
     }
   }
+
+  const duration = Date.now() - startTime;
+  console.log(`[collect-engagement] Completed in ${duration}ms: ${collected} collected, ${errors} errors`);
 
   return NextResponse.json({
     postsScanned: publishedPosts.length,

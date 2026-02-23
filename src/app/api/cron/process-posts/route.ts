@@ -46,7 +46,7 @@ import {
   isTokenNearExpiry,
   type ThreadsPostResult,
 } from '@/lib/threads';
-import type { PlatformType } from '@prisma/client';
+import type { PlatformType, PlatformConnection } from '@prisma/client';
 import path from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import sharp from 'sharp';
@@ -451,7 +451,7 @@ async function publishToPlatform(
 }
 
 async function publishToFacebook(
-  conn: any,
+  conn: PlatformConnection,
   content: string,
   mediaPath: string | null,
   mediaType: 'IMAGE' | 'VIDEO' | 'GIF' | null,
@@ -528,7 +528,7 @@ async function publishToFacebook(
  * Requires a publicly accessible image URL (uses /api/media/{id} endpoint).
  */
 async function publishToInstagram(
-  conn: any,
+  conn: PlatformConnection,
   content: string,
   mediaPath: string | null,
   mediaType: 'IMAGE' | 'VIDEO' | 'GIF' | null,
@@ -782,7 +782,7 @@ async function publishToInstagram(
  * - CAROUSEL: 2-20 images/videos in a swipeable gallery
  */
 async function publishToThreads(
-  conn: any,
+  conn: PlatformConnection,
   botId: string,
   content: string,
   mediaPath: string | null,

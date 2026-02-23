@@ -5,6 +5,11 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { addCredits, WELCOME_BONUS_CREDITS } from './credits';
 import { randomBytes } from 'crypto';
+import type { Prisma } from '@prisma/client';
+
+type UserWithCreditBalance = Prisma.UserGetPayload<{
+  include: { creditBalance: true };
+}>;
 
 // Lazy-loaded JWT secret with caching - prevents build-time errors
 let JWT_SECRET_CACHE: Uint8Array | null = null;
@@ -62,7 +67,7 @@ export async function createSession(userId: string): Promise<string> {
   return token;
 }
 
-export async function getCurrentUser() {
+export async function getCurrentUser(): Promise<UserWithCreditBalance | null> {
   const cookieStore = await cookies();
   const token = cookieStore.get('session-token')?.value;
 
@@ -95,13 +100,13 @@ export async function getCurrentUser() {
   }
 }
 
-export async function requireAuth() {
+export async function requireAuth(): Promise<UserWithCreditBalance> {
   const user = await getCurrentUser();
   if (!user) redirect('/auth/signin');
   return user;
 }
 
-export async function requireAdmin() {
+export async function requireAdmin(): Promise<UserWithCreditBalance> {
   const user = await requireAuth();
   if (user.role !== 'ADMIN') redirect('/dashboard');
   return user;
