@@ -23,19 +23,28 @@ export default async function CreditsPage({
   const user = await requireAuth();
   const sp = await searchParams;
 
-  const [balance, breakdown, subscription, transactions] = await Promise.all([
+  // Query existing tables (always safe)
+  const [balance, breakdown, transactions] = await Promise.all([
     db.creditBalance.findUnique({ where: { userId: user.id } }),
     getCreditBreakdown(user.id),
-    db.subscription.findUnique({
-      where: { userId: user.id },
-      include: { plan: true },
-    }),
     db.creditTransaction.findMany({
       where: { userId: user.id },
       orderBy: { createdAt: 'desc' },
       take: 50,
     }),
   ]);
+
+  // Subscription table may not exist if billing migration hasn't been applied yet
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let subscription: any = null;
+  try {
+    subscription = await db.subscription.findUnique({
+      where: { userId: user.id },
+      include: { plan: true },
+    });
+  } catch (error) {
+    console.error('[credits] Subscription query failed (table may not exist):', error instanceof Error ? error.message : error);
+  }
 
   const credits = balance?.balance ?? 0;
 

@@ -53,30 +53,36 @@ export async function getCreditBreakdown(userId: string): Promise<{
   subscription: number;
   bonus: number;
 }> {
-  const now = new Date();
-  const entries = await db.creditLedger.findMany({
-    where: {
-      userId,
-      remaining: { gt: 0 },
-      OR: [
-        { expiresAt: null },
-        { expiresAt: { gt: now } },
-      ],
-    },
-    select: { source: true, remaining: true },
-  });
+  try {
+    const now = new Date();
+    const entries = await db.creditLedger.findMany({
+      where: {
+        userId,
+        remaining: { gt: 0 },
+        OR: [
+          { expiresAt: null },
+          { expiresAt: { gt: now } },
+        ],
+      },
+      select: { source: true, remaining: true },
+    });
 
-  const breakdown = { total: 0, topup: 0, rollover: 0, subscription: 0, bonus: 0 };
-  for (const entry of entries) {
-    breakdown.total += entry.remaining;
-    switch (entry.source) {
-      case 'TOPUP': breakdown.topup += entry.remaining; break;
-      case 'ROLLOVER': breakdown.rollover += entry.remaining; break;
-      case 'SUBSCRIPTION': breakdown.subscription += entry.remaining; break;
-      case 'BONUS': breakdown.bonus += entry.remaining; break;
+    const breakdown = { total: 0, topup: 0, rollover: 0, subscription: 0, bonus: 0 };
+    for (const entry of entries) {
+      breakdown.total += entry.remaining;
+      switch (entry.source) {
+        case 'TOPUP': breakdown.topup += entry.remaining; break;
+        case 'ROLLOVER': breakdown.rollover += entry.remaining; break;
+        case 'SUBSCRIPTION': breakdown.subscription += entry.remaining; break;
+        case 'BONUS': breakdown.bonus += entry.remaining; break;
+      }
     }
+    return breakdown;
+  } catch (error) {
+    // CreditLedger table may not exist yet if billing migration hasn't been applied
+    console.error('[credits] getCreditBreakdown failed (CreditLedger may not exist):', error instanceof Error ? error.message : error);
+    return { total: 0, topup: 0, rollover: 0, subscription: 0, bonus: 0 };
   }
-  return breakdown;
 }
 
 // ============ FIFO CREDIT DEDUCTION ============
@@ -101,7 +107,8 @@ export async function deductCredits(
 ): Promise<boolean> {
   if (amount <= 0) return true;
 
-  return await db.$transaction(async (tx) => {
+  // Core transaction: deduct balance + log (uses existing tables)
+  const success = await db.$transaction(async (tx) => {
     // 1. Atomically check and deduct balance (prevents race conditions)
     const updated = await tx.creditBalance.updateMany({
       where: {
@@ -118,49 +125,13 @@ export async function deductCredits(
       return false;
     }
 
-    // 2. FIFO deduction from ledger
-    const now = new Date();
-    let remaining = amount;
-
-    for (const source of DEDUCTION_PRIORITY) {
-      if (remaining <= 0) break;
-
-      // Get non-expired entries with remaining credits, oldest first
-      const entries = await tx.creditLedger.findMany({
-        where: {
-          userId,
-          source,
-          remaining: { gt: 0 },
-          OR: [
-            { expiresAt: null },
-            { expiresAt: { gt: now } },
-          ],
-        },
-        orderBy: { createdAt: 'asc' },
-      });
-
-      for (const entry of entries) {
-        if (remaining <= 0) break;
-
-        const consume = Math.min(remaining, entry.remaining);
-        await tx.creditLedger.update({
-          where: { id: entry.id },
-          data: { remaining: entry.remaining - consume },
-        });
-        remaining -= consume;
-      }
-    }
-
-    // If ledger didn't have enough, this means ledger is out of sync with balance.
-    // Proceed anyway (balance was sufficient) — ledger sync will be fixed by reconciliation.
-
-    // 3. Get the new balance for transaction record
+    // 2. Get the new balance for transaction record
     const newBalanceRecord = await tx.creditBalance.findUnique({
       where: { userId },
       select: { balance: true },
     });
 
-    // 4. Log transaction
+    // 3. Log transaction
     await tx.creditTransaction.create({
       data: {
         userId,
@@ -172,14 +143,57 @@ export async function deductCredits(
       },
     });
 
-    // 5. Update subscription usage counter if active
-    await tx.subscription.updateMany({
-      where: { userId, status: 'ACTIVE' },
-      data: { creditsUsedThisPeriod: { increment: amount } },
-    });
-
     return true;
   });
+
+  if (!success) return false;
+
+  // Non-critical: FIFO deduction from ledger + subscription counter
+  // These use new tables that may not exist yet
+  try {
+    await db.$transaction(async (tx) => {
+      const now = new Date();
+      let remaining = amount;
+
+      for (const source of DEDUCTION_PRIORITY) {
+        if (remaining <= 0) break;
+
+        const entries = await tx.creditLedger.findMany({
+          where: {
+            userId,
+            source,
+            remaining: { gt: 0 },
+            OR: [
+              { expiresAt: null },
+              { expiresAt: { gt: now } },
+            ],
+          },
+          orderBy: { createdAt: 'asc' },
+        });
+
+        for (const entry of entries) {
+          if (remaining <= 0) break;
+
+          const consume = Math.min(remaining, entry.remaining);
+          await tx.creditLedger.update({
+            where: { id: entry.id },
+            data: { remaining: entry.remaining - consume },
+          });
+          remaining -= consume;
+        }
+      }
+
+      // Update subscription usage counter if active
+      await tx.subscription.updateMany({
+        where: { userId, status: 'ACTIVE' },
+        data: { creditsUsedThisPeriod: { increment: amount } },
+      });
+    });
+  } catch (error) {
+    console.error('[credits] FIFO ledger deduction failed (tables may not exist):', error instanceof Error ? error.message : error);
+  }
+
+  return true;
 }
 
 // ============ CREDIT ADDITION ============
@@ -203,7 +217,8 @@ export async function addCredits(
 ): Promise<number> {
   if (amount <= 0) return await getUserBalance(userId);
 
-  return await db.$transaction(async (tx) => {
+  // Core transaction: update balance + log transaction (uses existing tables)
+  const newBalance = await db.$transaction(async (tx) => {
     // 1. Update aggregate balance
     const balance = await tx.creditBalance.upsert({
       where: { userId },
@@ -223,9 +238,13 @@ export async function addCredits(
       },
     });
 
-    // 3. Create ledger entry for FIFO tracking
+    return balance.balance;
+  });
+
+  // 3. Create ledger entry for FIFO tracking (non-critical, table may not exist yet)
+  try {
     const source = options?.source ?? mapTxnTypeToSource(type);
-    await tx.creditLedger.create({
+    await db.creditLedger.create({
       data: {
         userId,
         source,
@@ -237,9 +256,11 @@ export async function addCredits(
         description,
       },
     });
+  } catch (error) {
+    console.error('[credits] CreditLedger entry failed (table may not exist):', error instanceof Error ? error.message : error);
+  }
 
-    return balance.balance;
-  });
+  return newBalance;
 }
 
 function mapTxnTypeToSource(type: string): CreditSource {
