@@ -29,14 +29,21 @@ interface ChatMessage {
 interface AIModel {
   id: string;
   label: string;
-  provider: 'anthropic';
+  provider: 'anthropic' | 'openai' | 'google';
   apiModel: string;
+  vision: boolean;
 }
 
 const AI_MODELS: AIModel[] = [
-  { id: 'sonnet-4.5', label: 'Claude Sonnet 4.5', provider: 'anthropic', apiModel: 'claude-sonnet-4-5-20250514' },
-  { id: 'haiku-3.5', label: 'Claude Haiku 3.5', provider: 'anthropic', apiModel: 'claude-haiku-4-5-20251001' },
-  { id: 'sonnet-3.5', label: 'Claude Sonnet 3.5', provider: 'anthropic', apiModel: 'claude-3-5-sonnet-20241022' },
+  // Anthropic
+  { id: 'sonnet-4.5', label: 'Claude Sonnet 4.5', provider: 'anthropic', apiModel: 'claude-sonnet-4-5-20250514', vision: true },
+  { id: 'haiku-3.5', label: 'Claude Haiku 3.5', provider: 'anthropic', apiModel: 'claude-haiku-4-5-20251001', vision: true },
+  // OpenAI
+  { id: 'gpt-4o', label: 'GPT-4o', provider: 'openai', apiModel: 'gpt-4o', vision: true },
+  { id: 'gpt-4o-mini', label: 'GPT-4o Mini', provider: 'openai', apiModel: 'gpt-4o-mini', vision: true },
+  // Google
+  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', provider: 'google', apiModel: 'gemini-2.5-flash', vision: true },
+  { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', provider: 'google', apiModel: 'gemini-2.5-pro', vision: true },
 ];
 
 interface PostChatAssistantProps {
@@ -222,6 +229,7 @@ export function PostChatAssistant({ botId, platforms, onUseContent, onClose }: P
           messages: apiMessages,
           platforms,
           model: modelConfig.apiModel,
+          provider: modelConfig.provider,
         }),
         signal: controller.signal,
       });
@@ -554,22 +562,33 @@ export function PostChatAssistant({ botId, platforms, onUseContent, onClose }: P
               <ChevronDown className="h-2.5 w-2.5" />
             </button>
             {showModelDropdown && (
-              <div className="absolute bottom-full right-0 mb-1 w-48 bg-white rounded-md border shadow-lg z-50 py-1">
-                {AI_MODELS.map((model) => (
-                  <button
-                    key={model.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedModel(model.id);
-                      setShowModelDropdown(false);
-                    }}
-                    className={`w-full text-left px-3 py-1.5 text-xs hover:bg-muted transition-colors ${
-                      selectedModel === model.id ? 'text-purple-700 font-medium bg-purple-50' : 'text-gray-700'
-                    }`}
-                  >
-                    {model.label}
-                  </button>
-                ))}
+              <div className="absolute bottom-full right-0 mb-1 w-52 bg-white rounded-md border shadow-lg z-50 py-1">
+                {(['anthropic', 'openai', 'google'] as const).map((provider) => {
+                  const providerModels = AI_MODELS.filter(m => m.provider === provider);
+                  const providerLabel = provider === 'anthropic' ? 'Anthropic' : provider === 'openai' ? 'OpenAI' : 'Google';
+                  return (
+                    <div key={provider}>
+                      <div className="px-3 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                        {providerLabel}
+                      </div>
+                      {providerModels.map((model) => (
+                        <button
+                          key={model.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedModel(model.id);
+                            setShowModelDropdown(false);
+                          }}
+                          className={`w-full text-left px-3 py-1.5 text-xs hover:bg-muted transition-colors ${
+                            selectedModel === model.id ? 'text-purple-700 font-medium bg-purple-50' : 'text-gray-700'
+                          }`}
+                        >
+                          {model.label}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
