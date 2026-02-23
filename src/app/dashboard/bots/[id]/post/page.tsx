@@ -3,7 +3,7 @@ import { notFound, redirect } from 'next/navigation';
 import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { getActionCost, hasEnoughCredits } from '@/lib/credits';
-import { getContentRecommendation } from '@/lib/rl-engine';
+import { getContentRecommendation, fingerprintContent } from '@/lib/rl-engine';
 import { PLATFORM_NAMES, PLATFORM_REQUIREMENTS, POST_STATUS_COLORS } from '@/lib/constants';
 import { BotNav } from '@/components/dashboard/bot-nav';
 import { PostFormClient } from '@/components/dashboard/post-form-client';
@@ -218,24 +218,36 @@ export default async function ManualPostPage({
       }
     }
 
-    // Get RL content recommendation for the first platform to set toneStyle/hashtagPattern.
-    // These dimensions feed back into the RL engine when engagement is collected.
-    let toneStyle: string | null = null;
-    let hashtagPattern: string | null = null;
-    let contentType: string = 'custom';
+    // Step 1: Fingerprint the actual post content for accurate dimension labeling.
+    // This analyzes what the user actually wrote rather than guessing.
+    const fingerprint = fingerprintContent(content);
+    let toneStyle: string | null = fingerprint.toneStyle;
+    let hashtagPattern: string | null = fingerprint.hashtagPattern;
+    let contentType: string = fingerprint.contentType;
 
+    // Step 2: Get RL recommendation for additional context.
+    // If the RL engine has high confidence, prefer its recommendation for dimensions
+    // the fingerprinter is less certain about.
     try {
       const firstPlatform = platformsRaw[0] as PlatformType;
       const recommendation = await getContentRecommendation(
         id, firstPlatform, currentBot.safetyLevel || 'MODERATE'
       );
-      if (recommendation) {
-        toneStyle = recommendation.toneStyle;
-        hashtagPattern = recommendation.hashtagPattern;
-        contentType = recommendation.contentType;
+      if (recommendation && recommendation.confidence > 0.5) {
+        // High confidence RL: use RL recommendation for tone/content if fingerprint
+        // confidence is low (below 0.3 means the fingerprinter found few signals)
+        if (fingerprint.confidence < 0.3) {
+          toneStyle = recommendation.toneStyle;
+          contentType = recommendation.contentType;
+        }
+        // Always use RL for hashtag if fingerprint detected 'none'
+        // (user may not have added hashtags yet; RL knows what works)
+        if (hashtagPattern === 'none' && recommendation.hashtagPattern !== 'none') {
+          hashtagPattern = recommendation.hashtagPattern;
+        }
       }
     } catch {
-      // RL recommendation is best-effort; don't block post creation
+      // RL recommendation is best-effort; fingerprint provides the baseline
     }
 
     await db.scheduledPost.create({
