@@ -7,10 +7,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import {
-  Send, Save, Clock, Image as ImageIcon, Film,
+  Send, Save, Clock,
   Zap, Globe, AlertTriangle, CheckCircle2,
   Sparkles, Loader2, X, AlertCircle, Camera,
-  FileVideo, Info, ChevronDown, ChevronUp, Download,
+  Info,
 } from 'lucide-react';
 import { HelpTip } from '@/components/ui/help-tip';
 import { PostChatAssistant } from '@/components/dashboard/post-chat-assistant';
@@ -133,11 +133,13 @@ export function PostFormClient({
   );
   const [selectedMediaId, setSelectedMediaId] = useState<string>(preSelectedMediaId || '');
   const [scheduledAt, setScheduledAt] = useState('');
-  const [postType, setPostType] = useState('');
-  const [fbPostType, setFbPostType] = useState('');
-  const [threadsPostType, setThreadsPostType] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showDimensions, setShowDimensions] = useState(false);
+
+  // Per-platform overrides
+  const [platformContentOverrides, setPlatformContentOverrides] = useState<Record<string, string>>({});
+  const [platformMediaOverrides, setPlatformMediaOverrides] = useState<Record<string, string>>({});
+  const [platformPostTypeOverrides, setPlatformPostTypeOverrides] = useState<Record<string, string>>({});
+  const [optimizingPlatform, setOptimizingPlatform] = useState<string | null>(null);
 
   // Reset submitting state when page navigates back with success/error message
   useEffect(() => {
@@ -147,8 +149,7 @@ export function PostFormClient({
   // AI chat state — open by default
   const [showAiPanel, setShowAiPanel] = useState(true);
 
-  // Optimize for platforms state
-  const [isOptimizing, setIsOptimizing] = useState(false);
+  // Optimize error display
   const [optimizeError, setOptimizeError] = useState<string | null>(null);
 
   // ── Derived data ───────────────────────────────────────────
@@ -162,6 +163,53 @@ export function PostFormClient({
   const totalCost = postCost * selectedPlatforms.size;
   const hasEnoughCredits = userCredits >= totalCost;
 
+  // ── Per-platform helpers ────────────────────────────────────
+
+  const getPlatformContent = useCallback((platform: string): string => {
+    return platformContentOverrides[platform] ?? content;
+  }, [platformContentOverrides, content]);
+
+  const getPlatformMediaId = useCallback((platform: string): string => {
+    return platformMediaOverrides[platform] ?? selectedMediaId;
+  }, [platformMediaOverrides, selectedMediaId]);
+
+  const getPlatformMedia = useCallback((platform: string): MediaItem | null => {
+    const mId = getPlatformMediaId(platform);
+    return mediaLibrary.find((m) => m.id === mId) || null;
+  }, [getPlatformMediaId, mediaLibrary]);
+
+  const getPlatformPostType = useCallback((platform: string): string => {
+    return platformPostTypeOverrides[platform] ?? '';
+  }, [platformPostTypeOverrides]);
+
+  const setPlatformContent = useCallback((platform: string, text: string) => {
+    setPlatformContentOverrides(prev => ({ ...prev, [platform]: text }));
+  }, []);
+
+  const resetPlatformContent = useCallback((platform: string) => {
+    setPlatformContentOverrides(prev => {
+      const next = { ...prev };
+      delete next[platform];
+      return next;
+    });
+  }, []);
+
+  const setPlatformMedia = useCallback((platform: string, mediaId: string) => {
+    setPlatformMediaOverrides(prev => ({ ...prev, [platform]: mediaId }));
+  }, []);
+
+  const resetPlatformMedia = useCallback((platform: string) => {
+    setPlatformMediaOverrides(prev => {
+      const next = { ...prev };
+      delete next[platform];
+      return next;
+    });
+  }, []);
+
+  const setPlatformPostType = useCallback((platform: string, val: string) => {
+    setPlatformPostTypeOverrides(prev => ({ ...prev, [platform]: val }));
+  }, []);
+
   // ── Validation ─────────────────────────────────────────────
 
   const validationIssues = useMemo((): ValidationIssue[] => {
@@ -171,8 +219,12 @@ export function PostFormClient({
       const req = platformRequirements[platform];
       if (!req) continue;
 
+      const pContent = getPlatformContent(platform);
+      const pMedia = getPlatformMedia(platform);
+      const pHasMedia = !!getPlatformMediaId(platform);
+
       // Media required check
-      if (req.mediaRequired && !hasMedia) {
+      if (req.mediaRequired && !pHasMedia) {
         issues.push({
           platform,
           type: 'error',
@@ -181,26 +233,25 @@ export function PostFormClient({
       }
 
       // Character limit check
-      if (content.length > req.maxCharacters) {
+      if (pContent.length > req.maxCharacters) {
         issues.push({
           platform,
           type: 'error',
-          message: `${req.name}: ${content.length.toLocaleString()}/${req.maxCharacters.toLocaleString()} chars (${(content.length - req.maxCharacters).toLocaleString()} over limit)`,
+          message: `${req.name}: ${pContent.length.toLocaleString()}/${req.maxCharacters.toLocaleString()} chars (${(pContent.length - req.maxCharacters).toLocaleString()} over limit)`,
         });
-      } else if (content.length > req.maxCharacters * 0.9 && content.length > 0) {
+      } else if (pContent.length > req.maxCharacters * 0.9 && pContent.length > 0) {
         issues.push({
           platform,
           type: 'warning',
-          message: `${req.name}: ${content.length.toLocaleString()}/${req.maxCharacters.toLocaleString()} chars (approaching limit)`,
+          message: `${req.name}: ${pContent.length.toLocaleString()}/${req.maxCharacters.toLocaleString()} chars (approaching limit)`,
         });
       }
 
       // Media format compatibility
-      if (selectedMedia) {
-        const mediaFormat = getMediaFileExtension(selectedMedia.mimeType);
-        const mediaType = selectedMedia.type; // IMAGE, VIDEO, GIF
+      if (pMedia) {
+        const mediaFormat = getMediaFileExtension(pMedia.mimeType);
+        const mediaType = pMedia.type;
 
-        // Check if platform supports this media type
         if (!req.supportedMediaTypes.includes(mediaType as 'IMAGE' | 'VIDEO' | 'GIF')) {
           issues.push({
             platform,
@@ -209,7 +260,6 @@ export function PostFormClient({
           });
         }
 
-        // Check format compatibility
         if (mediaType === 'VIDEO' || mediaType === 'GIF') {
           if (req.videoFormats.length > 0 && !req.videoFormats.includes(mediaFormat)) {
             issues.push({
@@ -228,8 +278,7 @@ export function PostFormClient({
           }
         }
 
-        // File size check
-        const fileSizeMB = selectedMedia.fileSize / (1024 * 1024);
+        const fileSizeMB = pMedia.fileSize / (1024 * 1024);
         if (mediaType === 'VIDEO') {
           if (req.maxVideoSizeMB > 0 && fileSizeMB > req.maxVideoSizeMB) {
             issues.push({
@@ -251,7 +300,7 @@ export function PostFormClient({
     }
 
     return issues;
-  }, [content, selectedPlatforms, hasMedia, selectedMedia, platformRequirements]);
+  }, [content, selectedPlatforms, platformRequirements, getPlatformContent, getPlatformMedia, getPlatformMediaId, platformContentOverrides, platformMediaOverrides]);
 
   const errors = validationIssues.filter((i) => i.type === 'error');
   const warnings = validationIssues.filter((i) => i.type === 'warning');
@@ -264,16 +313,17 @@ export function PostFormClient({
 
     return Array.from(selectedPlatforms).map((p) => {
       const req = platformRequirements[p];
-      if (!req) return { platform: p, name: p, count: content.length, max: 99999, status: 'ok' as const };
+      const pContent = getPlatformContent(p);
+      if (!req) return { platform: p, name: p, count: pContent.length, max: 99999, status: 'ok' as const };
 
-      const ratio = content.length / req.maxCharacters;
+      const ratio = pContent.length / req.maxCharacters;
       let status: 'ok' | 'warning' | 'error' = 'ok';
       if (ratio > 1) status = 'error';
       else if (ratio > 0.9) status = 'warning';
 
-      return { platform: p, name: req.name, count: content.length, max: req.maxCharacters, status };
-    }).sort((a, b) => a.max - b.max); // Show tightest limits first
-  }, [content, selectedPlatforms, platformRequirements]);
+      return { platform: p, name: req.name, count: pContent.length, max: req.maxCharacters, status };
+    }).sort((a, b) => a.max - b.max);
+  }, [content, selectedPlatforms, platformRequirements, getPlatformContent, platformContentOverrides]);
 
   // ── Lowest char limit for tip ──────────────────────────────
   const lowestLimit = useMemo(() => {
@@ -316,35 +366,27 @@ export function PostFormClient({
       .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // [link](url) → link
       .replace(/`([^`]+)`/g, '$1');      // `code` → code
     setContent(cleaned);
+    // Clear all per-platform content overrides so they inherit the new master text
+    setPlatformContentOverrides({});
   }, []);
 
-  // ── Optimize content for selected platforms ──────────────
+  // ── Optimize content for a single platform ──────────────
 
-  const optimizeForPlatforms = useCallback(async () => {
-    if (!content.trim() || selectedPlatforms.size === 0 || isOptimizing) return;
+  const optimizeForPlatform = useCallback(async (platform: string) => {
+    const pContent = getPlatformContent(platform);
+    const req = platformRequirements[platform];
+    if (!pContent.trim() || !req || optimizingPlatform) return;
 
-    setIsOptimizing(true);
+    setOptimizingPlatform(platform);
     setOptimizeError(null);
 
-    // Build platform constraints for the prompt
-    const constraints = Array.from(selectedPlatforms)
-      .map(p => {
-        const req = platformRequirements[p];
-        if (!req) return null;
-        return `- ${req.name}: max ${req.maxCharacters.toLocaleString()} characters`;
-      })
-      .filter(Boolean)
-      .join('\n');
+    const optimizePrompt = `Optimize the following text for posting on ${req.name}. The text MUST fit within ${req.maxCharacters.toLocaleString()} characters. Return ONLY the optimized text, nothing else — no explanations, no labels, no markdown formatting, no [POST] markers. Keep the core message, tone, and meaning. Make it engaging and natural for ${req.name}.
 
-    const optimizePrompt = `Optimize the following text for posting on all these platforms simultaneously. Respect each platform's character limit strictly. Return ONLY the optimized text, nothing else — no explanations, no platform labels, no markdown formatting.
-
-Platform limits:
-${constraints}
-
-The output text must fit within the SMALLEST character limit (${Math.min(...Array.from(selectedPlatforms).map(p => platformRequirements[p]?.maxCharacters ?? 99999)).toLocaleString()} chars). Keep the core message, tone, and meaning. Make it engaging and natural.
+Character limit: ${req.maxCharacters.toLocaleString()} characters
+Current length: ${pContent.length.toLocaleString()} characters (${(pContent.length - req.maxCharacters).toLocaleString()} over)
 
 Original text:
-${content}`;
+${pContent}`;
 
     try {
       const res = await fetch('/api/chat/post-assistant', {
@@ -353,22 +395,18 @@ ${content}`;
         body: JSON.stringify({
           botId,
           messages: [{ role: 'user', content: optimizePrompt }],
-          platforms: Array.from(selectedPlatforms),
+          platforms: [platform],
         }),
       });
 
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        setOptimizeError(data?.error || 'Optimization failed. Try again.');
+        setOptimizeError(data?.error || 'Optimization failed.');
         return;
       }
 
-      // Read streaming response and collect full text
       const reader = res.body?.getReader();
-      if (!reader) {
-        setOptimizeError('No response from AI.');
-        return;
-      }
+      if (!reader) { setOptimizeError('No response from AI.'); return; }
 
       const decoder = new TextDecoder();
       let buffer = '';
@@ -377,11 +415,9 @@ ${content}`;
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
-
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
           const jsonStr = line.slice(6).trim();
@@ -389,33 +425,30 @@ ${content}`;
           try {
             const event = JSON.parse(jsonStr);
             if (event.text) optimizedText += event.text;
-            if (event.error) setOptimizeError(event.error);
           } catch { /* skip */ }
         }
       }
 
       if (optimizedText.trim()) {
-        // Strip markdown just like handleUseAiContent
-        const cleaned = optimizedText.trim()
-          .replace(/\*\*(.+?)\*\*/g, '$1')
-          .replace(/\*(.+?)\*/g, '$1')
-          .replace(/__(.+?)__/g, '$1')
-          .replace(/_(.+?)_/g, '$1')
-          .replace(/~~(.+?)~~/g, '$1')
-          .replace(/^#{1,6}\s+/gm, '')
-          .replace(/^[>\s]*>\s?/gm, '')
-          .replace(/^[-*+]\s+/gm, '')
-          .replace(/^\d+\.\s+/gm, '')
-          .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        // Extract between [POST] markers if present
+        const markerMatch = optimizedText.match(/\[POST\]\s*\n?([\s\S]*?)\n?\s*\[\/POST\]/);
+        let cleaned = markerMatch ? markerMatch[1].trim() : optimizedText.trim();
+        // Strip markdown
+        cleaned = cleaned
+          .replace(/\*\*(.+?)\*\*/g, '$1').replace(/\*(.+?)\*/g, '$1')
+          .replace(/__(.+?)__/g, '$1').replace(/_(.+?)_/g, '$1')
+          .replace(/~~(.+?)~~/g, '$1').replace(/^#{1,6}\s+/gm, '')
+          .replace(/^[>\s]*>\s?/gm, '').replace(/^[-*+]\s+/gm, '')
+          .replace(/^\d+\.\s+/gm, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
           .replace(/`([^`]+)`/g, '$1');
-        setContent(cleaned);
+        setPlatformContent(platform, cleaned);
       }
     } catch {
-      setOptimizeError('Network error. Check your connection.');
+      setOptimizeError('Network error.');
     } finally {
-      setIsOptimizing(false);
+      setOptimizingPlatform(null);
     }
-  }, [content, selectedPlatforms, isOptimizing, botId, platformRequirements]);
+  }, [getPlatformContent, platformRequirements, optimizingPlatform, botId, setPlatformContent]);
 
   // ── Form submission ────────────────────────────────────────
 
@@ -454,11 +487,32 @@ ${content}`;
     addHidden('action', action);
     if (selectedMediaId) addHidden('mediaId', selectedMediaId);
     if (scheduledAt) addHidden('scheduledAt', scheduledAt);
-    if (postType) addHidden('postType', postType);
-    if (fbPostType) addHidden('fbPostType', fbPostType);
-    if (threadsPostType) addHidden('threadsPostType', threadsPostType);
+
+    // Per-platform post types
+    const igPT = getPlatformPostType('INSTAGRAM');
+    const fbPT = getPlatformPostType('FACEBOOK');
+    const thPT = getPlatformPostType('THREADS');
+    if (igPT) addHidden('postType', igPT);
+    if (fbPT) addHidden('fbPostType', fbPT);
+    if (thPT) addHidden('threadsPostType', thPT);
+
     for (const p of Array.from(selectedPlatforms)) {
       addHidden('platforms', p);
+    }
+
+    // Per-platform content & media overrides as JSON
+    const platformContent: Record<string, { content?: string; mediaId?: string }> = {};
+    for (const p of Array.from(selectedPlatforms)) {
+      const hasContentOverride = platformContentOverrides[p] !== undefined;
+      const hasMediaOverride = platformMediaOverrides[p] !== undefined;
+      if (hasContentOverride || hasMediaOverride) {
+        platformContent[p] = {};
+        if (hasContentOverride) platformContent[p].content = platformContentOverrides[p];
+        if (hasMediaOverride) platformContent[p].mediaId = platformMediaOverrides[p];
+      }
+    }
+    if (Object.keys(platformContent).length > 0) {
+      addHidden('platformContent', JSON.stringify(platformContent));
     }
 
     // Submit the server-action form
@@ -683,34 +737,11 @@ ${content}`;
                       required
                     />
 
-                    {/* Optimize for platforms button */}
+                    {/* Hint about per-platform optimization below */}
                     {content.trim().length > 0 && selectedPlatforms.size > 0 && (
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="gap-1.5 text-xs"
-                          onClick={optimizeForPlatforms}
-                          disabled={isOptimizing}
-                        >
-                          {isOptimizing ? (
-                            <><Loader2 className="h-3 w-3 animate-spin" /> Optimizing...</>
-                          ) : (
-                            <><Sparkles className="h-3 w-3" /> Optimize for {selectedPlatforms.size} platform{selectedPlatforms.size > 1 ? 's' : ''}</>
-                          )}
-                        </Button>
-                        <span className="text-[10px] text-muted-foreground">
-                          AI will adapt your text to fit all selected platforms ({
-                            Math.min(...Array.from(selectedPlatforms).map(p => platformRequirements[p]?.maxCharacters ?? 99999)).toLocaleString()
-                          } char limit) — ~2 credits
-                        </span>
-                        {optimizeError && (
-                          <span className="text-[10px] text-destructive flex items-center gap-1">
-                            <AlertCircle className="h-3 w-3" /> {optimizeError}
-                          </span>
-                        )}
-                      </div>
+                      <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                        <Info className="h-3 w-3" /> Edit &amp; optimize text per-platform below in Platform Details
+                      </p>
                     )}
 
                     {/* Live character counts per platform */}
@@ -756,292 +787,389 @@ ${content}`;
                     )}
                   </div>
 
-                  {/* ═══════ Instagram Post Type ═══════ */}
-                  {selectedPlatforms.has('INSTAGRAM') && (
-                    <div className="space-y-2">
-                      <Label className="flex items-center gap-1">
-                        <Film className="h-4 w-4" />
-                        Instagram Post Type
-                        <HelpTip text="Choose how this post appears on Instagram. Feed = standard image post, Reel = video post (9:16 recommended), Story = 24-hour temporary post, Carousel = 2-10 images in a swipeable gallery." />
+                </CardContent>
+              </Card>
+
+              {/* ═══════ Per-Platform Customization Cards ═══════ */}
+              {selectedPlatforms.size > 0 && (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <Globe className="h-4 w-4" /> Platform Details
+                      <HelpTip text="Customize content and media for each platform individually. Each platform shows its own text, media, post type, and preview. Changes here override the master content above." />
+                    </CardTitle>
+                    <CardDescription className="text-xs">
+                      Edit text, pick media, and preview each platform. Default: uses master content above.
+                    </CardDescription>
+
+                    {/* Default media selector */}
+                    <div className="mt-2 space-y-1.5">
+                      <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Camera className="h-3 w-3" /> Default media (applies to all platforms unless overridden)
                       </Label>
-                      <select
-                        value={postType}
-                        onChange={(e) => setPostType(e.target.value)}
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      >
-                        <option value="">Auto-detect (based on media type)</option>
-                        <option value="feed">Feed Post (image)</option>
-                        <option value="reel">Reel (video, 9:16 recommended)</option>
-                        <option value="story">Story (disappears after 24h)</option>
-                        <option value="carousel">Carousel (2-10 images)</option>
-                      </select>
-                      <div className="text-xs text-muted-foreground space-y-0.5">
-                        <p><strong>Image specs:</strong> JPEG, 4:5 to 1.91:1 ratio, max 8MB. Best: 1080x1080 or 1080x1350</p>
-                        <p><strong>Video/Reel:</strong> MP4, H.264+AAC, 3s-15min, max 300MB. Best: 1080x1920 (9:16)</p>
-                        <p><strong>Story:</strong> JPEG or MP4, 9:16, max 60s video. Captions not supported via API.</p>
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={selectedMediaId}
+                          onChange={(e) => setSelectedMediaId(e.target.value)}
+                          className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-xs"
+                        >
+                          <option value="">-- No media (optional) --</option>
+                          {mediaLibrary.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.type === 'VIDEO' ? '[VIDEO]' : '[IMG]'} {m.filename}
+                              {m.fileSize ? ` (${(m.fileSize / (1024 * 1024)).toFixed(1)}MB)` : ''}
+                            </option>
+                          ))}
+                        </select>
+                        {mediaLibrary.length === 0 && (
+                          <Link href={`/dashboard/bots/${botId}/media`} className="text-xs text-primary underline whitespace-nowrap">
+                            Upload media
+                          </Link>
+                        )}
                       </div>
                     </div>
-                  )}
+                  </CardHeader>
+                  <CardContent className="space-y-4 pt-0">
+                    {Array.from(selectedPlatforms).map((platform) => {
+                      const req = platformRequirements[platform];
+                      if (!req) return null;
+                      const pContent = getPlatformContent(platform);
+                      const pMediaId = getPlatformMediaId(platform);
+                      const pMedia = getPlatformMedia(platform);
+                      const pPostType = getPlatformPostType(platform);
+                      const pHasMedia = !!pMediaId;
+                      const hasContentOverride = platformContentOverrides[platform] !== undefined;
+                      const hasMediaOverride = platformMediaOverrides[platform] !== undefined;
+                      const pName = platformNames[platform] || platform;
+                      const isVideo = pMedia?.type === 'VIDEO';
+                      const mediaUrl = pMedia ? `/api/media/${pMedia.id}` : null;
 
-                  {/* ═══════ Facebook Post Type ═══════ */}
-                  {selectedPlatforms.has('FACEBOOK') && (
-                    <div className="space-y-2">
-                      <Label className="flex items-center gap-1">
-                        <Film className="h-4 w-4" />
-                        Facebook Post Type
-                        <HelpTip text="Choose how this post appears on Facebook. Text = text-only post, Photo = image with caption, Video = standard video post, Reel = short-form vertical video (9:16) shown in the Reels tab, Link = post with a URL link preview." />
-                      </Label>
-                      <select
-                        value={fbPostType}
-                        onChange={(e) => setFbPostType(e.target.value)}
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      >
-                        <option value="">Auto-detect (based on media type)</option>
-                        <option value="text">Text Post (text only)</option>
-                        <option value="photo">Photo Post (image with caption)</option>
-                        <option value="video">Video Post (standard video)</option>
-                        <option value="reel">Reel (vertical video, 9:16)</option>
-                        <option value="link">Link Post (URL with preview card)</option>
-                      </select>
-                      <div className="text-xs text-muted-foreground space-y-0.5">
-                        <p><strong>Photo:</strong> JPEG/PNG/GIF/WebP, max 8MB. Best: 1200x630 (1.91:1) or 1200x1200</p>
-                        <p><strong>Video:</strong> MP4/MOV, H.264+AAC, max 1GB. Best: 1280x720 (16:9)</p>
-                        <p><strong>Reel:</strong> MP4/MOV, 9:16 vertical, 3s-15min, max 1GB. Best: 1080x1920</p>
-                        <p><strong>Link:</strong> Include a URL in your text — Facebook auto-generates the preview card.</p>
-                      </div>
-                    </div>
-                  )}
+                      // Char status
+                      const charRatio = pContent.length / req.maxCharacters;
+                      const charStatus: 'ok' | 'warning' | 'error' = charRatio > 1 ? 'error' : charRatio > 0.9 ? 'warning' : 'ok';
+                      const charColor = charStatus === 'error' ? 'text-red-600' : charStatus === 'warning' ? 'text-yellow-600' : 'text-green-600';
 
-                  {/* ═══════ Threads Post Type ═══════ */}
-                  {selectedPlatforms.has('THREADS') && (
-                    <div className="space-y-2">
-                      <Label className="flex items-center gap-1">
-                        <Film className="h-4 w-4" />
-                        Threads Post Type
-                        <HelpTip text="Choose how this post appears on Threads. Text = text-only post (max 500 chars), Image = single image with caption, Video = single video with caption, Carousel = swipeable gallery of 2-20 images or videos." />
-                      </Label>
-                      <select
-                        value={threadsPostType}
-                        onChange={(e) => setThreadsPostType(e.target.value)}
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      >
-                        <option value="">Auto-detect (based on media type)</option>
-                        <option value="text">Text Post (text only, max 500 chars)</option>
-                        <option value="image">Image Post (single image with caption)</option>
-                        <option value="video">Video Post (single video with caption)</option>
-                        <option value="carousel">Carousel (2-20 images/videos)</option>
-                      </select>
-                      <div className="text-xs text-muted-foreground space-y-0.5">
-                        <p><strong>Text:</strong> Max 500 characters. Supports link attachments for URL previews.</p>
-                        <p><strong>Image:</strong> JPEG/PNG, max 8MB. Best: 1080x1080 (1:1) or 1080x1350 (4:5)</p>
-                        <p><strong>Video:</strong> MP4/MOV, max 500MB, max 5min. Best: 1080x1920 (9:16)</p>
-                        <p><strong>Carousel:</strong> 2-20 images or videos. Each item can have different aspect ratios.</p>
-                      </div>
-                    </div>
-                  )}
+                      // Validation for this platform
+                      const pIssues = validationIssues.filter(i => i.platform === platform);
+                      const pErrors = pIssues.filter(i => i.type === 'error');
+                      const allOk = pErrors.length === 0 && pContent.trim().length > 0;
 
-                  {/* ═══════ Media Selection ═══════ */}
-                  <div className="space-y-3">
-                    <Label className="flex items-center gap-1">
-                      <Camera className="h-4 w-4" />
-                      Attach Media
-                      <HelpTip text="Select an image or video from your media library. Some platforms (Instagram, TikTok, Pinterest) require media." />
-                    </Label>
+                      // Post type options per platform
+                      const postTypeOptions: { value: string; label: string }[] = [];
+                      if (platform === 'INSTAGRAM') {
+                        postTypeOptions.push(
+                          { value: '', label: 'Auto-detect' },
+                          { value: 'feed', label: 'Feed Post (image)' },
+                          { value: 'reel', label: 'Reel (video)' },
+                          { value: 'story', label: 'Story (24h)' },
+                          { value: 'carousel', label: 'Carousel (2-10)' },
+                        );
+                      } else if (platform === 'FACEBOOK') {
+                        postTypeOptions.push(
+                          { value: '', label: 'Auto-detect' },
+                          { value: 'text', label: 'Text Post' },
+                          { value: 'photo', label: 'Photo Post' },
+                          { value: 'video', label: 'Video Post' },
+                          { value: 'reel', label: 'Reel (9:16)' },
+                          { value: 'link', label: 'Link Post' },
+                        );
+                      } else if (platform === 'THREADS') {
+                        postTypeOptions.push(
+                          { value: '', label: 'Auto-detect' },
+                          { value: 'text', label: 'Text Post' },
+                          { value: 'image', label: 'Image Post' },
+                          { value: 'video', label: 'Video Post' },
+                          { value: 'carousel', label: 'Carousel (2-20)' },
+                        );
+                      }
 
-                    {/* Media required warning */}
-                    {!hasMedia && Array.from(selectedPlatforms).some(p => platformRequirements[p]?.mediaRequired) && (
-                      <div className="rounded-md bg-orange-50 border border-orange-200 p-2.5 text-xs text-orange-800 flex items-start gap-2">
-                        <AlertTriangle className="h-4 w-4 shrink-0 mt-0" />
-                        <div>
-                          <p className="font-medium">Media required for selected platforms:</p>
-                          <ul className="mt-1 space-y-0.5">
-                            {Array.from(selectedPlatforms)
-                              .filter(p => platformRequirements[p]?.mediaRequired)
-                              .map(p => {
-                                const req = platformRequirements[p]!;
-                                return (
-                                  <li key={p} className="flex items-center gap-1">
-                                    <span className="font-medium">{req.name}</span> — {req.note}
-                                  </li>
-                                );
-                              })}
-                          </ul>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Media selector */}
-                    <select
-                      value={selectedMediaId}
-                      onChange={(e) => setSelectedMediaId(e.target.value)}
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    >
-                      <option value="">
-                        {Array.from(selectedPlatforms).some(p => platformRequirements[p]?.mediaRequired)
-                          ? '-- Select media (REQUIRED) --'
-                          : '-- No media (optional) --'
-                        }
-                      </option>
-                      {mediaLibrary.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.type === 'VIDEO' ? '[VIDEO]' : m.type === 'GIF' ? '[GIF]' : '[IMG]'} {m.filename}
-                          {m.fileSize ? ` (${(m.fileSize / (1024 * 1024)).toFixed(1)}MB)` : ''}
-                          {m.altText ? ` - ${m.altText.slice(0, 30)}` : ''}
-                        </option>
-                      ))}
-                    </select>
-
-                    {mediaLibrary.length === 0 && (
-                      <p className="text-xs text-muted-foreground">
-                        No media uploaded yet.{' '}
-                        <Link href={`/dashboard/bots/${botId}/media`} className="text-primary underline">
-                          Upload media first
-                        </Link>
-                      </p>
-                    )}
-
-                    {/* Selected media preview & compatibility */}
-                    {selectedMedia && (
-                      <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
-                        <div className="flex gap-3">
-                          {/* Preview */}
-                          <div className="shrink-0">
-                            {selectedMedia.type === 'VIDEO' ? (
-                              <div className="relative h-20 w-20 rounded-lg overflow-hidden bg-muted">
-                                {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                                <video
-                                  src={`/api/media/${selectedMedia.id}`}
-                                  className="h-full w-full object-cover"
-                                  muted
-                                  preload="metadata"
-                                />
-                                <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                                  <div className="h-8 w-8 rounded-full bg-black/50 flex items-center justify-center">
-                                    <svg className="h-4 w-4 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                                  </div>
-                                </div>
-                              </div>
-                            ) : (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={`/api/media/${selectedMedia.id}`}
-                                alt={selectedMedia.filename}
-                                className="h-20 w-20 rounded-lg object-cover"
-                              />
-                            )}
-                          </div>
-
-                          {/* Media info */}
-                          <div className="flex-1 min-w-0 space-y-1">
-                            <p className="text-sm font-medium truncate">{selectedMedia.filename}</p>
-                            <div className="flex flex-wrap gap-1.5">
-                              <Badge variant="secondary" className="text-[10px]">
-                                {getMediaTypeLabel(selectedMedia.type)}
-                              </Badge>
-                              <Badge variant="secondary" className="text-[10px]">
-                                {getMediaFileExtension(selectedMedia.mimeType)}
-                              </Badge>
-                              <Badge variant="secondary" className="text-[10px]">
-                                {(selectedMedia.fileSize / (1024 * 1024)).toFixed(1)}MB
-                              </Badge>
-                              {selectedMedia.width && selectedMedia.height && (
-                                <Badge variant="secondary" className="text-[10px]">
-                                  {selectedMedia.width}x{selectedMedia.height}
+                      return (
+                        <div
+                          key={platform}
+                          className={`rounded-lg border-2 overflow-hidden ${
+                            pErrors.length > 0 ? 'border-red-300 bg-red-50/30' : allOk ? 'border-green-200 bg-green-50/20' : 'border-muted'
+                          }`}
+                        >
+                          {/* Platform header */}
+                          <div className={`flex items-center justify-between px-3 py-2 ${
+                            pErrors.length > 0 ? 'bg-red-50' : allOk ? 'bg-green-50' : 'bg-muted/30'
+                          }`}>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold">{pName}</span>
+                              {allOk ? (
+                                <Badge variant="secondary" className="text-[9px] bg-green-100 text-green-700 gap-0.5">
+                                  <CheckCircle2 className="h-2.5 w-2.5" /> Ready
+                                </Badge>
+                              ) : pErrors.length > 0 ? (
+                                <Badge variant="destructive" className="text-[9px] gap-0.5">
+                                  <AlertCircle className="h-2.5 w-2.5" /> {pErrors.length} issue{pErrors.length > 1 ? 's' : ''}
+                                </Badge>
+                              ) : null}
+                              {req.mediaRequired && (
+                                <Badge variant={pHasMedia ? 'secondary' : 'destructive'} className="text-[9px] gap-0.5">
+                                  <Camera className="h-2.5 w-2.5" /> {pHasMedia ? 'Media attached' : 'Media required'}
                                 </Badge>
                               )}
                             </div>
-
-                            {/* AI caption available indicator */}
-                            {selectedMedia.platformCaptions && Object.keys(selectedMedia.platformCaptions).length > 0 && (
-                              <p className="text-[10px] text-purple-600 flex items-center gap-1">
-                                <Sparkles className="h-3 w-3" /> AI captions available — use them from the Media tab
-                              </p>
-                            )}
+                            <span className={`text-xs font-mono ${charColor}`}>
+                              {pContent.length.toLocaleString()}/{req.maxCharacters.toLocaleString()}
+                            </span>
                           </div>
 
-                          <div className="shrink-0 flex items-center gap-1">
-                            <a
-                              href={`/api/media/${selectedMedia.id}?download=true`}
-                              download={selectedMedia.filename}
-                              className="text-muted-foreground hover:text-foreground"
-                              title="Download"
-                            >
-                              <Download className="h-4 w-4" />
-                            </a>
-                            <button
-                              type="button"
-                              onClick={() => setSelectedMediaId('')}
-                              className="text-muted-foreground hover:text-foreground"
-                            >
-                              <X className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </div>
+                          <div className="px-3 py-3 space-y-3">
+                            {/* Per-platform content textarea */}
+                            <div className="space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <Label className="text-xs text-muted-foreground">
+                                  {hasContentOverride ? 'Custom text for ' + pName : 'Text (inherited from master)'}
+                                </Label>
+                                {hasContentOverride && (
+                                  <button
+                                    type="button"
+                                    onClick={() => resetPlatformContent(platform)}
+                                    className="text-[10px] text-primary hover:underline"
+                                  >
+                                    Reset to master
+                                  </button>
+                                )}
+                              </div>
+                              <textarea
+                                value={pContent}
+                                onChange={(e) => setPlatformContent(platform, e.target.value)}
+                                className={`flex min-h-[80px] w-full rounded-md border px-2 py-1.5 text-xs resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+                                  hasContentOverride ? 'border-primary/50 bg-primary/5' : 'border-input bg-background'
+                                }`}
+                                placeholder="Edit to customize for this platform..."
+                              />
 
-                        {/* Platform compatibility for this media */}
-                        <div className="space-y-1">
-                          <p className="text-[11px] font-medium text-muted-foreground">Platform compatibility:</p>
-                          <div className="flex flex-wrap gap-1">
-                            {Array.from(selectedPlatforms).map((p) => {
-                              const req = platformRequirements[p];
-                              if (!req) return null;
-
-                              const mediaFormat = getMediaFileExtension(selectedMedia.mimeType);
-                              const mediaType = selectedMedia.type;
-                              const fileSizeMB = selectedMedia.fileSize / (1024 * 1024);
-
-                              // Check compatibility
-                              let status: 'ok' | 'warning' | 'error' = 'ok';
-                              let issue = '';
-
-                              if (!req.supportedMediaTypes.includes(mediaType as 'IMAGE' | 'VIDEO' | 'GIF')) {
-                                status = 'error';
-                                issue = `No ${getMediaTypeLabel(mediaType).toLowerCase()} support`;
-                              } else if (mediaType === 'IMAGE' && !req.imageFormats.includes(mediaFormat)) {
-                                status = 'error';
-                                issue = `${mediaFormat} not supported`;
-                              } else if (mediaType === 'VIDEO' && req.videoFormats.length > 0 && !req.videoFormats.includes(mediaFormat)) {
-                                status = 'warning';
-                                issue = `${mediaFormat} may not work`;
-                              } else if (mediaType === 'VIDEO' && fileSizeMB > req.maxVideoSizeMB) {
-                                status = 'error';
-                                issue = `Too large (max ${req.maxVideoSizeMB}MB)`;
-                              } else if (mediaType !== 'VIDEO' && fileSizeMB > req.maxImageSizeMB) {
-                                status = 'error';
-                                issue = `Too large (max ${req.maxImageSizeMB}MB)`;
-                              }
-
-                              return (
-                                <span
-                                  key={p}
-                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium ${
-                                    status === 'error'
-                                      ? 'bg-red-100 text-red-700'
-                                      : status === 'warning'
-                                        ? 'bg-yellow-100 text-yellow-700'
-                                        : 'bg-green-50 text-green-700'
+                              {/* Char progress bar */}
+                              <div className="h-1 rounded-full bg-muted overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all ${
+                                    charStatus === 'error' ? 'bg-red-500' : charStatus === 'warning' ? 'bg-yellow-500' : 'bg-green-500'
                                   }`}
-                                  title={issue}
+                                  style={{ width: `${Math.min(charRatio * 100, 100)}%` }}
+                                />
+                              </div>
+
+                              {/* Optimize button - only show if over limit */}
+                              {charStatus === 'error' && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="gap-1.5 text-[10px] h-7"
+                                  onClick={() => optimizeForPlatform(platform)}
+                                  disabled={optimizingPlatform !== null}
                                 >
-                                  {status === 'error' ? (
-                                    <X className="h-3 w-3" />
-                                  ) : status === 'warning' ? (
-                                    <AlertTriangle className="h-3 w-3" />
+                                  {optimizingPlatform === platform ? (
+                                    <><Loader2 className="h-3 w-3 animate-spin" /> Optimizing...</>
                                   ) : (
-                                    <CheckCircle2 className="h-3 w-3" />
+                                    <><Sparkles className="h-3 w-3" /> Optimize for {pName} ({req.maxCharacters.toLocaleString()} chars) — ~2 credits</>
                                   )}
-                                  {req.name}
-                                  {issue && `: ${issue}`}
-                                </span>
-                              );
-                            })}
+                                </Button>
+                              )}
+                              {optimizeError && optimizingPlatform === null && (
+                                <p className="text-[10px] text-destructive">{optimizeError}</p>
+                              )}
+                            </div>
+
+                            {/* Per-platform media + post type row */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {/* Media selector */}
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-between">
+                                  <Label className="text-[10px] text-muted-foreground">Media</Label>
+                                  {hasMediaOverride && (
+                                    <button type="button" onClick={() => resetPlatformMedia(platform)} className="text-[9px] text-primary hover:underline">
+                                      Reset
+                                    </button>
+                                  )}
+                                </div>
+                                <select
+                                  value={pMediaId}
+                                  onChange={(e) => setPlatformMedia(platform, e.target.value)}
+                                  className={`flex h-8 w-full rounded-md border px-2 py-1 text-[10px] ${
+                                    hasMediaOverride ? 'border-primary/50 bg-primary/5' : 'border-input bg-background'
+                                  }`}
+                                >
+                                  <option value="">
+                                    {req.mediaRequired ? '-- REQUIRED --' : '-- None --'}
+                                  </option>
+                                  {mediaLibrary.map((m) => (
+                                    <option key={m.id} value={m.id}>
+                                      {m.type === 'VIDEO' ? '[VID]' : '[IMG]'} {m.filename} ({(m.fileSize / (1024 * 1024)).toFixed(1)}MB)
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              {/* Post type selector */}
+                              {postTypeOptions.length > 0 && (
+                                <div className="space-y-1">
+                                  <Label className="text-[10px] text-muted-foreground">Post Type</Label>
+                                  <select
+                                    value={pPostType}
+                                    onChange={(e) => setPlatformPostType(platform, e.target.value)}
+                                    className="flex h-8 w-full rounded-md border border-input bg-background px-2 py-1 text-[10px]"
+                                  >
+                                    {postTypeOptions.map((opt) => (
+                                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Validation issues for this platform */}
+                            {pIssues.length > 0 && (
+                              <div className="space-y-0.5">
+                                {pIssues.map((issue, i) => (
+                                  <p key={i} className={`text-[10px] flex items-center gap-1 ${issue.type === 'error' ? 'text-red-600' : 'text-yellow-600'}`}>
+                                    {issue.type === 'error' ? <AlertCircle className="h-3 w-3 shrink-0" /> : <AlertTriangle className="h-3 w-3 shrink-0" />}
+                                    {issue.message.replace(`${req.name}: `, '').replace(`${req.name} `, '')}
+                                  </p>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* ── Realistic Preview ── */}
+                            <div className="space-y-1">
+                              <Label className="text-[10px] text-muted-foreground">Preview</Label>
+
+                              {platform === 'FACEBOOK' && (
+                                <div className="rounded-lg border bg-white shadow-sm max-w-full overflow-hidden">
+                                  <div className="flex items-center gap-2 p-2.5">
+                                    <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-[10px] font-bold shrink-0">
+                                      {botName.charAt(0).toUpperCase()}
+                                    </div>
+                                    <div>
+                                      <p className="text-xs font-semibold text-gray-900">{botName}</p>
+                                      <p className="text-[9px] text-gray-500">Just now · 🌐</p>
+                                    </div>
+                                  </div>
+                                  <div className="px-2.5 pb-1.5">
+                                    <p className="text-[11px] text-gray-900 whitespace-pre-wrap break-words">
+                                      {pContent.length > 300 ? pContent.slice(0, 300) + '... See more' : pContent}
+                                    </p>
+                                  </div>
+                                  {mediaUrl && (
+                                    <div className="aspect-[1.91/1] bg-gray-100 overflow-hidden">
+                                      {isVideo ? (
+                                        /* eslint-disable-next-line jsx-a11y/media-has-caption */
+                                        <video src={mediaUrl} className="w-full h-full object-cover" muted preload="metadata" />
+                                      ) : (
+                                        /* eslint-disable-next-line @next/next/no-img-element */
+                                        <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
+                                      )}
+                                    </div>
+                                  )}
+                                  <div className="flex items-center justify-around py-1 px-2 border-t text-gray-400 text-[9px]">
+                                    <span>👍 Like</span><span>💬 Comment</span><span>↗️ Share</span>
+                                  </div>
+                                </div>
+                              )}
+
+                              {platform === 'INSTAGRAM' && (
+                                <div className="rounded-lg border bg-white shadow-sm max-w-full overflow-hidden">
+                                  <div className="flex items-center gap-2 p-2.5">
+                                    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-yellow-400 via-red-500 to-purple-600 p-[1.5px] shrink-0">
+                                      <div className="w-full h-full rounded-full bg-white flex items-center justify-center text-[9px] font-bold text-gray-900">
+                                        {botName.charAt(0).toUpperCase()}
+                                      </div>
+                                    </div>
+                                    <p className="text-xs font-semibold text-gray-900">{botName.toLowerCase().replace(/\s+/g, '')}</p>
+                                  </div>
+                                  {mediaUrl ? (
+                                    <div className="aspect-square bg-gray-100 overflow-hidden">
+                                      {isVideo ? (
+                                        /* eslint-disable-next-line jsx-a11y/media-has-caption */
+                                        <video src={mediaUrl} className="w-full h-full object-cover" muted preload="metadata" />
+                                      ) : (
+                                        /* eslint-disable-next-line @next/next/no-img-element */
+                                        <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div className="aspect-[4/3] bg-gray-100 flex items-center justify-center text-gray-400 text-xs">
+                                      {req.mediaRequired ? '⚠ Image/video required' : 'No media'}
+                                    </div>
+                                  )}
+                                  <div className="flex items-center justify-between px-2.5 py-1.5 text-gray-900">
+                                    <div className="flex items-center gap-3"><span>♡</span><span>💬</span><span>↗️</span></div>
+                                    <span>🔖</span>
+                                  </div>
+                                  <div className="px-2.5 pb-2">
+                                    <p className="text-[11px] text-gray-900">
+                                      <span className="font-semibold">{botName.toLowerCase().replace(/\s+/g, '')}</span>{' '}
+                                      {pContent.length > 100 ? pContent.slice(0, 100) + '... more' : pContent}
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
+
+                              {platform === 'THREADS' && (
+                                <div className="rounded-lg border bg-white shadow-sm max-w-full p-2.5">
+                                  <div className="flex items-start gap-2">
+                                    <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-600 shrink-0">
+                                      {botName.charAt(0).toUpperCase()}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-xs font-semibold text-gray-900">{botName.toLowerCase().replace(/\s+/g, '')}</span>
+                                        <span className="text-[10px] text-gray-500">· now</span>
+                                      </div>
+                                      <p className="text-[11px] text-gray-900 mt-0.5 whitespace-pre-wrap break-words">
+                                        {pContent.length > 500 ? pContent.slice(0, 500) : pContent}
+                                      </p>
+                                      {mediaUrl && (
+                                        <div className="mt-1.5 rounded-lg overflow-hidden border aspect-[16/9] bg-gray-100">
+                                          {isVideo ? (
+                                            /* eslint-disable-next-line jsx-a11y/media-has-caption */
+                                            <video src={mediaUrl} className="w-full h-full object-cover" muted preload="metadata" />
+                                          ) : (
+                                            /* eslint-disable-next-line @next/next/no-img-element */
+                                            <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
+                                          )}
+                                        </div>
+                                      )}
+                                      <div className="flex items-center gap-4 mt-1.5 text-gray-400 text-[10px]">
+                                        <span>♡</span><span>💬</span><span>🔁</span><span>↗️</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Generic preview for other platforms */}
+                              {platform !== 'FACEBOOK' && platform !== 'INSTAGRAM' && platform !== 'THREADS' && (
+                                <div className="rounded-lg border bg-white shadow-sm p-2.5">
+                                  <div className="flex items-center gap-1.5 mb-1.5">
+                                    <Badge variant="outline" className="text-[9px]">{pName}</Badge>
+                                    {pHasMedia && <Badge variant="secondary" className="text-[9px]">{isVideo ? 'Video' : 'Image'}</Badge>}
+                                  </div>
+                                  {mediaUrl && (
+                                    <div className="rounded overflow-hidden aspect-video bg-gray-100 mb-1.5">
+                                      {isVideo ? (
+                                        /* eslint-disable-next-line jsx-a11y/media-has-caption */
+                                        <video src={mediaUrl} className="w-full h-full object-cover" muted preload="metadata" />
+                                      ) : (
+                                        /* eslint-disable-next-line @next/next/no-img-element */
+                                        <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
+                                      )}
+                                    </div>
+                                  )}
+                                  <p className="text-[11px] text-gray-900 whitespace-pre-wrap break-words line-clamp-3">{pContent}</p>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
+                      );
+                    })}
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Validation Issues Card */}
               {(errors.length > 0 || warnings.length > 0) && (
@@ -1242,204 +1370,7 @@ ${content}`;
                 </CardContent>
               </Card>
 
-              {/* Post Preview Card */}
-              {content.trim().length > 0 && selectedPlatforms.size > 0 && (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm flex items-center gap-2">
-                      <Globe className="h-4 w-4" /> Post Preview
-                    </CardTitle>
-                    <CardDescription className="text-xs">How your post will look on each platform.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {Array.from(selectedPlatforms).map((platform) => {
-                      const mediaUrl = selectedMedia ? `/api/media/${selectedMedia.id}` : null;
-                      const isVideo = selectedMedia?.type === 'VIDEO';
-                      const pName = platformNames[platform] || platform;
-
-                      if (platform === 'FACEBOOK') {
-                        return (
-                          <div key={platform} className="rounded-lg border bg-white shadow-sm max-w-full overflow-hidden">
-                            <div className="flex items-center gap-2.5 p-3">
-                              <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xs font-bold shrink-0">
-                                {botName.charAt(0).toUpperCase()}
-                              </div>
-                              <div>
-                                <p className="text-sm font-semibold text-gray-900">{botName}</p>
-                                <p className="text-[10px] text-gray-500">Just now · 🌐</p>
-                              </div>
-                            </div>
-                            <div className="px-3 pb-2">
-                              <p className="text-sm text-gray-900 whitespace-pre-wrap break-words">
-                                {content.length > 477 ? content.slice(0, 477) + '... See more' : content}
-                              </p>
-                            </div>
-                            {mediaUrl && (
-                              <div className="aspect-[1.91/1] bg-gray-100 overflow-hidden">
-                                {isVideo ? (
-                                  /* eslint-disable-next-line jsx-a11y/media-has-caption */
-                                  <video src={mediaUrl} className="w-full h-full object-cover" muted preload="metadata" />
-                                ) : (
-                                  /* eslint-disable-next-line @next/next/no-img-element */
-                                  <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
-                                )}
-                              </div>
-                            )}
-                            <div className="flex items-center justify-around py-1.5 px-3 border-t text-gray-500 text-xs">
-                              <span>👍 Like</span>
-                              <span>💬 Comment</span>
-                              <span>↗️ Share</span>
-                            </div>
-                          </div>
-                        );
-                      }
-
-                      if (platform === 'INSTAGRAM') {
-                        return (
-                          <div key={platform} className="rounded-lg border bg-white shadow-sm max-w-full overflow-hidden">
-                            <div className="flex items-center gap-2.5 p-3">
-                              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-yellow-400 via-red-500 to-purple-600 p-[2px] shrink-0">
-                                <div className="w-full h-full rounded-full bg-white flex items-center justify-center text-[10px] font-bold text-gray-900">
-                                  {botName.charAt(0).toUpperCase()}
-                                </div>
-                              </div>
-                              <p className="text-sm font-semibold text-gray-900">{botName.toLowerCase().replace(/\s+/g, '')}</p>
-                            </div>
-                            {mediaUrl ? (
-                              <div className="aspect-square bg-gray-100 overflow-hidden">
-                                {isVideo ? (
-                                  /* eslint-disable-next-line jsx-a11y/media-has-caption */
-                                  <video src={mediaUrl} className="w-full h-full object-cover" muted preload="metadata" />
-                                ) : (
-                                  /* eslint-disable-next-line @next/next/no-img-element */
-                                  <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
-                                )}
-                              </div>
-                            ) : (
-                              <div className="aspect-square bg-gray-100 flex items-center justify-center text-gray-400 text-xs">
-                                Image required
-                              </div>
-                            )}
-                            <div className="flex items-center justify-between px-3 py-2 text-gray-900">
-                              <div className="flex items-center gap-3.5">
-                                <span className="text-lg">♡</span>
-                                <span className="text-lg">💬</span>
-                                <span className="text-lg">↗️</span>
-                              </div>
-                              <span className="text-lg">🔖</span>
-                            </div>
-                            <div className="px-3 pb-3">
-                              <p className="text-sm text-gray-900">
-                                <span className="font-semibold">{botName.toLowerCase().replace(/\s+/g, '')}</span>{' '}
-                                {content.length > 125 ? content.slice(0, 125) + '... more' : content}
-                              </p>
-                            </div>
-                          </div>
-                        );
-                      }
-
-                      if (platform === 'THREADS') {
-                        return (
-                          <div key={platform} className="rounded-lg border bg-white shadow-sm max-w-full p-3.5">
-                            <div className="flex items-start gap-2.5">
-                              <div className="w-9 h-9 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-600 shrink-0">
-                                {botName.charAt(0).toUpperCase()}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-sm font-semibold text-gray-900">{botName.toLowerCase().replace(/\s+/g, '')}</span>
-                                  <span className="text-xs text-gray-500">· now</span>
-                                </div>
-                                <p className="text-sm text-gray-900 mt-1 whitespace-pre-wrap break-words">
-                                  {content.length > 500 ? content.slice(0, 500) : content}
-                                </p>
-                                {mediaUrl && (
-                                  <div className="mt-2 rounded-lg overflow-hidden border aspect-[16/9] bg-gray-100">
-                                    {isVideo ? (
-                                      /* eslint-disable-next-line jsx-a11y/media-has-caption */
-                                      <video src={mediaUrl} className="w-full h-full object-cover" muted preload="metadata" />
-                                    ) : (
-                                      /* eslint-disable-next-line @next/next/no-img-element */
-                                      <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
-                                    )}
-                                  </div>
-                                )}
-                                <div className="flex items-center gap-5 mt-2.5 text-gray-400 text-xs">
-                                  <span>♡</span>
-                                  <span>💬</span>
-                                  <span>🔁</span>
-                                  <span>↗️</span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      }
-
-                      // Generic fallback for other platforms
-                      return (
-                        <div key={platform} className="rounded-lg border bg-white shadow-sm p-3">
-                          <div className="flex items-center gap-2 mb-2">
-                            <Badge variant="outline" className="text-[10px]">{pName}</Badge>
-                          </div>
-                          <p className="text-sm text-gray-900 whitespace-pre-wrap break-words line-clamp-4">{content}</p>
-                          {mediaUrl && (
-                            <div className="mt-2 rounded overflow-hidden aspect-video bg-gray-100">
-                              {isVideo ? (
-                                /* eslint-disable-next-line jsx-a11y/media-has-caption */
-                                <video src={mediaUrl} className="w-full h-full object-cover" muted preload="metadata" />
-                              ) : (
-                                /* eslint-disable-next-line @next/next/no-img-element */
-                                <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Platform Specs Card (collapsible) */}
-              <Card className="bg-muted/30">
-                <CardHeader className="pb-2 cursor-pointer" onClick={() => setShowDimensions(!showDimensions)}>
-                  <CardTitle className="text-sm flex items-center justify-between">
-                    <span className="flex items-center gap-1.5">
-                      <Info className="h-4 w-4" /> Platform Specs
-                    </span>
-                    {showDimensions ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                  </CardTitle>
-                </CardHeader>
-                {showDimensions && (
-                  <CardContent className="space-y-3">
-                    {Array.from(selectedPlatforms).map((p) => {
-                      const req = platformRequirements[p];
-                      if (!req) return null;
-                      return (
-                        <div key={p} className="text-xs border-b pb-2 last:border-0">
-                          <p className="font-medium">{req.name}</p>
-                          <div className="mt-1 space-y-0.5 text-muted-foreground">
-                            <p>Text: max {req.maxCharacters.toLocaleString()} chars</p>
-                            {req.imageFormats.length > 0 && (
-                              <p>Image: {req.imageFormats.join(', ')} (max {req.maxImageSizeMB}MB)</p>
-                            )}
-                            {req.videoFormats.length > 0 && (
-                              <p>Video: {req.videoFormats.join(', ')} (max {req.maxVideoSizeMB}MB)</p>
-                            )}
-                            <p>
-                              Sizes: {req.recommendedDimensions.map(d => `${d.width}x${d.height} ${d.label}`).join(', ')}
-                            </p>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {selectedPlatforms.size === 0 && (
-                      <p className="text-xs text-muted-foreground">Select platforms to see specs.</p>
-                    )}
-                  </CardContent>
-                )}
-              </Card>
+              {/* Preview + specs now integrated into per-platform cards above */}
 
               {/* Tips Card */}
               <Card className="bg-blue-50/50 border-blue-200">

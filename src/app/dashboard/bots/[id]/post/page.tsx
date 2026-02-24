@@ -175,6 +175,15 @@ export default async function ManualPostPage({
     if (threadsPostType) postTypeMap.threads = threadsPostType;
     const postType = Object.keys(postTypeMap).length > 0 ? JSON.stringify(postTypeMap) : null;
 
+    // Per-platform content/media overrides
+    let platformContent: Record<string, { content?: string; mediaId?: string }> | null = null;
+    const platformContentRaw = formData.get('platformContent') as string;
+    if (platformContentRaw) {
+      try {
+        platformContent = JSON.parse(platformContentRaw);
+      } catch { /* ignore invalid JSON */ }
+    }
+
     // Validate media ownership
     if (mediaId) {
       const media = await db.media.findFirst({ where: { id: mediaId, botId: id } });
@@ -193,10 +202,11 @@ export default async function ManualPostPage({
 
     // ── Platform requirement validation (server-side) ──────
 
-    // Check media requirements
+    // Check media requirements (per-platform override or default)
     const mediaRequiredPlatforms = platformsRaw.filter(p => {
       const req = PLATFORM_REQUIREMENTS[p];
-      return req?.mediaRequired && !mediaId;
+      const pMediaId = platformContent?.[p]?.mediaId ?? mediaId;
+      return req?.mediaRequired && !pMediaId;
     });
 
     if (mediaRequiredPlatforms.length > 0) {
@@ -204,11 +214,12 @@ export default async function ManualPostPage({
       redirect(`/dashboard/bots/${id}/post?error=${encodeURIComponent(`Media required for: ${names}. These platforms do not support text-only posts. Attach an image or video, or deselect these platforms.`)}`);
     }
 
-    // Check character limits
+    // Check character limits (per-platform content or master)
     for (const p of platformsRaw) {
       const req = PLATFORM_REQUIREMENTS[p];
-      if (req && content.length > req.maxCharacters) {
-        redirect(`/dashboard/bots/${id}/post?error=${encodeURIComponent(`Content too long for ${req.name}: ${content.length.toLocaleString()} chars (max ${req.maxCharacters.toLocaleString()})`)}`);
+      const pContent = platformContent?.[p]?.content ?? content;
+      if (req && pContent.length > req.maxCharacters) {
+        redirect(`/dashboard/bots/${id}/post?error=${encodeURIComponent(`Content too long for ${req.name}: ${pContent.length.toLocaleString()} chars (max ${req.maxCharacters.toLocaleString()})`)}`);
       }
     }
 
@@ -329,6 +340,7 @@ export default async function ManualPostPage({
         productId,
         postType: postType || null,
         platforms: platformsRaw,
+        platformContent: platformContent || undefined,
         scheduledAt: finalScheduledAt,
         autoSchedule: false,
         status: finalStatus,

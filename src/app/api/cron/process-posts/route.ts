@@ -268,14 +268,37 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
+        // Resolve per-platform content/media overrides
+        const overrides = (post.platformContent as Record<string, { content?: string; mediaId?: string }> | null)?.[platform];
+        const platformSpecificContent = overrides?.content || post.content;
+
+        // If this platform has a media override, resolve it
+        let effectiveMediaPath = post.media?.filePath || null;
+        let effectiveMediaType = (post.media?.type as 'IMAGE' | 'VIDEO' | 'GIF' | null) || null;
+        let effectiveMediaMime = post.media?.mimeType || null;
+        let effectiveMediaId = post.media?.id || null;
+
+        if (overrides?.mediaId && overrides.mediaId !== post.media?.id) {
+          const overrideMedia = await db.media.findFirst({
+            where: { id: overrides.mediaId, botId: post.botId },
+            select: { id: true, filePath: true, type: true, mimeType: true },
+          });
+          if (overrideMedia) {
+            effectiveMediaPath = overrideMedia.filePath;
+            effectiveMediaType = overrideMedia.type as 'IMAGE' | 'VIDEO' | 'GIF';
+            effectiveMediaMime = overrideMedia.mimeType;
+            effectiveMediaId = overrideMedia.id;
+          }
+        }
+
         const result = await publishToPlatform(
           platform as PlatformType,
           post.botId,
-          post.content,
-          post.media?.filePath || null,
-          (post.media?.type as 'IMAGE' | 'VIDEO' | 'GIF' | null) || null,
-          post.media?.mimeType || null,
-          post.media?.id || null,
+          platformSpecificContent,
+          effectiveMediaPath,
+          effectiveMediaType,
+          effectiveMediaMime,
+          effectiveMediaId,
           (post.postType as 'feed' | 'reel' | 'story' | 'carousel' | null) || null,
           (post.mediaIds as string[] | null) || null
         );
@@ -297,7 +320,7 @@ export async function POST(request: NextRequest) {
             botId: post.botId,
             platform: platform as PlatformType,
             action: 'POST',
-            content: post.content.slice(0, 500),
+            content: platformSpecificContent.slice(0, 500),
             postId: result.externalId || null,
             contentType: post.contentType || 'custom',
             success: result.success,
