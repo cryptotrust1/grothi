@@ -10,10 +10,12 @@ import { HelpTip } from '@/components/ui/help-tip';
 import { Progress } from '@/components/ui/progress';
 import { BotNav } from '@/components/dashboard/bot-nav';
 import { ArmDistributionChart, EngagementScoreTrend } from '@/components/dashboard/ai-insights-charts';
+import { LearningControls, ResetAllLearningButton } from '@/components/dashboard/ai-learning-controls';
 import {
   Brain, TrendingUp, Target, Lightbulb, BarChart3, Sparkles,
-  Clock, MessageSquare, Hash, Palette,
-  Flame, Zap, Radio, AlertTriangle, Eye, BookOpen,
+  Clock, MessageSquare, Hash, Palette, CheckCircle2, Circle,
+  Flame, Zap, Radio, AlertTriangle, Eye, BookOpen, Info,
+  GraduationCap, Milestone, ArrowRight, Database,
 } from 'lucide-react';
 import {
   PLATFORM_NAMES, RL_DIMENSION_LABELS,
@@ -53,6 +55,55 @@ const DIMENSION_ICONS: Record<string, typeof Clock> = {
   HASHTAG_PATTERN: Hash,
   TONE_STYLE: Palette,
 };
+
+// ── Learning Milestones ──
+// Based on statistical learning theory: minimum sample sizes for reliable
+// multi-armed bandit recommendations (Auer et al., 2002; Chapelle & Li, 2011)
+const MILESTONES = [
+  {
+    id: 'first_post',
+    postsRequired: 1,
+    title: 'First Post',
+    description: 'Baseline recorded. The AI now knows your first content dimensions (time, type, tone, hashtags).',
+    detail: 'Content fingerprinting captured. RL arms initialized.',
+  },
+  {
+    id: 'baseline',
+    postsRequired: 5,
+    title: 'Baseline Established',
+    description: 'Enough data for initial pattern detection. The AI can now compare strategies.',
+    detail: 'Z-score normalization activated. Time-decay scoring calibrated.',
+  },
+  {
+    id: 'patterns',
+    postsRequired: 15,
+    title: 'Patterns Emerging',
+    description: 'The AI is identifying your best-performing content strategies.',
+    detail: 'Thompson Sampling posteriors narrowing. Exploration rate decreasing.',
+  },
+  {
+    id: 'optimization',
+    postsRequired: 30,
+    title: 'Active Optimization',
+    description: 'Confident recommendations available. The AI favors proven strategies with occasional experiments.',
+    detail: 'Per-dimension confidence > 60%. Exploitation mode dominant.',
+  },
+  {
+    id: 'mastery',
+    postsRequired: 50,
+    title: 'Strategy Mastery',
+    description: 'High-confidence strategy locked in. The AI primarily uses what works best, with rare exploration.',
+    detail: 'Exploration rate < 10%. Bayesian posterior convergence achieved.',
+  },
+];
+
+/** Data requirements per dimension for reliable recommendations */
+const DATA_REQUIREMENTS = [
+  { dimension: 'TIME_SLOT', label: 'Posting Time', minPosts: 15, reason: '24 possible hours - needs enough data to compare' },
+  { dimension: 'CONTENT_TYPE', label: 'Content Type', minPosts: 10, reason: '7 types - ~2 samples per type minimum' },
+  { dimension: 'TONE_STYLE', label: 'Tone & Style', minPosts: 10, reason: '6 tones - ~2 samples per tone minimum' },
+  { dimension: 'HASHTAG_PATTERN', label: 'Hashtag Strategy', minPosts: 10, reason: '7 patterns - ~2 samples per pattern minimum' },
+];
 
 export default async function AIInsightsPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireAuth();
@@ -106,7 +157,17 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
   const totalPulls = allArmStates.reduce((sum, a) => sum + a.pulls, 0);
   const overallConfidence = Math.round((1 - Math.exp(-totalPulls / 100)) * 100);
 
-  const hasData = totalEpisodes > 0 || totalEngagements > 0;
+  // Determine current milestone
+  const currentMilestoneIdx = MILESTONES.findIndex(m => totalEngagements < m.postsRequired);
+  const currentMilestone = currentMilestoneIdx === -1
+    ? MILESTONES[MILESTONES.length - 1]
+    : MILESTONES[Math.max(0, currentMilestoneIdx - 1)];
+  const nextMilestone = currentMilestoneIdx === -1
+    ? null
+    : MILESTONES[currentMilestoneIdx];
+  const milestoneProgress = nextMilestone
+    ? Math.round((totalEngagements / nextMilestone.postsRequired) * 100)
+    : 100;
 
   // Build best arms per dimension (across all platforms)
   const bestArmsByDimension: Record<string, { arm: string; reward: number; pulls: number; platform: string }> = {};
@@ -154,7 +215,6 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
 
   for (const dim of dimensions) {
     const arms = allArmStates.filter(a => a.dimension === dim);
-    // Aggregate same armKey across platforms
     const aggregated: Record<string, { totalReward: number; totalPulls: number; count: number }> = {};
     for (const arm of arms) {
       if (!aggregated[arm.armKey]) {
@@ -172,7 +232,31 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
         confidence: data.totalPulls > 0 ? Math.round((1 - 1 / Math.sqrt(data.totalPulls)) * 100) : 0,
       }))
       .sort((a, b) => b.reward - a.reward)
-      .slice(0, 15); // Limit for chart readability
+      .slice(0, 15);
+  }
+
+  // Build arms data for LearningControls component
+  const armsByDimension: Record<string, { armKey: string; label: string; reward: number; pulls: number; platform: string; dimension: string }[]> = {};
+  for (const dim of dimensions) {
+    const arms = allArmStates.filter(a => a.dimension === dim);
+    // Group by armKey, take best platform for each
+    const byKey: Record<string, typeof arms[0]> = {};
+    for (const arm of arms) {
+      if (!byKey[arm.armKey] || arm.ewmaReward > byKey[arm.armKey].ewmaReward) {
+        byKey[arm.armKey] = arm;
+      }
+    }
+    const sorted = Object.values(byKey).sort((a, b) => b.ewmaReward - a.ewmaReward);
+    if (sorted.length > 0) {
+      armsByDimension[dim] = sorted.map(a => ({
+        armKey: a.armKey,
+        label: getArmLabel(dim, a.armKey),
+        reward: Math.round(a.ewmaReward * 100) / 100,
+        pulls: a.pulls,
+        platform: a.platform,
+        dimension: dim,
+      }));
+    }
   }
 
   // Engagement score trend (group by day)
@@ -265,50 +349,349 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
     tip: 'bg-amber-50 border-amber-200 text-amber-800',
   };
 
+  const hasData = totalEpisodes > 0 || totalEngagements > 0;
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">{bot.name} - AI Insights</h1>
-        <p className="text-muted-foreground">See what your bot has learned from analyzing post performance.</p>
+        <p className="text-muted-foreground">See what your bot has learned and manage its learning process.</p>
         <BotNav botId={id} activeTab="ai-insights" />
       </div>
 
-      {/* How AI Learning Works - collapsible info */}
-      <Card className="border-indigo-200 bg-indigo-50/30">
+      {/* ═══════════ LEARNING JOURNEY (always visible) ═══════════ */}
+      <Card className="border-indigo-200 bg-gradient-to-br from-indigo-50/40 to-purple-50/20">
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
-            <Brain className="h-5 w-5 text-indigo-600" />
-            How AI learning works
-            <HelpTip text="Your bot uses Thompson Sampling (a Bayesian multi-armed bandit algorithm) to explore different content strategies. It models uncertainty with probability distributions and naturally focuses on proven winners while still discovering new opportunities. Engagement scores are time-decay adjusted and normalized per platform." />
+            <GraduationCap className="h-5 w-5 text-indigo-600" />
+            Learning Journey
+            <Badge variant="outline" className="ml-2 text-xs">
+              {totalEngagements} {totalEngagements === 1 ? 'post' : 'posts'} analyzed
+            </Badge>
+            <HelpTip text="Your bot uses Thompson Sampling (Bayesian multi-armed bandit) to learn from every post. Each post teaches the AI about optimal content type, tone, posting time, and hashtag strategy. Even posts with zero engagement are valuable signal." />
           </CardTitle>
+          <CardDescription>
+            {nextMilestone
+              ? `Next milestone: ${nextMilestone.title} (${nextMilestone.postsRequired - totalEngagements} posts away)`
+              : 'All milestones reached! The AI has high confidence in its recommendations.'}
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="text-sm text-muted-foreground space-y-2">
-            <p>
-              Your bot uses <strong>Thompson Sampling</strong> (a Bayesian reinforcement learning algorithm) to
-              optimize posting strategy. It learns from engagement metrics (likes, comments, shares, saves) and
-              automatically detects content characteristics using content fingerprinting.
-            </p>
-            <div className="grid gap-1.5 sm:grid-cols-2 text-xs mt-2">
-              <div className="flex items-start gap-1.5">
-                <span className="font-medium text-foreground">Thompson Sampling</span> — Bayesian posterior sampling for natural exploration/exploitation balance
-              </div>
-              <div className="flex items-start gap-1.5">
-                <span className="font-medium text-foreground">Content Fingerprinting</span> — Auto-detects tone, content type, hashtag patterns from post text
-              </div>
-              <div className="flex items-start gap-1.5">
-                <span className="font-medium text-foreground">Time-Decay Adjustment</span> — Normalizes scores for post age (newer posts get fair comparison)
-              </div>
-              <div className="flex items-start gap-1.5">
-                <span className="font-medium text-foreground">Bayesian Normalization</span> — Z-score normalization makes scores comparable across platforms
-              </div>
+          {/* Milestone progress bar */}
+          <div className="mb-4">
+            <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+              <span>{totalEngagements} posts</span>
+              <span>{nextMilestone ? `${nextMilestone.postsRequired} needed` : 'Complete'}</span>
             </div>
+            <Progress value={milestoneProgress} className="h-2" />
           </div>
+
+          {/* Milestone steps */}
+          <div className="space-y-3">
+            {MILESTONES.map((milestone, idx) => {
+              const reached = totalEngagements >= milestone.postsRequired;
+              const isCurrent = !reached && (idx === 0 || totalEngagements >= MILESTONES[idx - 1].postsRequired);
+              const isNext = !reached && !isCurrent;
+
+              return (
+                <div
+                  key={milestone.id}
+                  className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${
+                    reached
+                      ? 'bg-green-50/50 border-green-200'
+                      : isCurrent
+                        ? 'bg-indigo-50/50 border-indigo-200'
+                        : 'bg-muted/20 border-transparent'
+                  }`}
+                >
+                  <div className="mt-0.5 shrink-0">
+                    {reached ? (
+                      <CheckCircle2 className="h-5 w-5 text-green-600" />
+                    ) : isCurrent ? (
+                      <Milestone className="h-5 w-5 text-indigo-600" />
+                    ) : (
+                      <Circle className="h-5 w-5 text-muted-foreground/40" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-sm font-medium ${isNext ? 'text-muted-foreground' : ''}`}>
+                        {milestone.title}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        ({milestone.postsRequired} {milestone.postsRequired === 1 ? 'post' : 'posts'})
+                      </span>
+                      {isCurrent && (
+                        <Badge className="text-xs bg-indigo-100 text-indigo-800 border-indigo-200">
+                          Current
+                        </Badge>
+                      )}
+                    </div>
+                    <p className={`text-xs mt-0.5 ${isNext ? 'text-muted-foreground/60' : 'text-muted-foreground'}`}>
+                      {milestone.description}
+                    </p>
+                    {(reached || isCurrent) && (
+                      <p className="text-xs mt-1 text-muted-foreground/80 italic">
+                        {milestone.detail}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* No posts yet? CTA */}
+          {totalEngagements === 0 && (
+            <div className="mt-4 p-4 rounded-lg bg-white/60 border border-indigo-100 text-center">
+              <Brain className="h-8 w-8 mx-auto text-indigo-400 mb-2" />
+              <p className="text-sm font-medium mb-1">Create your first post to start learning!</p>
+              <p className="text-xs text-muted-foreground mb-3">
+                The AI begins learning from post #1. Every post teaches the bot about your audience preferences.
+              </p>
+              <Link href={`/dashboard/bots/${id}/post`}>
+                <Button size="sm"><Sparkles className="mr-1.5 h-3.5 w-3.5" /> Create First Post</Button>
+              </Link>
+            </div>
+          )}
         </CardContent>
       </Card>
 
+      {/* ═══════════ DATA REQUIREMENTS ═══════════ */}
+      {totalEngagements > 0 && totalEngagements < 30 && (
+        <Card className="border-amber-200 bg-amber-50/30">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Database className="h-4 w-4 text-amber-600" />
+              Data Requirements for Reliable Recommendations
+              <HelpTip text="Based on multi-armed bandit theory (Auer et al., 2002), each arm needs at least 2-3 pulls for the posterior to start converging. With 7 content types and 6 tones, you need roughly 15-20 posts for meaningful per-dimension insights." />
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {DATA_REQUIREMENTS.map(req => {
+                // Count unique arms tested in this dimension
+                const dimArms = allArmStates.filter(a => a.dimension === req.dimension);
+                const totalDimPulls = dimArms.reduce((sum, a) => sum + a.pulls, 0);
+                const pct = Math.min(100, Math.round((totalDimPulls / req.minPosts) * 100));
+
+                return (
+                  <div key={req.dimension} className="flex items-center gap-3 p-2 rounded border bg-white/60">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium">{req.label}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {totalDimPulls}/{req.minPosts}
+                        </span>
+                      </div>
+                      <Progress value={pct} className="h-1.5 mt-1" />
+                    </div>
+                    {pct >= 100 ? (
+                      <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+                    ) : (
+                      <Info className="h-4 w-4 text-amber-500 shrink-0" />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              More data = more reliable recommendations. Each green checkmark means that dimension has enough data for confident suggestions.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ═══════════ KPI Cards ═══════════ */}
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-5">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Learning Episodes
+              <HelpTip text="Total number of RL updates across all platforms. Each post generates one episode per platform it was published to." />
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{totalEpisodes}</div>
+            {totalEpisodes === 0 && totalEngagements > 0 && (
+              <p className="text-xs text-amber-600">Processing...</p>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Posts Analyzed</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{totalEngagements}</div>
+            {totalEngagements > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {recentEngagements.filter(e => e.engagementScore > 0).length} with engagement
+              </p>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Active Platforms</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{rlConfigs.length}</div>
+            <p className="text-xs text-muted-foreground">of {connectedPlatforms.length} connected</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Exploration Rate
+              <HelpTip text="How often the AI tries new strategies vs proven ones. Starts at 20%, decreases as confidence grows. Lower = more confident." />
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{explorationPct}%</div>
+            <Progress value={exploitPct} className="h-1.5 mt-1" />
+            <p className="text-xs text-muted-foreground mt-1">{exploitPct}% exploitation</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Confidence
+              <HelpTip text="Overall confidence in learned strategies. Based on total data points. Higher = more reliable recommendations." />
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{overallConfidence}%</div>
+            <Progress value={overallConfidence} className="h-1.5 mt-1" />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ═══════════ WHAT THE BOT HAS LEARNED (visible from post 1) ═══════════ */}
+      {hasData && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Brain className="h-5 w-5" /> What Your Bot Has Learned
+                  <HelpTip text="The AI's current understanding of what works best for your audience. Use thumbs up to confirm good learnings, thumbs down to reject incorrect ones, or reset to start fresh for a dimension." />
+                </CardTitle>
+                <CardDescription>
+                  Confirm or reject learnings to guide the AI. Your feedback directly adjusts the strategy weights.
+                </CardDescription>
+              </div>
+              <ResetAllLearningButton botId={bot.id} />
+            </div>
+          </CardHeader>
+          <CardContent>
+            {Object.keys(armsByDimension).length > 0 ? (
+              <LearningControls
+                botId={bot.id}
+                armsByDimension={armsByDimension}
+                dimensionLabels={RL_DIMENSION_LABELS}
+              />
+            ) : (
+              <div className="text-center py-6">
+                <Brain className="h-8 w-8 mx-auto text-muted-foreground/40 mb-2" />
+                <p className="text-sm text-muted-foreground">
+                  The AI is recording your first post data. Learnings will appear here after the first post is processed.
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ═══════════ RECENT POST LEARNING LOG ═══════════ */}
+      {recentEngagements.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <BookOpen className="h-4 w-4" /> Post-by-Post Learning Log
+              <HelpTip text="Every post the AI has analyzed. Shows what content dimensions were detected and what engagement score was recorded. The AI learns from ALL posts, including those with zero engagement." />
+            </CardTitle>
+            <CardDescription>
+              What each post taught the AI. Score = Likes(1x) + Comments(3x) + Shares(5x) + platform bonuses.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {recentEngagements.slice(0, 15).map((eng, idx) => {
+                const postNum = totalEngagements - idx;
+                const hasEngagement = eng.engagementScore > 0;
+
+                return (
+                  <div
+                    key={eng.id}
+                    className={`flex items-start gap-3 p-3 rounded-lg border ${
+                      hasEngagement ? 'bg-green-50/30 border-green-100' : 'bg-muted/20'
+                    }`}
+                  >
+                    <div className="shrink-0 w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center">
+                      <span className="text-xs font-bold text-indigo-700">#{postNum}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge variant="outline" className="text-xs">
+                          {PLATFORM_NAMES[eng.platform] || eng.platform}
+                        </Badge>
+                        {eng.contentType && (
+                          <Badge variant="outline" className="text-xs bg-blue-50">
+                            {getArmLabel('CONTENT_TYPE', eng.contentType)}
+                          </Badge>
+                        )}
+                        {eng.toneStyle && (
+                          <Badge variant="outline" className="text-xs bg-purple-50">
+                            {getArmLabel('TONE_STYLE', eng.toneStyle)}
+                          </Badge>
+                        )}
+                        {eng.timeSlot != null && (
+                          <Badge variant="outline" className="text-xs bg-amber-50">
+                            {getArmLabel('TIME_SLOT', String(eng.timeSlot))}
+                          </Badge>
+                        )}
+                        {eng.hashtagPattern && (
+                          <Badge variant="outline" className="text-xs bg-green-50">
+                            {getArmLabel('HASHTAG_PATTERN', eng.hashtagPattern)}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                        <span>{new Date(eng.postedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                        <span className="flex items-center gap-0.5">
+                          Score: <strong className={hasEngagement ? 'text-green-700' : ''}>{Math.round(eng.engagementScore * 10) / 10}</strong>
+                        </span>
+                        {eng.likes > 0 && <span>{eng.likes} likes</span>}
+                        {eng.comments > 0 && <span>{eng.comments} comments</span>}
+                        {eng.shares > 0 && <span>{eng.shares} shares</span>}
+                        {!hasEngagement && (
+                          <span className="italic">Waiting for engagement data...</span>
+                        )}
+                      </div>
+                      {/* What the AI learned from this post */}
+                      <p className="text-xs mt-1 text-indigo-600">
+                        <ArrowRight className="h-3 w-3 inline mr-0.5" />
+                        {hasEngagement
+                          ? `Updated ${[eng.contentType, eng.toneStyle, eng.timeSlot != null ? 'time' : '', eng.hashtagPattern].filter(Boolean).length} dimension(s) with score ${Math.round(eng.engagementScore * 10) / 10}`
+                          : `Recorded baseline for ${[eng.contentType && getArmLabel('CONTENT_TYPE', eng.contentType), eng.toneStyle && getArmLabel('TONE_STYLE', eng.toneStyle)].filter(Boolean).join(', ') || 'content dimensions'}`
+                        }
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {totalEngagements > 15 && (
+              <p className="text-center text-xs text-muted-foreground mt-3">
+                Showing 15 of {totalEngagements} posts
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* ═══════════ HYPE RADAR ═══════════ */}
-      {/* Active Hype Alerts — always visible when alerts exist */}
       {activeAlerts.length > 0 && (
         <Card className="border-orange-300 bg-gradient-to-br from-orange-50/50 to-red-50/30">
           <CardHeader>
@@ -316,11 +699,10 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
               <Flame className="h-5 w-5 text-orange-500" />
               Hype Radar — Active Trends
               <Badge variant="destructive" className="ml-2">{activeAlerts.length} active</Badge>
-              <HelpTip text="Trends detected from your RSS feeds and global trend sources. Based on Berger's STEPPS framework, Welford's z-score spike detection, and Rogers' Diffusion of Innovations. The bot uses these to adapt content strategy in real-time." />
+              <HelpTip text="Trends detected from RSS feeds and global sources. Based on Berger's STEPPS framework, Welford's z-score spike detection, and Rogers' Diffusion of Innovations." />
             </CardTitle>
             <CardDescription>
               Trending topics relevant to your niche. Act on these to ride the hype wave.
-              Scientific basis: Berger &amp; Milkman (2012), Rogers (1962), Welford&apos;s Algorithm.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -348,7 +730,6 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
                         </div>
                         <p className="text-sm text-muted-foreground mb-2">{lcConfig.description}</p>
 
-                        {/* Suggested Action */}
                         <div className="bg-indigo-50 rounded-md p-3 mt-2">
                           <div className="flex items-center gap-1.5 mb-1">
                             <Lightbulb className="h-4 w-4 text-indigo-600" />
@@ -365,7 +746,6 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
                           </div>
                         </div>
 
-                        {/* Source titles */}
                         {alert.sources.length > 0 && (
                           <div className="mt-2">
                             <span className="text-xs font-medium text-muted-foreground">Sources:</span>
@@ -384,7 +764,6 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
                       </div>
                     </div>
 
-                    {/* Metrics row */}
                     <div className="flex gap-4 mt-3 pt-3 border-t text-xs text-muted-foreground">
                       <span className="flex items-center gap-1">
                         <Zap className="h-3 w-3" /> Hype: {alert.hypeScore}/100
@@ -453,7 +832,7 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
               <CardTitle className="text-sm font-medium text-muted-foreground">
                 <Target className="h-4 w-4 inline mr-1" />
                 Hype Threshold
-                <HelpTip text="The AI adjusts this threshold based on past trend-riding results. Lower = more aggressive (acts on weaker signals). Higher = more selective. Learned via engagement feedback loop." />
+                <HelpTip text="The AI adjusts this threshold based on past trend-riding results. Lower = more aggressive. Higher = more selective." />
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -466,14 +845,14 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
         </div>
       )}
 
-      {/* Trend History (learned patterns) */}
+      {/* Trend History */}
       {trendHistory.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <TrendingUp className="h-4 w-4" />
               Trend History — What the Bot Learned
-              <HelpTip text="Past trends the system detected. The bot learns from these: when trend-riding produces high engagement, the hype threshold decreases (more aggressive). When it underperforms, the threshold increases (more selective). Based on Rogers' Diffusion of Innovations learning loop." />
+              <HelpTip text="Past trends the system detected. When trend-riding produces high engagement, the hype threshold decreases (more aggressive). When it underperforms, the threshold increases (more selective)." />
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -528,7 +907,7 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
         </Card>
       )}
 
-      {/* Hype Radar Empty State — show when no scans yet */}
+      {/* Hype Radar Empty State */}
       {hypeState.totalScans === 0 && (
         <Card className="border-dashed border-orange-200">
           <CardContent className="py-8 text-center">
@@ -536,89 +915,13 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
             <h3 className="text-base font-semibold mb-1">Hype Radar Not Active Yet</h3>
             <p className="text-sm text-muted-foreground max-w-md mx-auto">
               The trend detection system scans RSS feeds and global trend sources every 10 minutes.
-              Configure RSS feeds in Bot Settings to get personalized trend alerts. The system uses
-              Welford&apos;s z-score spike detection, Berger&apos;s STEPPS virality framework, and
-              Rogers&apos; Diffusion of Innovations model.
+              Configure RSS feeds in Bot Settings to get personalized trend alerts.
             </p>
           </CardContent>
         </Card>
       )}
 
-      {/* Empty State */}
-      {!hasData && (
-        <Card className="border-dashed">
-          <CardContent className="py-12 text-center">
-            <Brain className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">Welcome to AI Insights!</h3>
-            <p className="text-muted-foreground mb-6 max-w-md mx-auto">
-              Create your first post to start the AI learning journey! The bot needs engagement data from
-              published posts to learn which strategies work best for your audience.
-            </p>
-            <Link href={`/dashboard/bots/${id}/post`}>
-              <Button><Sparkles className="mr-2 h-4 w-4" /> Create First Post</Button>
-            </Link>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* KPI Cards */}
-      <div className="grid gap-4 grid-cols-2 lg:grid-cols-5">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Learning Episodes
-              <HelpTip text="Total number of posts the AI has analyzed and learned from across all platforms." />
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totalEpisodes}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Posts Analyzed</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totalEngagements}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Active Platforms</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{rlConfigs.length}</div>
-            <p className="text-xs text-muted-foreground">of {connectedPlatforms.length} connected</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Exploration Rate
-              <HelpTip text="Percentage of posts where the AI tries new strategies vs. using proven ones. Starts at 20% and decreases as the AI gains confidence. Lower = more confident." />
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{explorationPct}%</div>
-            <Progress value={exploitPct} className="h-1.5 mt-1" />
-            <p className="text-xs text-muted-foreground mt-1">{exploitPct}% exploitation</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Confidence
-              <HelpTip text="Overall confidence in learned strategies. Based on total data points collected. Higher = more reliable recommendations." />
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{overallConfidence}%</div>
-            <Progress value={overallConfidence} className="h-1.5 mt-1" />
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Actionable Insights */}
+      {/* ═══════════ ACTIONABLE INSIGHTS ═══════════ */}
       {actionableInsights.length > 0 && (
         <Card>
           <CardHeader>
@@ -643,13 +946,13 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
         </Card>
       )}
 
-      {/* Best Strategies Per Dimension */}
+      {/* ═══════════ BEST STRATEGIES ═══════════ */}
       {Object.keys(bestArmsByDimension).length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Target className="h-5 w-5" /> Best Performing Strategies
-              <HelpTip text="The top strategy the AI has identified across all platforms for each learning dimension. Score is the exponentially weighted average engagement." />
+              <HelpTip text="The top strategy the AI has identified across all platforms for each dimension." />
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -684,13 +987,13 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
         </Card>
       )}
 
-      {/* Engagement Score Trend */}
+      {/* ═══════════ ENGAGEMENT TREND ═══════════ */}
       {engagementTrend.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <TrendingUp className="h-5 w-5" /> Engagement Score Trend
-              <HelpTip text="Average engagement score per day. Score = Likes(1) + Comments(3) + Shares(5) + Saves(2) plus platform-specific bonuses. An upward trend means the AI is learning to post better content." />
+              <HelpTip text="Average engagement score per day. An upward trend means the AI is learning to post better content." />
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -699,7 +1002,7 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
         </Card>
       )}
 
-      {/* Arm Distribution Charts */}
+      {/* ═══════════ ARM DISTRIBUTION CHARTS ═══════════ */}
       {hasData && allArmStates.length > 0 && (
         <div className="grid gap-6 lg:grid-cols-2">
           {dimensions.map((dim) => {
@@ -712,7 +1015,7 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
                   <CardTitle className="flex items-center gap-2 text-base">
                     <Icon className="h-4 w-4" />
                     {RL_DIMENSION_LABELS[dim] || dim}
-                    <HelpTip text={`Performance ranking of all ${(RL_DIMENSION_LABELS[dim] || dim).toLowerCase()} options the AI has tested. Longer bars = higher average engagement score.`} />
+                    <HelpTip text={`Performance ranking of all ${(RL_DIMENSION_LABELS[dim] || dim).toLowerCase()} options the AI has tested.`} />
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -724,13 +1027,13 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
         </div>
       )}
 
-      {/* Per-Platform Learning Status */}
+      {/* ═══════════ PLATFORM LEARNING STATUS ═══════════ */}
       {Object.keys(platformInsights).length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <BarChart3 className="h-5 w-5" /> Platform Learning Status
-              <HelpTip text="Detailed learning progress for each platform. Shows exploration vs exploitation balance and what strategy the AI considers best for each platform." />
+              <HelpTip text="Detailed learning progress per platform. Shows exploration vs exploitation balance." />
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -768,7 +1071,7 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
                           ))}
                         </div>
                       ) : (
-                        <p className="text-xs text-muted-foreground">Not enough data yet. The bot needs more posts to identify patterns.</p>
+                        <p className="text-xs text-muted-foreground">Not enough data yet.</p>
                       )}
                     </div>
                   );
@@ -778,64 +1081,39 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
         </Card>
       )}
 
-      {/* Recent Engagement Records */}
-      {recentEngagements.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Brain className="h-5 w-5" /> Recent Learning Data
-              <HelpTip text="The most recent posts the AI has analyzed. Each row shows the engagement metrics and content dimensions that feed into the learning algorithm." />
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left py-2 font-medium">Platform</th>
-                    <th className="text-left py-2 font-medium">Content</th>
-                    <th className="text-left py-2 font-medium">Tone</th>
-                    <th className="text-right py-2 font-medium">Likes</th>
-                    <th className="text-right py-2 font-medium">Comments</th>
-                    <th className="text-right py-2 font-medium">Shares</th>
-                    <th className="text-right py-2 font-medium">Score</th>
-                    <th className="text-right py-2 font-medium">Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentEngagements.slice(0, 20).map((eng) => (
-                    <tr key={eng.id} className="border-b last:border-0">
-                      <td className="py-2">
-                        <Badge variant="outline" className="text-xs">
-                          {PLATFORM_NAMES[eng.platform] || eng.platform}
-                        </Badge>
-                      </td>
-                      <td className="py-2 text-xs text-muted-foreground">
-                        {eng.contentType ? getArmLabel('CONTENT_TYPE', eng.contentType) : '-'}
-                      </td>
-                      <td className="py-2 text-xs text-muted-foreground">
-                        {eng.toneStyle ? getArmLabel('TONE_STYLE', eng.toneStyle) : '-'}
-                      </td>
-                      <td className="text-right py-2">{eng.likes}</td>
-                      <td className="text-right py-2">{eng.comments}</td>
-                      <td className="text-right py-2">{eng.shares}</td>
-                      <td className="text-right py-2 font-semibold">{Math.round(eng.engagementScore * 10) / 10}</td>
-                      <td className="text-right py-2 text-xs text-muted-foreground whitespace-nowrap">
-                        {new Date(eng.postedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      {/* ═══════════ HOW AI LEARNING WORKS ═══════════ */}
+      <Card className="border-indigo-200 bg-indigo-50/30">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Brain className="h-5 w-5 text-indigo-600" />
+            How AI learning works
+            <HelpTip text="Technical details about the reinforcement learning algorithm." />
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-sm text-muted-foreground space-y-2">
+            <p>
+              Your bot uses <strong>Thompson Sampling</strong> (a Bayesian reinforcement learning algorithm) to
+              optimize posting strategy. It learns from engagement metrics (likes, comments, shares, saves) and
+              automatically detects content characteristics using content fingerprinting.
+            </p>
+            <div className="grid gap-1.5 sm:grid-cols-2 text-xs mt-2">
+              <div className="flex items-start gap-1.5">
+                <span className="font-medium text-foreground">Thompson Sampling</span> — Bayesian posterior sampling for natural exploration/exploitation balance
+              </div>
+              <div className="flex items-start gap-1.5">
+                <span className="font-medium text-foreground">Content Fingerprinting</span> — Auto-detects tone, content type, hashtag patterns from post text
+              </div>
+              <div className="flex items-start gap-1.5">
+                <span className="font-medium text-foreground">Time-Decay Adjustment</span> — Normalizes scores for post age (newer posts get fair comparison)
+              </div>
+              <div className="flex items-start gap-1.5">
+                <span className="font-medium text-foreground">Bayesian Normalization</span> — Z-score normalization makes scores comparable across platforms
+              </div>
             </div>
-            {recentEngagements.length > 20 && (
-              <p className="text-center text-xs text-muted-foreground mt-3">
-                Showing 20 of {totalEngagements} records
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      )}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

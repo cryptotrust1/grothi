@@ -202,13 +202,17 @@ export async function POST(request: NextRequest) {
         }
 
         // Trigger RL learning from the engagement data
-        if (engagementScore > 0) {
-          try {
-            await processEngagementFeedback(engagementId);
-          } catch (rlError) {
-            const rlMsg = rlError instanceof Error ? rlError.message : 'Unknown';
-            console.error(`[collect-engagement] RL learning failed for ${engagementId}: ${rlMsg}`);
-          }
+        // IMPORTANT: Learn from ALL posts including zero-engagement ones.
+        // Zero engagement is valuable signal — it teaches the RL engine what
+        // content types/times/tones DON'T work. Without this, new bots with
+        // no followers can never start learning (chicken-and-egg problem).
+        // Reference: Even negative/zero rewards are valid in multi-armed bandit
+        // algorithms (Auer et al., 2002; Chapelle & Li, 2011).
+        try {
+          await processEngagementFeedback(engagementId);
+        } catch (rlError) {
+          const rlMsg = rlError instanceof Error ? rlError.message : 'Unknown';
+          console.error(`[collect-engagement] RL learning failed for ${engagementId}: ${rlMsg}`);
         }
 
         // Update daily stats only if this is the first time collecting
