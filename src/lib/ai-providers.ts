@@ -10,8 +10,8 @@
  *
  * All latest models included (Feb 2026):
  *   - Anthropic: Claude Opus 4.6, Sonnet 4.5, Haiku 4.5
- *   - OpenAI:    GPT-4.1, GPT-4.1 Mini, GPT-4.1 Nano, GPT-4o, GPT-4o Mini
- *   - Google:    Gemini 2.5 Pro, Gemini 2.5 Flash, Gemini 2.5 Flash Lite
+ *   - OpenAI:    o3, o4-mini, GPT-4.1, GPT-4.1 Mini, GPT-4.1 Nano, GPT-4o, GPT-4o Mini
+ *   - Google:    Gemini 3 Pro, Gemini 3 Flash, Gemini 2.5 Pro, Gemini 2.5 Flash, Gemini 2.5 Flash Lite
  */
 
 // ── Types ──
@@ -62,7 +62,25 @@ export const TEXT_AI_MODELS: TextAIModel[] = [
     badge: 'Fast',
   },
 
-  // ── OpenAI (GPT) ──
+  // ── OpenAI (GPT + Reasoning) ──
+  {
+    id: 'o3',
+    name: 'o3 (Reasoning)',
+    provider: 'openai',
+    apiModelId: 'o3',
+    vision: true,
+    maxOutputTokens: 100000,
+    badge: 'Reasoning',
+  },
+  {
+    id: 'o4-mini',
+    name: 'o4-mini (Reasoning)',
+    provider: 'openai',
+    apiModelId: 'o4-mini',
+    vision: true,
+    maxOutputTokens: 65536,
+    badge: 'Fast Reasoning',
+  },
   {
     id: 'gpt-4.1',
     name: 'GPT-4.1',
@@ -108,6 +126,24 @@ export const TEXT_AI_MODELS: TextAIModel[] = [
   },
 
   // ── Google (Gemini) ──
+  {
+    id: 'gemini-3-pro',
+    name: 'Gemini 3 Pro',
+    provider: 'google',
+    apiModelId: 'gemini-3-pro-preview',
+    vision: true,
+    maxOutputTokens: 8192,
+    badge: 'Most Powerful',
+  },
+  {
+    id: 'gemini-3-flash',
+    name: 'Gemini 3 Flash',
+    provider: 'google',
+    apiModelId: 'gemini-3-flash-preview',
+    vision: true,
+    maxOutputTokens: 8192,
+    badge: 'Fast & Smart',
+  },
   {
     id: 'gemini-2.5-pro',
     name: 'Gemini 2.5 Pro',
