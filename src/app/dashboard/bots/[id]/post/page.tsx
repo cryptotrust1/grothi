@@ -108,16 +108,14 @@ export default async function ManualPostPage({
     db.scheduledPost.count({ where: { botId: bot.id, status: 'FAILED' } }),
   ]);
 
-  // Products for the post form selector
+  // Products for the post form selector (fetch ALL media for product media picker)
   const products = await db.product.findMany({
     where: { botId: bot.id, isActive: true },
     include: {
       productMedia: {
-        where: { isPrimary: true },
-        include: { media: { select: { id: true, filename: true, type: true } } },
-        take: 1,
+        orderBy: { sortOrder: 'asc' },
+        include: { media: { select: { id: true, filename: true, type: true, fileSize: true, mimeType: true } } },
       },
-      _count: { select: { productMedia: true } },
     },
     orderBy: { name: 'asc' },
   });
@@ -433,15 +431,26 @@ export default async function ManualPostPage({
     media: post.media ? { id: post.media.id, filename: post.media.filename, type: post.media.type } : null,
   }));
 
-  const serializedProducts = products.map(p => ({
-    id: p.id,
-    name: p.name,
-    brand: p.brand,
-    category: p.category,
-    price: p.price,
-    primaryImage: p.productMedia[0]?.media || null,
-    mediaCount: p._count.productMedia,
-  }));
+  const serializedProducts = products.map(p => {
+    const primaryPm = p.productMedia.find(pm => pm.isPrimary);
+    return {
+      id: p.id,
+      name: p.name,
+      brand: p.brand,
+      category: p.category,
+      price: p.price,
+      primaryImage: primaryPm?.media || p.productMedia[0]?.media || null,
+      mediaCount: p.productMedia.length,
+      media: p.productMedia.map(pm => ({
+        id: pm.media.id,
+        filename: pm.media.filename,
+        type: pm.media.type,
+        fileSize: pm.media.fileSize,
+        mimeType: pm.media.mimeType,
+        isPrimary: pm.isPrimary,
+      })),
+    };
+  });
 
   // ── Calendar data ──────────────────────────────────────────
 

@@ -39,6 +39,15 @@ interface RecentPost {
   media: { id: string; filename: string; type: string } | null;
 }
 
+interface ProductMediaItem {
+  id: string;
+  filename: string;
+  type: string;
+  fileSize: number | null;
+  mimeType: string | null;
+  isPrimary: boolean;
+}
+
 interface ProductItem {
   id: string;
   name: string;
@@ -47,6 +56,7 @@ interface ProductItem {
   price: string | null;
   primaryImage: { id: string; filename: string; type: string } | null;
   mediaCount: number;
+  media: ProductMediaItem[];
 }
 
 interface PostFormClientProps {
@@ -507,7 +517,7 @@ ${content}`;
                       <HelpTip text="Select a product to give AI full context about what you're promoting. The AI will use product details (description, advantages, target audience) to create better content." />
                     </CardTitle>
                   </CardHeader>
-                  <CardContent className="pt-0">
+                  <CardContent className="pt-0 space-y-3">
                     <select
                       value={selectedProductId}
                       onChange={(e) => setSelectedProductId(e.target.value)}
@@ -524,23 +534,102 @@ ${content}`;
                       const prod = products.find(p => p.id === selectedProductId);
                       if (!prod) return null;
                       return (
-                        <div className="mt-3 flex items-center gap-3 p-2 rounded-md bg-amber-50 border border-amber-200">
-                          {prod.primaryImage && (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={`/api/media/${prod.primaryImage.id}`}
-                              alt={prod.name}
-                              className="h-10 w-10 rounded object-cover shrink-0"
-                            />
-                          )}
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium truncate">{prod.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {[prod.category, prod.price].filter(Boolean).join(' · ')}
-                              {prod.mediaCount > 0 && ` · ${prod.mediaCount} media`}
-                            </p>
+                        <>
+                          <div className="flex items-center gap-3 p-2 rounded-md bg-amber-50 border border-amber-200">
+                            {prod.primaryImage && (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={`/api/media/${prod.primaryImage.id}`}
+                                alt={prod.name}
+                                className="h-10 w-10 rounded object-cover shrink-0"
+                              />
+                            )}
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium truncate">{prod.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {[prod.category, prod.price].filter(Boolean).join(' · ')}
+                                {prod.mediaCount > 0 && ` · ${prod.mediaCount} media`}
+                              </p>
+                            </div>
                           </div>
-                        </div>
+
+                          {/* Product Media Picker */}
+                          {prod.media.length > 0 && (
+                            <div className="space-y-2">
+                              <p className="text-xs font-medium text-muted-foreground">
+                                Product media — click to attach to this post:
+                              </p>
+                              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+                                {prod.media.map((pm) => {
+                                  const isSelected = selectedMediaId === pm.id;
+                                  const sizeMB = pm.fileSize ? (pm.fileSize / (1024 * 1024)).toFixed(1) : null;
+                                  return (
+                                    <button
+                                      key={pm.id}
+                                      type="button"
+                                      onClick={() => setSelectedMediaId(isSelected ? '' : pm.id)}
+                                      className={`relative rounded-lg overflow-hidden border-2 transition-all text-left ${
+                                        isSelected
+                                          ? 'border-primary shadow-md ring-1 ring-primary/30'
+                                          : 'border-muted hover:border-muted-foreground/30 hover:shadow-sm'
+                                      }`}
+                                    >
+                                      <div className="h-20 w-full relative">
+                                        {pm.type === 'VIDEO' ? (
+                                          <>
+                                            {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                                            <video src={`/api/media/${pm.id}`} className="h-full w-full object-cover" muted preload="metadata" />
+                                            <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                                              <div className="h-6 w-6 rounded-full bg-black/50 flex items-center justify-center">
+                                                <svg className="h-3 w-3 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                                              </div>
+                                            </div>
+                                          </>
+                                        ) : (
+                                          // eslint-disable-next-line @next/next/no-img-element
+                                          <img src={`/api/media/${pm.id}`} alt={pm.filename} className="h-full w-full object-cover" />
+                                        )}
+                                        {/* Type badge */}
+                                        <span className={`absolute top-1 left-1 text-[9px] px-1 py-0.5 rounded font-medium text-white ${pm.type === 'VIDEO' ? 'bg-purple-600/80' : 'bg-emerald-600/80'}`}>
+                                          {pm.type === 'VIDEO' ? 'VIDEO' : 'IMG'}
+                                        </span>
+                                        {/* Primary star */}
+                                        {pm.isPrimary && (
+                                          <span className="absolute top-1 right-1 text-amber-400 drop-shadow" title="Primary image">
+                                            <svg className="h-3.5 w-3.5 fill-current" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                                          </span>
+                                        )}
+                                        {/* Selected checkmark */}
+                                        {isSelected && (
+                                          <div className="absolute top-1 right-1 h-5 w-5 rounded-full bg-primary flex items-center justify-center shadow">
+                                            <CheckCircle2 className="h-3.5 w-3.5 text-primary-foreground" />
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div className="px-1.5 py-1">
+                                        <p className="text-[10px] truncate" title={pm.filename}>{pm.filename}</p>
+                                        {sizeMB && <p className="text-[9px] text-muted-foreground">{sizeMB} MB</p>}
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              {/* Use Primary button */}
+                              {prod.primaryImage && selectedMediaId !== prod.primaryImage.id && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="gap-1.5 text-xs w-full"
+                                  onClick={() => setSelectedMediaId(prod.primaryImage!.id)}
+                                >
+                                  <Sparkles className="h-3 w-3 text-amber-500" />
+                                  Use Primary Image ({prod.primaryImage.filename})
+                                </Button>
+                              )}
+                            </div>
+                          )}
+                        </>
                       );
                     })()}
                     <input type="hidden" name="productId" value={selectedProductId} form="post-form" />
