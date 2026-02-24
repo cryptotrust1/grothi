@@ -39,6 +39,16 @@ interface RecentPost {
   media: { id: string; filename: string; type: string } | null;
 }
 
+interface ProductItem {
+  id: string;
+  name: string;
+  brand: string | null;
+  category: string | null;
+  price: string | null;
+  primaryImage: { id: string; filename: string; type: string } | null;
+  mediaCount: number;
+}
+
 interface PostFormClientProps {
   botId: string;
   botName: string;
@@ -48,6 +58,7 @@ interface PostFormClientProps {
   postStatusColors: Record<string, string>;
   mediaLibrary: MediaItem[];
   recentPosts: RecentPost[];
+  products?: ProductItem[];
   postCost: number;
   userCredits: number;
   preSelectedMediaId: string | null;
@@ -97,6 +108,7 @@ export function PostFormClient({
   postStatusColors,
   mediaLibrary,
   recentPosts,
+  products = [],
   postCost,
   userCredits,
   preSelectedMediaId,
@@ -105,6 +117,7 @@ export function PostFormClient({
 }: PostFormClientProps) {
   // ── State ──────────────────────────────────────────────────
   const [content, setContent] = useState('');
+  const [selectedProductId, setSelectedProductId] = useState<string>('');
   const [selectedPlatforms, setSelectedPlatforms] = useState<Set<string>>(
     new Set(connectedPlatforms)
   );
@@ -485,6 +498,56 @@ ${content}`;
           <div className="grid gap-6 lg:grid-cols-3">
             {/* ═══════ Main Content - Left Column ═══════ */}
             <div className="lg:col-span-2 space-y-4">
+              {/* Product Selector */}
+              {products.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <Sparkles className="h-4 w-4" /> Promote a Product
+                      <HelpTip text="Select a product to give AI full context about what you're promoting. The AI will use product details (description, advantages, target audience) to create better content." />
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <select
+                      value={selectedProductId}
+                      onChange={(e) => setSelectedProductId(e.target.value)}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <option value="">No product (general post)</option>
+                      {products.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}{p.brand ? ` — ${p.brand}` : ''}{p.price ? ` (${p.price})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {selectedProductId && (() => {
+                      const prod = products.find(p => p.id === selectedProductId);
+                      if (!prod) return null;
+                      return (
+                        <div className="mt-3 flex items-center gap-3 p-2 rounded-md bg-amber-50 border border-amber-200">
+                          {prod.primaryImage && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={`/api/media/${prod.primaryImage.id}`}
+                              alt={prod.name}
+                              className="h-10 w-10 rounded object-cover shrink-0"
+                            />
+                          )}
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{prod.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {[prod.category, prod.price].filter(Boolean).join(' · ')}
+                              {prod.mediaCount > 0 && ` · ${prod.mediaCount} media`}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                    <input type="hidden" name="productId" value={selectedProductId} form="post-form" />
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Post Content Card */}
               <Card>
                 <CardHeader>
@@ -513,6 +576,7 @@ ${content}`;
                     <PostChatAssistant
                       botId={botId}
                       platforms={Array.from(selectedPlatforms)}
+                      productId={selectedProductId || undefined}
                       onUseContent={handleUseAiContent}
                       onClose={() => setShowAiPanel(false)}
                     />

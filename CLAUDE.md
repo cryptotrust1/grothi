@@ -54,6 +54,7 @@ src/
 │   │   │       ├── platforms/      # 17 platform connections with credential forms
 │   │   │       ├── post/            # Post Scheduler (create + manage + calendar + list)
 │   │   │       ├── media/          # Media library (upload, grid, AI captions)
+│   │   │       ├── products/       # Product catalog (list, create, edit)
 │   │   │       ├── scheduler/      # Redirect → /post (consolidated)
 │   │   │       ├── image-style/    # AI image preferences questionnaire
 │   │   │       └── settings/       # Bot settings (goal, schedule, RSS, GA4)
@@ -110,7 +111,7 @@ src/
 
 ### Database Schema (Prisma)
 
-**Models**: User, Session, Bot, PlatformConnection, BotActivity, BotDailyStat, CreditBalance, CreditTransaction, PricingPlan, ActionCost, PromoCode, Media, ScheduledPost, ContactMessage
+**Models**: User, Session, Bot, PlatformConnection, BotActivity, BotDailyStat, CreditBalance, CreditTransaction, PricingPlan, ActionCost, PromoCode, Media, Product, ProductMedia, ScheduledPost, ContactMessage
 
 **Key Enums**: UserRole, BotStatus, SafetyLevel, BotGoal, PlatformType (17 platforms), ConnStatus, ActionType, TxnType, MediaType, PostStatus
 
@@ -144,7 +145,7 @@ src/
 - `BOT_STATUS_CONFIG` - Badge variant + label per status
 - `POST_STATUS_COLORS` - CSS classes per post status
 - `GOAL_LABELS` - 6 bot goal display names
-- `BOT_NAV_TABS` - 11 bot navigation tabs (overview, post-scheduler, activity, platforms, email, strategy, media, creative-style, analytics, ai-insights, settings)
+- `BOT_NAV_TABS` - 12 bot navigation tabs (overview, post-scheduler, activity, platforms, email, strategy, media, products, creative-style, analytics, ai-insights, settings)
 - `TIMEZONES` - 17 timezone options
 - `SCHEDULE_PRESETS` - 11 cron schedule options
 - `CONTENT_TYPES` - 7 content type options
@@ -153,7 +154,7 @@ src/
 
 ### Bot Navigation
 
-All 11 bot sub-pages use the shared `<BotNav>` component from `src/components/dashboard/bot-nav.tsx`. This uses `BOT_NAV_TABS` from constants. To add a new tab, update both `BOT_NAV_TABS` in constants.ts and create the corresponding page.
+All 12 bot sub-pages use the shared `<BotNav>` component from `src/components/dashboard/bot-nav.tsx`. This uses `BOT_NAV_TABS` from constants. To add a new tab, update both `BOT_NAV_TABS` in constants.ts and create the corresponding page.
 
 ### Media System
 
@@ -176,6 +177,16 @@ All 11 bot sub-pages use the shared `<BotNav>` component from `src/components/da
 - **Delete**: Available for DRAFT, SCHEDULED, and FAILED posts
 - Old `/scheduler` route redirects to `/post` for backwards compatibility
 - API routes (`/api/scheduled-posts/`) for programmatic CRUD
+
+### Product Catalog
+
+- Per-bot product/service catalog for AI-powered promotional content
+- **Product fields**: name, description, brand, category, price, URL, advantages, target audience, buying reasons, AI instructions, keywords
+- **Product Media**: Many-to-many relation (ProductMedia junction table) with primary image selection
+- **Post integration**: Product selector in Post Scheduler — `productId` stored on ScheduledPost
+- **AI integration**: When product selected, full product context injected into AI chat system prompt
+- **Post list**: Product badge shown on posts that reference a product
+- Pages: `/products` (list), `/products/new` (create), `/products/[productId]` (edit)
 
 ### Stripe Integration
 

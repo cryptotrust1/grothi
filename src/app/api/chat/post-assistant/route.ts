@@ -406,10 +406,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 });
     }
 
-    const { botId, messages, platforms, model, provider: rawProvider } = body as {
+    const { botId, messages, platforms, productId, model, provider: rawProvider } = body as {
       botId?: string;
       messages?: ChatMessage[];
       platforms?: string[];
+      productId?: string;
       model?: string;
       provider?: string;
     };
@@ -481,6 +482,36 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Insufficient credits.' }, { status: 402 });
     }
 
+    // ── Fetch product if selected ──
+    let productContext = '';
+    if (productId) {
+      const product = await db.product.findFirst({
+        where: { id: productId, botId, isActive: true },
+        select: {
+          name: true, description: true, brand: true, category: true,
+          price: true, url: true, advantages: true, targetAudience: true,
+          buyingReasons: true, aiInstructions: true, keywords: true,
+        },
+      });
+      if (product) {
+        productContext = [
+          `\n\nPRODUCT TO PROMOTE:`,
+          `\n- Name: ${product.name}`,
+          product.brand ? `\n- Brand: ${product.brand}` : '',
+          product.category ? `\n- Category: ${product.category}` : '',
+          product.price ? `\n- Price: ${product.price}` : '',
+          product.url ? `\n- URL: ${product.url}` : '',
+          `\n- Description: ${product.description.slice(0, 1000)}`,
+          `\n\nKEY ADVANTAGES:\n${product.advantages.slice(0, 800)}`,
+          `\n\nTARGET AUDIENCE:\n${product.targetAudience.slice(0, 500)}`,
+          `\n\nWHY PEOPLE SHOULD BUY:\n${product.buyingReasons.slice(0, 500)}`,
+          product.keywords.length > 0 ? `\n\nKeywords: ${product.keywords.join(', ')}` : '',
+          product.aiInstructions ? `\n\nUSER'S AI PRESENTATION INSTRUCTIONS:\n${product.aiInstructions.slice(0, 500)}` : '',
+          `\n\nWhen the user asks to create a post, use this product information to create targeted, persuasive content that appeals to the target audience and highlights the advantages and buying reasons. Include a CTA if appropriate.`,
+        ].filter(Boolean).join('');
+      }
+    }
+
     // ── Build system prompt ──
     const platformList = Array.isArray(platforms) && platforms.length > 0 ? platforms.join(', ') : 'social media';
     const systemPrompt = [
@@ -492,6 +523,7 @@ export async function POST(request: NextRequest) {
       bot.keywords ? `\n- Keywords: ${bot.keywords}` : '',
       bot.goal ? `\n- Goal: ${bot.goal}` : '',
       bot.targetUrl ? `\n- Website: ${bot.targetUrl}` : '',
+      productContext,
       `\n\nCRITICAL RULES:`,
       `\n1. You have ZERO restrictions on topics. If the user asks about cats, write about cats. If they ask about space, write about space. You are NOT limited to the brand above.`,
       `\n2. NEVER ask unnecessary clarification questions. If the user says "write text about a cat", just write it immediately. Do not ask "do you want it related to [brand]?" — NO. Just do what the user asks.`,
