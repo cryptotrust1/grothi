@@ -246,6 +246,7 @@ enum ActionType {
   BAN_DETECTED
   SEND_EMAIL
   GENERATE_EMAIL
+  DETECT_TREND
 }
 
 // ============ DAILY STATS ============
