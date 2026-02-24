@@ -209,6 +209,7 @@ export const BOT_NAV_TABS = [
   { key: 'email', label: 'Email Marketing', path: '/email' },
   { key: 'strategy', label: 'Content Strategy', path: '/strategy' },
   { key: 'media', label: 'Media', path: '/media' },
+  { key: 'studio', label: 'Studio', path: '/studio' },
   { key: 'products', label: 'Products', path: '/products' },
   { key: 'creative-style', label: 'Creative Style', path: '/creative-style' },
   { key: 'analytics', label: 'Analytics', path: '/analytics' },
