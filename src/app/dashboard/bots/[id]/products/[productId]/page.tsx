@@ -7,7 +7,7 @@ import { BotNav } from '@/components/dashboard/bot-nav';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { HelpTip } from '@/components/ui/help-tip';
-import { ArrowLeft, Save } from 'lucide-react';
+import { ArrowLeft, Save, Star, Check } from 'lucide-react';
 import { AlertMessage } from '@/components/ui/alert-message';
 
 export const metadata: Metadata = { title: 'Edit Product', robots: { index: false } };
@@ -42,7 +42,7 @@ export default async function EditProductPage({
     where: { botId: bot.id },
     orderBy: { createdAt: 'desc' },
     take: 50,
-    select: { id: true, filename: true, type: true },
+    select: { id: true, filename: true, type: true, fileSize: true, mimeType: true },
   });
 
   // Set of currently associated media IDs
@@ -267,56 +267,98 @@ export default async function EditProductPage({
         <Card>
           <CardHeader>
             <CardTitle>Product Media</CardTitle>
-            <CardDescription>Select photos and videos for this product.</CardDescription>
+            <CardDescription>Choose images and videos from your media library. The AI uses these when creating promotional posts for this product.</CardDescription>
           </CardHeader>
-          <CardContent>
-            {mediaLibrary.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No media uploaded yet.{' '}
-                <Link href={`/dashboard/bots/${id}/media`} className="text-primary underline">Upload media first</Link>.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                <p className="text-xs text-muted-foreground">Check the media to associate with this product. Select a primary image for the thumbnail.</p>
-                <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2 max-h-[320px] overflow-y-auto p-1">
-                  {mediaLibrary.map((m) => (
-                    <label key={m.id} className="relative cursor-pointer group">
-                      <input
-                        type="checkbox"
-                        name="media"
-                        value={m.id}
-                        defaultChecked={associatedMediaIds.has(m.id)}
-                        className="peer sr-only"
-                      />
-                      <div className="h-20 w-full rounded border-2 border-transparent peer-checked:border-primary overflow-hidden bg-muted transition-colors">
-                        {m.type === 'VIDEO' ? (
-                          <div className="h-full w-full flex items-center justify-center relative">
-                            {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                            <video src={`/api/media/${m.id}`} className="h-full w-full object-cover" muted preload="metadata" />
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                              <svg className="h-4 w-4 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                            </div>
-                          </div>
-                        ) : (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={`/api/media/${m.id}`} alt={m.filename} className="h-full w-full object-cover" />
-                        )}
-                      </div>
-                      <div className="hidden peer-checked:flex items-center gap-1 mt-1">
-                        <input
-                          type="radio"
-                          name="primaryMedia"
-                          value={m.id}
-                          defaultChecked={m.id === primaryMediaId}
-                          className="h-3 w-3"
-                        />
-                        <span className="text-[9px] text-muted-foreground">Primary</span>
-                      </div>
-                      <p className="text-[9px] text-muted-foreground truncate mt-0.5">{m.filename}</p>
-                    </label>
-                  ))}
+          <CardContent className="space-y-5">
+            {/* Explanation cards */}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <Star className="h-4 w-4 text-amber-500 fill-amber-500" />
+                  <span className="font-medium text-sm">Primary Image</span>
                 </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  The main product photo used as <strong>thumbnail</strong> in the product selector and post form.
+                  Claude AI Vision analyzes this image to understand your product visually and generate better promotional content.
+                  Select <strong>one</strong> image as primary.
+                </p>
               </div>
+              <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-3">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <Check className="h-4 w-4 text-blue-500" />
+                  <span className="font-medium text-sm">Additional Media</span>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Extra photos and videos available when creating posts for this product.
+                  Select <strong>multiple</strong> for variety — images, videos, any format.
+                  These will be suggested as attachments in the Post Scheduler when this product is selected.
+                </p>
+              </div>
+            </div>
+
+            {mediaLibrary.length === 0 ? (
+              <div className="text-center py-8 border rounded-lg border-dashed">
+                <p className="text-sm text-muted-foreground mb-2">No media uploaded yet.</p>
+                <Link href={`/dashboard/bots/${id}/media`} className="text-sm text-primary underline">
+                  Go to Media Library to upload images and videos
+                </Link>
+              </div>
+            ) : (
+              <>
+                <p className="text-xs text-muted-foreground">
+                  Click to select media. Then mark one as <Star className="h-3 w-3 inline text-amber-500 fill-amber-500 -mt-0.5" /> <strong>Primary</strong>.
+                  You can select as many additional media as you want.
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 max-h-[480px] overflow-y-auto p-1">
+                  {mediaLibrary.map((m) => {
+                    const sizeMB = m.fileSize ? (m.fileSize / (1024 * 1024)).toFixed(1) : null;
+                    return (
+                      <label key={m.id} className="relative cursor-pointer">
+                        <input type="checkbox" name="media" value={m.id} defaultChecked={associatedMediaIds.has(m.id)} className="peer sr-only" />
+                        {/* Card container */}
+                        <div className="rounded-lg border-2 border-muted peer-checked:border-primary peer-checked:shadow-md overflow-hidden bg-muted/30 transition-all hover:shadow-sm">
+                          {/* Thumbnail */}
+                          <div className="h-28 w-full relative">
+                            {m.type === 'VIDEO' ? (
+                              <>
+                                {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                                <video src={`/api/media/${m.id}`} className="h-full w-full object-cover" muted preload="metadata" />
+                                <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                                  <div className="h-7 w-7 rounded-full bg-black/50 flex items-center justify-center">
+                                    <svg className="h-3.5 w-3.5 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                                  </div>
+                                </div>
+                              </>
+                            ) : (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={`/api/media/${m.id}`} alt={m.filename} className="h-full w-full object-cover" />
+                            )}
+                            {/* Type badge */}
+                            <span className={`absolute top-1.5 left-1.5 text-[10px] px-1.5 py-0.5 rounded font-medium text-white ${m.type === 'VIDEO' ? 'bg-purple-600/80' : 'bg-emerald-600/80'}`}>
+                              {m.type === 'VIDEO' ? 'VIDEO' : 'IMAGE'}
+                            </span>
+                          </div>
+                          {/* Info */}
+                          <div className="px-2 py-1.5">
+                            <p className="text-[11px] font-medium truncate" title={m.filename}>{m.filename}</p>
+                            {sizeMB && <p className="text-[10px] text-muted-foreground">{sizeMB} MB</p>}
+                          </div>
+                        </div>
+                        {/* Selected checkmark overlay */}
+                        <div className="absolute top-2 right-2 hidden peer-checked:flex h-5 w-5 rounded-full bg-primary items-center justify-center pointer-events-none shadow-sm">
+                          <Check className="h-3 w-3 text-primary-foreground" />
+                        </div>
+                        {/* Primary selection - visible only when checked */}
+                        <div className="hidden peer-checked:flex items-center gap-1.5 mt-1.5 px-1">
+                          <input type="radio" name="primaryMedia" value={m.id} defaultChecked={m.id === primaryMediaId} className="h-3.5 w-3.5 accent-amber-500" />
+                          <Star className="h-3 w-3 text-amber-500 fill-amber-500" />
+                          <span className="text-[10px] text-amber-700 font-medium">Set as Primary</span>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
