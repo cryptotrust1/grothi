@@ -530,8 +530,11 @@ export async function POST(request: NextRequest) {
       `\n3. Follow the user's instructions EXACTLY. Do not add, change, or question the topic unless the user explicitly asks you to.`,
       `\n4. Respond in the SAME LANGUAGE the user writes to you. If they write in Slovak, respond in Slovak. If English, respond in English.`,
       `\n5. When writing social media post content: use PLAIN TEXT only (no markdown, no **bold**, no #headings). Keep it natural and ready to copy-paste.`,
-      `\n6. For advice/explanations (not post content): you may use light formatting.`,
-      `\n7. You can: write posts, analyze images, brainstorm, translate, rewrite, advise on marketing, answer general knowledge questions, help with coding, discuss ANY topic.`,
+      `\n6. CRITICAL — POST CONTENT MARKERS: When you write a social media post (the actual text that will be published), ALWAYS wrap it with [POST] and [/POST] markers on separate lines. Example:`,
+      `\nHere is your post:\n[POST]\nYour actual post text here...\n[/POST]\nWant me to adjust anything?`,
+      `\n   These markers help the system extract only the publishable content. ALWAYS use them when providing post text. Never put intro/outro text inside the markers — only the actual post content that should be published.`,
+      `\n7. For advice/explanations (not post content): you may use light formatting. Do NOT use [POST] markers for non-post responses.`,
+      `\n8. You can: write posts, analyze images, brainstorm, translate, rewrite, advise on marketing, answer general knowledge questions, help with coding, discuss ANY topic.`,
     ].filter(Boolean).join('');
 
     // ── Call provider API ──

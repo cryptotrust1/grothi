@@ -75,6 +75,37 @@ function parseDataUrl(dataUrl: string): { data: string; mediaType: string } | nu
   return { mediaType: match[1], data: match[2] };
 }
 
+/**
+ * Extract the actual post content from AI response.
+ * Looks for text between [POST] and [/POST] markers.
+ * Falls back to a heuristic strip of common intro/outro, then full text.
+ */
+function extractPostContent(text: string): string {
+  // Try to extract between [POST] and [/POST] markers
+  const markerMatch = text.match(/\[POST\]\s*\n?([\s\S]*?)\n?\s*\[\/POST\]/);
+  if (markerMatch && markerMatch[1].trim()) {
+    return markerMatch[1].trim();
+  }
+
+  // Fallback: try to extract between --- delimiters (common AI pattern)
+  const dashMatch = text.match(/---\s*\n([\s\S]*?)\n\s*---/);
+  if (dashMatch && dashMatch[1].trim().length > 20) {
+    return dashMatch[1].trim();
+  }
+
+  // Final fallback: return full text
+  return text.trim();
+}
+
+/**
+ * Strip [POST] / [/POST] markers from displayed text so user doesn't see them.
+ */
+function stripPostMarkers(text: string): string {
+  return text
+    .replace(/\[POST\]\s*\n?/g, '')
+    .replace(/\n?\s*\[\/POST\]/g, '');
+}
+
 // ── Component ──
 
 export function PostChatAssistant({ botId, platforms, productId, onUseContent, onClose }: PostChatAssistantProps) {
@@ -434,7 +465,9 @@ export function PostChatAssistant({ botId, platforms, productId, onUseContent, o
 
               {/* Message text */}
               {msg.content ? (
-                <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+                <div className="whitespace-pre-wrap break-words">
+                  {msg.role === 'assistant' ? stripPostMarkers(msg.content) : msg.content}
+                </div>
               ) : msg.isStreaming ? (
                 <div className="flex items-center gap-1.5 text-muted-foreground">
                   <Loader2 className="h-3 w-3 animate-spin" />
@@ -452,7 +485,7 @@ export function PostChatAssistant({ botId, platforms, productId, onUseContent, o
                 <div className="mt-2 pt-2 border-t border-gray-100">
                   <button
                     type="button"
-                    onClick={() => onUseContent(msg.content)}
+                    onClick={() => onUseContent(extractPostContent(msg.content))}
                     className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-800 transition-colors"
                   >
                     <CheckCircle2 className="h-3 w-3" />
