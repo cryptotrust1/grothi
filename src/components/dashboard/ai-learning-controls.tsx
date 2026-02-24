@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ThumbsUp, ThumbsDown, RotateCcw, Loader2 } from 'lucide-react';
+import { ThumbsUp, ThumbsDown, RotateCcw, Loader2, CheckCircle2 } from 'lucide-react';
 
 interface ArmInfo {
   armKey: string;
@@ -13,6 +13,11 @@ interface ArmInfo {
   platform: string;
   dimension: string;
 }
+
+/** Minimum pulls to consider a strategy "proven" */
+const PROVEN_MIN_PULLS = 10;
+/** Minimum reward above 0 to be "proven" */
+const PROVEN_MIN_REWARD = 0.1;
 
 interface LearningControlsProps {
   botId: string;
@@ -111,37 +116,61 @@ export function LearningControls({ botId, armsByDimension, dimensionLabels }: Le
             </div>
 
             <div className="space-y-2">
-              {arms.slice(0, 6).map(arm => {
+              {arms.slice(0, 6).map((arm, armIdx) => {
                 const feedbackKey = `${dim}-${arm.platform}-${arm.armKey}`;
                 const currentFeedback = feedback[feedbackKey];
+                const isProven = arm.pulls >= PROVEN_MIN_PULLS && arm.reward >= PROVEN_MIN_REWARD;
+                const isBest = armIdx === 0 && arm.pulls >= 3;
+                const isStable = currentFeedback === 'boosted' || (isProven && arm.pulls >= 20);
 
                 return (
                   <div
                     key={feedbackKey}
-                    className="flex items-center justify-between gap-2 p-2.5 rounded-lg border bg-muted/20"
+                    className={`flex items-center justify-between gap-2 p-2.5 rounded-lg border ${
+                      isStable ? 'bg-green-50/50 border-green-200' : isProven ? 'bg-blue-50/30 border-blue-100' : 'bg-muted/20'
+                    }`}
                   >
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <div className="flex items-center gap-2 min-w-0 flex-1 flex-wrap">
                       <span className="text-sm font-medium truncate">{arm.label}</span>
-                      <Badge variant="outline" className="text-xs shrink-0">
+                      {isStable && (
+                        <Badge className="bg-green-100 text-green-800 text-[10px] gap-0.5 shrink-0">
+                          <CheckCircle2 className="h-2.5 w-2.5" /> Stable
+                        </Badge>
+                      )}
+                      {isBest && !isStable && (
+                        <Badge className="bg-indigo-100 text-indigo-800 text-[10px] shrink-0">
+                          Best
+                        </Badge>
+                      )}
+                      {isProven && !isStable && (
+                        <Badge className="bg-blue-100 text-blue-800 text-[10px] shrink-0">
+                          Proven
+                        </Badge>
+                      )}
+                      <Badge variant="outline" className="text-[10px] shrink-0">
                         {arm.pulls}x tested
                       </Badge>
-                      <span className="text-xs text-muted-foreground shrink-0">
+                      <span className={`text-xs shrink-0 ${arm.reward > 0 ? 'text-green-700 font-medium' : 'text-muted-foreground'}`}>
                         score: {arm.reward}
                       </span>
                     </div>
 
                     <div className="flex items-center gap-1 shrink-0">
                       {currentFeedback === 'boosted' ? (
-                        <Badge className="bg-green-100 text-green-800 text-xs">Confirmed</Badge>
+                        <Badge className="bg-green-100 text-green-800 text-xs gap-0.5">
+                          <ThumbsUp className="h-3 w-3" /> Confirmed
+                        </Badge>
                       ) : currentFeedback === 'penalized' ? (
-                        <Badge className="bg-red-100 text-red-800 text-xs">Rejected</Badge>
+                        <Badge className="bg-red-100 text-red-800 text-xs gap-0.5">
+                          <ThumbsDown className="h-3 w-3" /> Rejected
+                        </Badge>
                       ) : (
                         <>
                           <Button
                             variant="ghost"
                             size="sm"
                             className="h-7 w-7 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
-                            title="Confirm this is working well"
+                            title="Confirm: Boost this strategy's score. Use when you know this works well for your audience."
                             disabled={loading !== null}
                             onClick={() => doAction(
                               'boost_arm',
@@ -160,7 +189,7 @@ export function LearningControls({ botId, armsByDimension, dimensionLabels }: Le
                             variant="ghost"
                             size="sm"
                             className="h-7 w-7 p-0 text-red-500 hover:text-red-600 hover:bg-red-50"
-                            title="This is not performing well"
+                            title="Reject: Lower this strategy's score. Use when you know this doesn't work for your audience."
                             disabled={loading !== null}
                             onClick={() => doAction(
                               'penalize_arm',

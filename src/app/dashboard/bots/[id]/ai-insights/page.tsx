@@ -131,7 +131,7 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
     select: { platform: true },
   });
 
-  const [rlConfigs, allArmStates, recentEngagements, totalEngagements] = await Promise.all([
+  const [rlConfigs, allArmStates, recentEngagements, totalEngagements, lastCollectedEngagement] = await Promise.all([
     db.rLConfig.findMany({
       where: { botId: bot.id },
       orderBy: { totalEpisodes: 'desc' },
@@ -146,7 +146,18 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
       take: 200,
     }),
     db.postEngagement.count({ where: { botId: bot.id } }),
+    // Find the most recent engagement that was actually collected from API (has collectedAt set AND has non-zero engagement)
+    db.postEngagement.findFirst({
+      where: { botId: bot.id, collectedAt: { not: null } },
+      orderBy: { collectedAt: 'desc' },
+      select: { collectedAt: true, likes: true, comments: true, shares: true, engagementScore: true },
+    }),
   ]);
+
+  // Engagement collection health check
+  const postsWithRealEngagement = recentEngagements.filter(e => e.likes > 0 || e.comments > 0 || e.shares > 0).length;
+  const engagementNeverCollected = totalEngagements > 0 && !lastCollectedEngagement;
+  const engagementCollectedButZero = lastCollectedEngagement && postsWithRealEngagement === 0;
 
   const totalEpisodes = rlConfigs.reduce((sum, c) => sum + c.totalEpisodes, 0);
   const avgEpsilon = rlConfigs.length > 0
@@ -520,13 +531,21 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Posts Analyzed</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Posts Analyzed
+              <HelpTip text="Total posts the AI has processed. 'With engagement' means likes/comments/shares were collected from the platform API. Posts without engagement still teach the AI via content fingerprinting." />
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{totalEngagements}</div>
             {totalEngagements > 0 && (
-              <p className="text-xs text-muted-foreground">
-                {recentEngagements.filter(e => e.engagementScore > 0).length} with engagement
+              <p className={`text-xs ${postsWithRealEngagement > 0 ? 'text-green-600' : 'text-amber-600'}`}>
+                {postsWithRealEngagement > 0
+                  ? `${postsWithRealEngagement} with engagement`
+                  : engagementNeverCollected
+                    ? 'Engagement not collected yet'
+                    : '0 with engagement'
+                }
               </p>
             )}
           </CardContent>
@@ -567,6 +586,41 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
         </Card>
       </div>
 
+      {/* ═══════════ ENGAGEMENT COLLECTION STATUS ═══════════ */}
+      {totalEngagements > 0 && (engagementNeverCollected || engagementCollectedButZero) && (
+        <Card className="border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2 text-amber-900">
+              <AlertTriangle className="h-4 w-4 text-amber-600" />
+              Engagement Data Not Being Collected
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <p className="text-xs text-amber-800">
+              {engagementNeverCollected
+                ? <>Your bot has <strong>{totalEngagements} posts</strong> but engagement metrics (likes, comments, shares) have <strong>never been collected</strong> from social platforms. All learning scores are 0 because the AI has no real engagement data to learn from.</>
+                : <>Engagement collection ran but all posts show <strong>0 likes, 0 comments, 0 shares</strong>. This could mean your posts genuinely have no engagement yet, or the API tokens lack the required permissions.</>
+              }
+            </p>
+            <div className="text-xs text-amber-800 space-y-1 border-t border-amber-200 pt-2">
+              <p className="font-semibold">How to fix:</p>
+              <ol className="list-decimal list-inside space-y-0.5">
+                <li>Verify the engagement cron is running: <code className="bg-amber-100 px-1 rounded text-[10px]">POST /api/cron/collect-engagement</code> (every 15 min)</li>
+                <li>Check server crontab: <code className="bg-amber-100 px-1 rounded text-[10px]">crontab -l</code> or run <code className="bg-amber-100 px-1 rounded text-[10px]">bash server/setup-cron.sh</code></li>
+                <li>Facebook: Ensure token has <strong>pages_read_engagement</strong> permission</li>
+                <li>Instagram: Ensure token has <strong>instagram_business_basic</strong> permission</li>
+                <li>Threads: Ensure token has <strong>threads_basic</strong> permission</li>
+              </ol>
+            </div>
+            {lastCollectedEngagement?.collectedAt && (
+              <p className="text-[10px] text-amber-700">
+                Last collection: {new Date(lastCollectedEngagement.collectedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* ═══════════ WHAT THE BOT HAS LEARNED (visible from post 1) ═══════════ */}
       {hasData && (
         <Card>
@@ -578,7 +632,10 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
                   <HelpTip text="The AI's current understanding of what works best for your audience. Use thumbs up to confirm good learnings, thumbs down to reject incorrect ones, or reset to start fresh for a dimension." />
                 </CardTitle>
                 <CardDescription>
-                  Confirm or reject learnings to guide the AI. Your feedback directly adjusts the strategy weights.
+                  <span className="font-medium">👍 Confirm</span> = boost this strategy&apos;s weight (AI will use it more).{' '}
+                  <span className="font-medium">👎 Reject</span> = penalize it (AI will avoid it).{' '}
+                  Strategies marked <span className="font-medium text-green-700">Stable</span> are confirmed and widely tested.{' '}
+                  <span className="font-medium text-blue-700">Proven</span> = tested 10+ times with positive results.
                 </CardDescription>
               </div>
               <ResetAllLearningButton botId={bot.id} />
