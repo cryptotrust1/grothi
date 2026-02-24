@@ -16,6 +16,13 @@
 import { db } from './db';
 import type { PlatformType, RLDimension } from '@prisma/client';
 import { OPTIMAL_POSTING_TIMES } from './platform-specs';
+import {
+  getHypeState,
+  getHypeContentBias,
+  getHypeHashtagBias,
+  type HypeState,
+  type HypeAlert,
+} from './hype-engine';
 
 /** Arm selection strategy */
 export type ArmStrategy = 'epsilon_greedy' | 'thompson_sampling' | 'ucb1';
@@ -423,6 +430,148 @@ export async function getContentRecommendation(
     isExploration: isExplore,
     confidence,
   };
+}
+
+// ============ HYPE-AWARE CONTENT RECOMMENDATION ============
+//
+// When active hype alerts exist, this function biases the RL arm selection
+// toward content types and hashtag patterns that are optimal for trend-riding.
+//
+// The bias is applied as a weighted random selection boost:
+// - During EMERGENCE: boost "news" content type (be first to report)
+// - During GROWTH: boost "educational" (explain the trend to audience)
+// - During PEAK: boost "engagement" (drive discussion, maximum visibility)
+//
+// Scientific basis:
+// - Berger (2013) STEPPS: Triggers + Public principles favor timely content
+// - Rogers (1962): Early Adopters (GROWTH stage) gain most social currency
+// - Graffius (2026): Platform half-life determines urgency of action
+
+export interface HypeAwareRecommendation extends ContentRecommendation {
+  /** Whether this recommendation is influenced by hype detection */
+  hypeInfluenced: boolean;
+  /** Active hype alerts that influenced the recommendation */
+  activeAlerts: HypeAlert[];
+  /** Suggested content angle for trend-riding */
+  trendAngle?: string;
+}
+
+export async function getHypeAwareRecommendation(
+  botId: string,
+  platform: PlatformType,
+  safetyLevel: string = 'MODERATE',
+  strategy: ArmStrategy = 'thompson_sampling'
+): Promise<HypeAwareRecommendation> {
+  // Fetch bot's hype state
+  const bot = await db.bot.findUnique({
+    where: { id: botId },
+    select: { algorithmConfig: true },
+  });
+
+  const hypeState = getHypeState(bot?.algorithmConfig);
+  const contentBias = getHypeContentBias(hypeState);
+  const hashtagBias = getHypeHashtagBias(hypeState);
+  const activeAlerts = hypeState.activeAlerts.filter(a => !a.dismissed);
+
+  const hasHype = activeAlerts.length > 0 && Object.keys(contentBias).length > 0;
+
+  if (!hasHype) {
+    // No hype detected — use standard recommendation
+    const recommendation = await getContentRecommendation(botId, platform, safetyLevel, undefined, strategy);
+    return {
+      ...recommendation,
+      hypeInfluenced: false,
+      activeAlerts: [],
+    };
+  }
+
+  // Apply hype bias to content type selection
+  // Strategy: with 30% probability, override RL selection with hype-biased choice
+  // This maintains RL learning integrity while injecting trend-awareness
+  const HYPE_OVERRIDE_PROBABILITY = 0.30;
+  const shouldOverride = Math.random() < HYPE_OVERRIDE_PROBABILITY;
+
+  const config = await getOrCreateRLConfig(botId, platform);
+  const spamLimits = SPAM_LIMITS[safetyLevel] ?? SPAM_LIMITS.MODERATE;
+  const excludeContentTypes: string[] = [];
+
+  if (config.lastContentType && config.consecutiveSameType >= spamLimits.maxConsecutiveSameType) {
+    excludeContentTypes.push(config.lastContentType);
+  }
+
+  let contentTypeKey: string;
+  let hashtagPatternKey: string;
+  let toneStyleKey: string;
+  let isExploration = false;
+  let trendAngle: string | undefined;
+
+  if (shouldOverride) {
+    // Use hype-biased selection
+    contentTypeKey = weightedRandomSelect(contentBias, excludeContentTypes);
+    hashtagPatternKey = weightedRandomSelect(hashtagBias);
+
+    // Use the best alert's suggested tone
+    const topAlert = activeAlerts.sort((a, b) => b.hypeScore - a.hypeScore)[0];
+    toneStyleKey = topAlert?.suggestedTone || 'casual';
+    trendAngle = topAlert?.suggestedAngle;
+    isExploration = true; // Trend-riding is a form of exploration
+  } else {
+    // Standard RL selection
+    const contentTypeResult = await selectArmSmart(botId, platform, 'CONTENT_TYPE', strategy, {
+      excludeArms: excludeContentTypes,
+    });
+    const hashtagResult = await selectArmSmart(botId, platform, 'HASHTAG_PATTERN', strategy);
+    const toneResult = await selectArmSmart(botId, platform, 'TONE_STYLE', strategy);
+
+    contentTypeKey = contentTypeResult.armKey;
+    hashtagPatternKey = hashtagResult.armKey;
+    toneStyleKey = toneResult.armKey;
+    isExploration = contentTypeResult.isExploration || hashtagResult.isExploration || toneResult.isExploration;
+  }
+
+  const timeSlotResult = await selectArmSmart(botId, platform, 'TIME_SLOT', strategy);
+
+  const armStates = await db.rLArmState.findMany({
+    where: { botId, platform },
+    select: { pulls: true },
+  });
+  const totalPulls = armStates.reduce((sum, a) => sum + a.pulls, 0);
+  const confidence = Math.round((1 - Math.exp(-totalPulls / 100)) * 100) / 100;
+
+  return {
+    timeSlot: parseInt(timeSlotResult.armKey) || 12,
+    contentType: contentTypeKey,
+    hashtagPattern: hashtagPatternKey,
+    toneStyle: toneStyleKey,
+    platform,
+    isExploration,
+    confidence,
+    hypeInfluenced: shouldOverride,
+    activeAlerts,
+    trendAngle,
+  };
+}
+
+/**
+ * Weighted random selection from a bias map
+ * Higher weights = higher probability of selection
+ */
+function weightedRandomSelect(
+  weights: Record<string, number>,
+  exclude: string[] = []
+): string {
+  const entries = Object.entries(weights).filter(([key]) => !exclude.includes(key));
+  if (entries.length === 0) return 'engagement'; // Fallback
+
+  const totalWeight = entries.reduce((sum, [, w]) => sum + w, 0);
+  let random = Math.random() * totalWeight;
+
+  for (const [key, weight] of entries) {
+    random -= weight;
+    if (random <= 0) return key;
+  }
+
+  return entries[entries.length - 1][0];
 }
 
 // ============ PROCESS ENGAGEMENT FEEDBACK ============

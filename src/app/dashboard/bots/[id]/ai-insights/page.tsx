@@ -13,11 +13,19 @@ import { ArmDistributionChart, EngagementScoreTrend } from '@/components/dashboa
 import {
   Brain, TrendingUp, Target, Lightbulb, BarChart3, Sparkles,
   Clock, MessageSquare, Hash, Palette,
+  Flame, Zap, Radio, AlertTriangle, Eye, BookOpen,
 } from 'lucide-react';
 import {
   PLATFORM_NAMES, RL_DIMENSION_LABELS,
   TONE_STYLES, HASHTAG_PATTERNS, CONTENT_TYPES,
 } from '@/lib/constants';
+import {
+  getHypeState,
+  LIFECYCLE_CONFIG,
+  getHypeLevel,
+  type HypeAlert,
+  type TrendLifecycle,
+} from '@/lib/hype-engine';
 
 export const metadata: Metadata = {
   title: 'AI Insights',
@@ -50,8 +58,22 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
   const user = await requireAuth();
   const { id } = await params;
 
-  const bot = await db.bot.findFirst({ where: { id, userId: user.id } });
+  const bot = await db.bot.findFirst({
+    where: { id, userId: user.id },
+    select: {
+      id: true, name: true, userId: true,
+      algorithmConfig: true, keywords: true, brandName: true, goal: true,
+    },
+  });
   if (!bot) notFound();
+
+  // ── Hype Detection State ──
+  const hypeState = getHypeState(bot.algorithmConfig);
+  const activeAlerts = hypeState.activeAlerts
+    .filter(a => !a.dismissed && new Date(a.expiresAt).getTime() > Date.now())
+    .sort((a, b) => b.hypeScore - a.hypeScore);
+  const trendHistory = hypeState.trendHistory.slice(-10).reverse();
+  const learnedPatterns = hypeState.learnedPatterns;
 
   const connectedPlatforms = await db.platformConnection.findMany({
     where: { botId: bot.id, status: 'CONNECTED' },
@@ -284,6 +306,243 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
           </div>
         </CardContent>
       </Card>
+
+      {/* ═══════════ HYPE RADAR ═══════════ */}
+      {/* Active Hype Alerts — always visible when alerts exist */}
+      {activeAlerts.length > 0 && (
+        <Card className="border-orange-300 bg-gradient-to-br from-orange-50/50 to-red-50/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Flame className="h-5 w-5 text-orange-500" />
+              Hype Radar — Active Trends
+              <Badge variant="destructive" className="ml-2">{activeAlerts.length} active</Badge>
+              <HelpTip text="Trends detected from your RSS feeds and global trend sources. Based on Berger's STEPPS framework, Welford's z-score spike detection, and Rogers' Diffusion of Innovations. The bot uses these to adapt content strategy in real-time." />
+            </CardTitle>
+            <CardDescription>
+              Trending topics relevant to your niche. Act on these to ride the hype wave.
+              Scientific basis: Berger &amp; Milkman (2012), Rogers (1962), Welford&apos;s Algorithm.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {activeAlerts.map((alert) => {
+                const lcConfig = LIFECYCLE_CONFIG[alert.lifecycle as TrendLifecycle] || LIFECYCLE_CONFIG.EMERGENCE;
+                const hypeLevel = getHypeLevel(alert.hypeScore);
+                return (
+                  <div key={alert.id} className="rounded-lg border p-4 bg-white/70">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                          <span className="font-semibold text-base">{alert.topic}</span>
+                          <Badge className={`text-xs ${lcConfig.color}`}>
+                            {lcConfig.emoji} {lcConfig.label}
+                          </Badge>
+                          <Badge className={`text-xs ${hypeLevel.bgColor} ${hypeLevel.color}`}>
+                            Score: {alert.hypeScore}
+                          </Badge>
+                          {alert.relevanceScore >= 0.6 && (
+                            <Badge variant="outline" className="text-xs border-green-300 text-green-700">
+                              High Relevance
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground mb-2">{lcConfig.description}</p>
+
+                        {/* Suggested Action */}
+                        <div className="bg-indigo-50 rounded-md p-3 mt-2">
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <Lightbulb className="h-4 w-4 text-indigo-600" />
+                            <span className="text-xs font-medium text-indigo-800">Suggested Content Angle</span>
+                          </div>
+                          <p className="text-sm text-indigo-900">{alert.suggestedAngle}</p>
+                          <div className="flex gap-2 mt-2">
+                            <Badge variant="outline" className="text-xs">
+                              Type: {CONTENT_TYPES.find(c => c.value === alert.suggestedContentType)?.label || alert.suggestedContentType}
+                            </Badge>
+                            <Badge variant="outline" className="text-xs">
+                              Tone: {TONE_STYLES.find(t => t.value === alert.suggestedTone)?.label || alert.suggestedTone}
+                            </Badge>
+                          </div>
+                        </div>
+
+                        {/* Source titles */}
+                        {alert.sources.length > 0 && (
+                          <div className="mt-2">
+                            <span className="text-xs font-medium text-muted-foreground">Sources:</span>
+                            <ul className="text-xs text-muted-foreground mt-0.5 space-y-0.5">
+                              {alert.sources.map((source, i) => (
+                                <li key={i} className="truncate">- {source}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="text-xs text-muted-foreground">Relevance</div>
+                        <div className="text-lg font-bold">{Math.round(alert.relevanceScore * 100)}%</div>
+                        <Progress value={alert.relevanceScore * 100} className="h-1.5 w-16 mt-1" />
+                      </div>
+                    </div>
+
+                    {/* Metrics row */}
+                    <div className="flex gap-4 mt-3 pt-3 border-t text-xs text-muted-foreground">
+                      <span className="flex items-center gap-1">
+                        <Zap className="h-3 w-3" /> Hype: {alert.hypeScore}/100
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Eye className="h-3 w-3" /> Relevance: {Math.round(alert.relevanceScore * 100)}%
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Clock className="h-3 w-3" /> Detected: {new Date(alert.detectedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <AlertTriangle className="h-3 w-3" /> Expires: {new Date(alert.expiresAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Hype Learning Stats */}
+      {hypeState.totalScans > 0 && (
+        <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                <Radio className="h-4 w-4 inline mr-1" />
+                Trend Scans
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{hypeState.totalScans}</div>
+              <p className="text-xs text-muted-foreground">
+                Last: {hypeState.lastScanAt ? new Date(hypeState.lastScanAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Never'}
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                <Flame className="h-4 w-4 inline mr-1" />
+                Active Alerts
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{activeAlerts.length}</div>
+              <p className="text-xs text-muted-foreground">Topics trending now</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                <BookOpen className="h-4 w-4 inline mr-1" />
+                Topics Tracked
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{Object.keys(hypeState.topicStats).length}</div>
+              <p className="text-xs text-muted-foreground">In rolling window</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                <Target className="h-4 w-4 inline mr-1" />
+                Hype Threshold
+                <HelpTip text="The AI adjusts this threshold based on past trend-riding results. Lower = more aggressive (acts on weaker signals). Higher = more selective. Learned via engagement feedback loop." />
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{Math.round(learnedPatterns.optimalHypeThreshold)}</div>
+              <p className="text-xs text-muted-foreground">
+                Best stage: {LIFECYCLE_CONFIG[learnedPatterns.bestActionStage]?.label || 'Growth'}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Trend History (learned patterns) */}
+      {trendHistory.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <TrendingUp className="h-4 w-4" />
+              Trend History — What the Bot Learned
+              <HelpTip text="Past trends the system detected. The bot learns from these: when trend-riding produces high engagement, the hype threshold decreases (more aggressive). When it underperforms, the threshold increases (more selective). Based on Rogers' Diffusion of Innovations learning loop." />
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2 font-medium">Topic</th>
+                    <th className="text-left py-2 font-medium">Peak Score</th>
+                    <th className="text-left py-2 font-medium">Stage</th>
+                    <th className="text-left py-2 font-medium">Acted On</th>
+                    <th className="text-left py-2 font-medium">Result</th>
+                    <th className="text-right py-2 font-medium">Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {trendHistory.map((trend, i) => {
+                    const lcConfig = LIFECYCLE_CONFIG[trend.lifecycle as TrendLifecycle] || LIFECYCLE_CONFIG.DEAD;
+                    return (
+                      <tr key={i} className="border-b last:border-0">
+                        <td className="py-2 font-medium">{trend.topic}</td>
+                        <td className="py-2">
+                          <Badge className={`text-xs ${getHypeLevel(trend.peakHypeScore).bgColor} ${getHypeLevel(trend.peakHypeScore).color}`}>
+                            {trend.peakHypeScore}
+                          </Badge>
+                        </td>
+                        <td className="py-2">
+                          <Badge className={`text-xs ${lcConfig.color}`}>{lcConfig.label}</Badge>
+                        </td>
+                        <td className="py-2">
+                          {trend.wasActedOn ? (
+                            <Badge variant="outline" className="text-xs border-green-300 text-green-700">Yes</Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-xs">No</Badge>
+                          )}
+                        </td>
+                        <td className="py-2 text-xs text-muted-foreground">
+                          {trend.engagementResult != null
+                            ? `Score: ${Math.round(trend.engagementResult * 10) / 10}`
+                            : '-'}
+                        </td>
+                        <td className="text-right py-2 text-xs text-muted-foreground">
+                          {new Date(trend.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Hype Radar Empty State — show when no scans yet */}
+      {hypeState.totalScans === 0 && (
+        <Card className="border-dashed border-orange-200">
+          <CardContent className="py-8 text-center">
+            <Radio className="h-10 w-10 mx-auto text-orange-400 mb-3" />
+            <h3 className="text-base font-semibold mb-1">Hype Radar Not Active Yet</h3>
+            <p className="text-sm text-muted-foreground max-w-md mx-auto">
+              The trend detection system scans RSS feeds and global trend sources every 10 minutes.
+              Configure RSS feeds in Bot Settings to get personalized trend alerts. The system uses
+              Welford&apos;s z-score spike detection, Berger&apos;s STEPPS virality framework, and
+              Rogers&apos; Diffusion of Innovations model.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Empty State */}
       {!hasData && (
