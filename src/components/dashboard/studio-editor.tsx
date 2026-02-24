@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,9 +9,10 @@ import { Badge } from '@/components/ui/badge';
 import {
   Scissors, Type, Crop, Play, Pause, RotateCcw,
   Download, Film, CheckCircle2, Loader2, ChevronRight,
-  Sparkles,
+  Sparkles, ChevronDown, ChevronUp, Wand2,
 } from 'lucide-react';
 import Link from 'next/link';
+import { VIDEO_MODELS, getDefaultVideoModel } from '@/lib/ai-models';
 
 interface VideoMedia {
   id: string;
@@ -53,7 +54,35 @@ const ASPECT_RATIOS = [
   { value: '16:9', label: '16:9 Wide', desc: 'YouTube · Twitter', shape: 'w-8 h-5' },
 ];
 
-export function StudioEditor({ videos, botId, botPageId }: StudioEditorProps) {
+const GEN_PLATFORMS = [
+  { value: 'TIKTOK', label: 'TikTok' },
+  { value: 'INSTAGRAM', label: 'Instagram' },
+  { value: 'YOUTUBE', label: 'YouTube' },
+  { value: 'FACEBOOK', label: 'Facebook' },
+  { value: 'TWITTER', label: 'X / Twitter' },
+  { value: 'THREADS', label: 'Threads' },
+];
+
+export function StudioEditor({ videos: initialVideos, botId, botPageId }: StudioEditorProps) {
+  // Videos state — starts with server-fetched list, grows when AI generates new ones
+  const [videos, setVideos] = useState<VideoMedia[]>(initialVideos);
+
+  // ── AI Generate section ──
+  const [showGenSection, setShowGenSection] = useState(false);
+  const [genModelId, setGenModelId] = useState(getDefaultVideoModel().id);
+  const [genPrompt, setGenPrompt] = useState('');
+  const [genPlatform, setGenPlatform] = useState('TIKTOK');
+  const [generating, setGenerating] = useState(false);
+  const [genProgress, setGenProgress] = useState('');
+  const [genError, setGenError] = useState<string | null>(null);
+  const genPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (genPollRef.current) clearInterval(genPollRef.current);
+    };
+  }, []);
+
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
   const [videoDuration, setVideoDuration] = useState(0);
   const [trimStart, setTrimStart] = useState(0);
@@ -132,6 +161,99 @@ export function StudioEditor({ videos, botId, botPageId }: StudioEditorProps) {
     setTrimEnd(Math.min(clamped, videoDuration));
   }, [trimStart, videoDuration]);
 
+  // ── AI generation helpers ──
+
+  const addGeneratedVideo = useCallback((data: { id: string; filename?: string; fileSize?: number }) => {
+    const newVideo: VideoMedia = {
+      id: data.id,
+      filename: data.filename || 'ai-generated.mp4',
+      fileSize: data.fileSize || 0,
+      width: null,
+      height: null,
+      createdAt: new Date(),
+    };
+    setVideos(prev => [newVideo, ...prev]);
+    setGenerating(false);
+    setGenProgress('');
+    // Auto-select the new video so user can immediately edit it
+    setSelectedVideoId(newVideo.id);
+    setTrimStart(0);
+    setTrimEnd(0);
+    setVideoDuration(0);
+    setCurrentTime(0);
+    setIsPlaying(false);
+    setResult(null);
+    setError(null);
+    setShowGenSection(false);
+  }, []);
+
+  const handleGenerate = useCallback(async () => {
+    if (!genPrompt.trim()) return;
+    setGenerating(true);
+    setGenError(null);
+    setGenProgress('Starting video generation...');
+
+    try {
+      const res = await fetch('/api/generate/video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          botId,
+          platform: genPlatform,
+          prompt: genPrompt.trim(),
+          modelId: genModelId,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Generation failed');
+
+      // Occasionally synchronous (rare for video)
+      if (data.status === 'succeeded') {
+        addGeneratedVideo(data);
+        return;
+      }
+
+      const predictionId = data.predictionId;
+      if (!predictionId) throw new Error('Server did not return a prediction ID');
+
+      const modelName = VIDEO_MODELS.find(m => m.id === genModelId)?.name || 'AI';
+      setGenProgress(`${modelName}: video is generating…`);
+
+      let polls = 0;
+      genPollRef.current = setInterval(async () => {
+        polls++;
+        if (polls > 120) {
+          clearInterval(genPollRef.current!);
+          setGenerating(false);
+          setGenError('Timed out after 10 minutes. Check Media Library — the video may still complete there.');
+          return;
+        }
+        try {
+          const pollRes = await fetch(`/api/generate/video?predictionId=${encodeURIComponent(predictionId)}`);
+          const pollData = await pollRes.json();
+
+          if (pollData.status === 'succeeded') {
+            clearInterval(genPollRef.current!);
+            addGeneratedVideo(pollData);
+          } else if (pollData.status === 'failed' || pollData.status === 'cancelled') {
+            clearInterval(genPollRef.current!);
+            setGenerating(false);
+            setGenError(pollData.error || 'Video generation failed.');
+          } else {
+            const elapsed = Math.round(polls * 5);
+            setGenProgress((pollData.progress || `${modelName}: generating…`) + ` (${elapsed}s)`);
+          }
+        } catch {
+          // ignore transient poll errors
+        }
+      }, 5000);
+    } catch (err) {
+      setGenerating(false);
+      setGenError(err instanceof Error ? err.message : 'Generation failed');
+    }
+  }, [botId, genModelId, genPlatform, genPrompt, addGeneratedVideo]);
+
   const handleProcess = async () => {
     if (!selectedVideoId) return;
     setProcessing(true);
@@ -183,6 +305,126 @@ export function StudioEditor({ videos, botId, botPageId }: StudioEditorProps) {
 
   return (
     <div className="space-y-5">
+      {/* ── AI Video Generation ── */}
+      <Card className={showGenSection ? 'border-primary/40 shadow-sm' : ''}>
+        <CardHeader className="pb-3">
+          <button
+            onClick={() => setShowGenSection(v => !v)}
+            className="flex items-center justify-between w-full text-left group"
+          >
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Wand2 className="h-4 w-4 text-primary" />
+              Generate new video with AI
+              <Badge variant="secondary" className="text-[10px] ml-1">New</Badge>
+            </CardTitle>
+            {showGenSection
+              ? <ChevronUp className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+              : <ChevronDown className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />}
+          </button>
+          {!showGenSection && (
+            <CardDescription className="mt-1">
+              Use AI to create a video from a text prompt — then edit it in the steps below
+            </CardDescription>
+          )}
+        </CardHeader>
+
+        {showGenSection && (
+          <CardContent className="space-y-4">
+            {/* Model selector */}
+            <div className="space-y-1.5">
+              <Label htmlFor="gen-model" className="text-xs font-medium">AI Model</Label>
+              <select
+                id="gen-model"
+                value={genModelId}
+                onChange={e => setGenModelId(e.target.value)}
+                disabled={generating}
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm disabled:opacity-50"
+              >
+                {VIDEO_MODELS.map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} — {m.creditCost} credits · {m.estimatedTime}{m.badge ? ` · ${m.badge}` : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-muted-foreground">
+                {VIDEO_MODELS.find(m => m.id === genModelId)?.description}
+              </p>
+            </div>
+
+            {/* Platform */}
+            <div className="space-y-1.5">
+              <Label htmlFor="gen-platform" className="text-xs font-medium">Target Platform</Label>
+              <select
+                id="gen-platform"
+                value={genPlatform}
+                onChange={e => setGenPlatform(e.target.value)}
+                disabled={generating}
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm disabled:opacity-50"
+              >
+                {GEN_PLATFORMS.map(p => (
+                  <option key={p.value} value={p.value}>{p.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Prompt */}
+            <div className="space-y-1.5">
+              <Label htmlFor="gen-prompt" className="text-xs font-medium">Prompt</Label>
+              <textarea
+                id="gen-prompt"
+                value={genPrompt}
+                onChange={e => setGenPrompt(e.target.value)}
+                placeholder="Describe the video you want — e.g. 'A product showcase of a coffee cup on a wooden table, cinematic lighting, slow zoom in'"
+                rows={3}
+                disabled={generating}
+                maxLength={1000}
+                className="flex min-h-[72px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-y disabled:opacity-50"
+              />
+              <p className="text-[10px] text-muted-foreground text-right">{genPrompt.length}/1000</p>
+            </div>
+
+            {/* Error */}
+            {genError && (
+              <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">
+                {genError}
+              </div>
+            )}
+
+            {/* Progress */}
+            {generating && genProgress && (
+              <div className="rounded-lg bg-primary/5 border border-primary/20 p-3 text-sm text-primary flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                {genProgress}
+              </div>
+            )}
+
+            {generating && (
+              <p className="text-xs text-muted-foreground text-center">
+                Video generation takes 1–6 minutes depending on the model. Keep this page open.
+              </p>
+            )}
+
+            <Button
+              onClick={handleGenerate}
+              disabled={generating || !genPrompt.trim()}
+              className="w-full gap-2"
+            >
+              {generating ? (
+                <><Loader2 className="h-4 w-4 animate-spin" />Generating…</>
+              ) : (
+                <>
+                  <Wand2 className="h-4 w-4" />
+                  Generate Video
+                  <span className="text-[11px] opacity-75">
+                    ({VIDEO_MODELS.find(m => m.id === genModelId)?.creditCost ?? '?'} credits)
+                  </span>
+                </>
+              )}
+            </Button>
+          </CardContent>
+        )}
+      </Card>
+
       {/* ── Step 1: Select video ── */}
       <Card>
         <CardHeader className="pb-3">
