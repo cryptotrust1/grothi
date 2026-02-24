@@ -177,13 +177,58 @@ All 8 bot sub-pages use the shared `<BotNav>` component from `src/components/das
 - Webhook: `checkout.session.completed` → `addCredits()` to user
 - Webhook signature verification via `constructEvent()`
 
+## CI/CD
+
+### GitHub Actions Workflows
+
+Two workflows in `.github/workflows/`:
+
+| Workflow | File | Trigger | Purpose |
+|----------|------|---------|---------|
+| **CI** | `ci.yml` | Every PR to `main` | Runs tests + build — blocks merge on failure |
+| **Deploy** | `deploy.yml` | Push/merge to `main` | SSH deploy to production server |
+
+### CI Pipeline (`ci.yml`)
+
+Runs on every pull request targeting `main`:
+1. `npm ci` — clean install dependencies
+2. `./node_modules/.bin/prisma generate` — generate Prisma client
+3. `npm test` — run all Jest tests
+4. `npm run build` — full Next.js production build
+
+If any step fails, the PR shows a red ❌ and cannot be merged.
+
+### Branch Protection (GitHub Settings)
+
+`main` branch is protected with these rules:
+- **Require a pull request before merging** — no direct pushes to main
+- **Require status checks to pass** — "Build & Test" must pass before merge
+
+To modify: GitHub → Settings → Branches → `main` → Edit
+
+### Deploy Pipeline (`deploy.yml`)
+
+Triggers automatically when code is merged to `main`:
+1. Validates SSH secrets (SSH_HOST, SSH_USER, SSH_PASSWORD)
+2. SSH to server → runs `bash deploy.sh`
+3. Health check: verifies grothi.com responds with HTTP 200
+
+Required GitHub Secrets: `SSH_HOST`, `SSH_USER`, `SSH_PASSWORD`
+
+### Deployment Flow
+
+```
+Developer → PR → CI (test+build) → Merge → Deploy → Production
+                  ↓ fail                      ↓
+              Block merge              deploy.sh on server
+```
+
 ## Testing
 
-- Framework: Jest + ts-jest
-- Config: `jest.config.ts`
+- Framework: Jest + ts-jest + ts-node
+- Config: `jest.config.ts` (requires `ts-node` in devDependencies)
 - Test location: `tests/` directory
-- Run: `npm test` (94 tests across 5 suites)
-- Suites: utils, validations, encryption, constants, platform-specs
+- Run: `npm test` (419 tests across 14 suites)
 
 ## Environment Variables
 
@@ -216,10 +261,13 @@ Setup: `bash server/setup-cron.sh` (auto-reads CRON_SECRET from .env, installs c
 
 ## Deployment
 
-1. Push to `main` branch on GitHub
-2. SSH to server: `ssh root@89.167.18.92`
-3. `cd /home/acechange-bot/grothi && git pull origin main && bash deploy.sh`
-4. deploy.sh runs: `npm install && prisma generate && prisma migrate && build && pm2 restart && setup-cron`
+1. Create PR to `main` — CI automatically runs tests + build
+2. Wait for green ✓ on "Build & Test" check
+3. Merge PR — Deploy workflow auto-triggers via GitHub Actions
+4. deploy.sh on server runs: `npm install && prisma generate && prisma migrate && build && pm2 restart && setup-cron`
+5. Workflow verifies site is live (health check on grothi.com)
+
+**Manual deploy** (if needed): `ssh root@89.167.18.92 && cd /home/acechange-bot/grothi && bash deploy.sh`
 
 ## Known Constraints
 
