@@ -58,6 +58,7 @@ const AI_MODELS: AIModel[] = [
 interface PostChatAssistantProps {
   botId: string;
   platforms: string[];
+  productId?: string;
   onUseContent: (content: string) => void;
   onClose: () => void;
 }
@@ -76,7 +77,7 @@ function parseDataUrl(dataUrl: string): { data: string; mediaType: string } | nu
 
 // ── Component ──
 
-export function PostChatAssistant({ botId, platforms, onUseContent, onClose }: PostChatAssistantProps) {
+export function PostChatAssistant({ botId, platforms, productId, onUseContent, onClose }: PostChatAssistantProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'welcome',
@@ -237,6 +238,7 @@ export function PostChatAssistant({ botId, platforms, onUseContent, onClose }: P
           botId,
           messages: apiMessages,
           platforms,
+          productId: productId || undefined,
           model: modelConfig.apiModel,
           provider: modelConfig.provider,
         }),

@@ -116,6 +116,7 @@ model Bot {
   rlArmStates     RLArmState[]
   rlConfigs       RLConfig[]
   contentPlans    PlatformContentPlan[]
+  products           Product[]
   emailAccount       EmailAccount?
   emailLists         EmailList[]
   emailCampaigns     EmailCampaign[]
@@ -636,6 +637,7 @@ model Media {
 
   bot            Bot             @relation(fields: [botId], references: [id], onDelete: Cascade)
   scheduledPosts ScheduledPost[]
+  productMedia   ProductMedia[]
 
   @@index([botId, createdAt])
   @@index([botId, generationStatus])
@@ -646,6 +648,49 @@ enum MediaType {
   IMAGE
   VIDEO
   GIF
+}
+
+// ============ PRODUCTS ============
+
+model Product {
+  id             String   @id @default(cuid())
+  botId          String
+  name           String
+  description    String   @db.Text
+  brand          String?
+  category       String?
+  price          String?
+  url            String?
+  advantages     String   @db.Text
+  targetAudience String   @db.Text
+  buyingReasons  String   @db.Text
+  aiInstructions String?  @db.Text
+  keywords       String[]
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  bot            Bot             @relation(fields: [botId], references: [id], onDelete: Cascade)
+  productMedia   ProductMedia[]
+  scheduledPosts ScheduledPost[]
+
+  @@index([botId])
+  @@index([botId, isActive])
+}
+
+model ProductMedia {
+  id        String  @id @default(cuid())
+  productId String
+  mediaId   String
+  sortOrder Int     @default(0)
+  isPrimary Boolean @default(false)
+
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  media     Media   @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, mediaId])
+  @@index([productId])
+  @@index([mediaId])
 }
 
 // ============ SCHEDULED POSTS ============
@@ -678,6 +723,9 @@ model ScheduledPost {
   toneStyle      String?
   hashtagPattern String?
 
+  // Product reference (optional)
+  productId String?
+
   // Results
   publishResults Json?
   error          String?
@@ -685,8 +733,9 @@ model ScheduledPost {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  bot   Bot    @relation(fields: [botId], references: [id], onDelete: Cascade)
-  media Media? @relation(fields: [mediaId], references: [id], onDelete: SetNull)
+  bot     Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+  media   Media?   @relation(fields: [mediaId], references: [id], onDelete: SetNull)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
 
   @@index([botId, status])
   @@index([botId, scheduledAt])

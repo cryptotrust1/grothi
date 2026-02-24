@@ -92,7 +92,10 @@ export default async function ManualPostPage({
     db.scheduledPost.findMany({
       where: postWhere as any,
       orderBy: [{ scheduledAt: 'desc' }, { createdAt: 'desc' }],
-      include: { media: { select: { id: true, filename: true, type: true } } },
+      include: {
+        media: { select: { id: true, filename: true, type: true } },
+        product: { select: { id: true, name: true } },
+      },
       take: 200,
     }),
     db.scheduledPost.count({ where: { botId: bot.id, status: 'DRAFT' } }),
@@ -100,6 +103,20 @@ export default async function ManualPostPage({
     db.scheduledPost.count({ where: { botId: bot.id, status: 'PUBLISHED' } }),
     db.scheduledPost.count({ where: { botId: bot.id, status: 'FAILED' } }),
   ]);
+
+  // Products for the post form selector
+  const products = await db.product.findMany({
+    where: { botId: bot.id, isActive: true },
+    include: {
+      productMedia: {
+        where: { isPrimary: true },
+        include: { media: { select: { id: true, filename: true, type: true } } },
+        take: 1,
+      },
+      _count: { select: { productMedia: true } },
+    },
+    orderBy: { name: 'asc' },
+  });
 
   // Recent posts for the form reference (top 5)
   const recentPosts = allPosts.slice(0, 5);
@@ -142,6 +159,7 @@ export default async function ManualPostPage({
     }
 
     const mediaId = (formData.get('mediaId') as string) || null;
+    const productId = (formData.get('productId') as string) || null;
     const action = formData.get('action') as string;
     const scheduledAt = formData.get('scheduledAt') as string;
     const igPostType = (formData.get('postType') as string) || null;
@@ -160,6 +178,14 @@ export default async function ManualPostPage({
       const media = await db.media.findFirst({ where: { id: mediaId, botId: id } });
       if (!media) {
         redirect(`/dashboard/bots/${id}/post?error=${encodeURIComponent('Media not found')}`);
+      }
+    }
+
+    // Validate product ownership
+    if (productId) {
+      const product = await db.product.findFirst({ where: { id: productId, botId: id, isActive: true } });
+      if (!product) {
+        redirect(`/dashboard/bots/${id}/post?error=${encodeURIComponent('Product not found')}`);
       }
     }
 
@@ -298,6 +324,7 @@ export default async function ManualPostPage({
         content,
         contentType,
         mediaId,
+        productId,
         postType: postType || null,
         platforms: platformsRaw,
         scheduledAt: finalScheduledAt,
@@ -402,6 +429,16 @@ export default async function ManualPostPage({
     media: post.media ? { id: post.media.id, filename: post.media.filename, type: post.media.type } : null,
   }));
 
+  const serializedProducts = products.map(p => ({
+    id: p.id,
+    name: p.name,
+    brand: p.brand,
+    category: p.category,
+    price: p.price,
+    primaryImage: p.productMedia[0]?.media || null,
+    mediaCount: p._count.productMedia,
+  }));
+
   // ── Calendar data ──────────────────────────────────────────
 
   const daysInMonth = new Date(calYear, calMonth, 0).getDate();
@@ -469,6 +506,7 @@ export default async function ManualPostPage({
         postStatusColors={POST_STATUS_COLORS}
         mediaLibrary={serializedMediaLibrary}
         recentPosts={serializedRecentPosts}
+        products={serializedProducts}
         postCost={postCost}
         userCredits={userCredits}
         preSelectedMediaId={sp.mediaId || null}
@@ -648,6 +686,11 @@ export default async function ManualPostPage({
                             )}
                             {post.autoSchedule && (
                               <Badge variant="secondary" className="text-[10px] h-5">Auto</Badge>
+                            )}
+                            {post.product && (
+                              <Badge variant="outline" className="text-[10px] h-5 border-amber-300 text-amber-700 bg-amber-50">
+                                {post.product.name}
+                              </Badge>
                             )}
                           </div>
 
