@@ -1,4 +1,5 @@
 import { Metadata } from 'next';
+import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
@@ -7,9 +8,16 @@ import { getContentRecommendation, fingerprintContent } from '@/lib/rl-engine';
 import { PLATFORM_NAMES, PLATFORM_REQUIREMENTS, POST_STATUS_COLORS } from '@/lib/constants';
 import { BotNav } from '@/components/dashboard/bot-nav';
 import { PostFormClient } from '@/components/dashboard/post-form-client';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import {
+  Calendar, Clock, Trash2, RefreshCw, Download,
+  ChevronLeft, ChevronRight,
+} from 'lucide-react';
 import type { PlatformType } from '@prisma/client';
 
-export const metadata: Metadata = { title: 'Create Post', robots: { index: false } };
+export const metadata: Metadata = { title: 'New Post', robots: { index: false } };
 
 export default async function ManualPostPage({
   params,
@@ -20,6 +28,9 @@ export default async function ManualPostPage({
     success?: string;
     error?: string;
     mediaId?: string;
+    view?: string;
+    status?: string;
+    month?: string;
   }>;
 }) {
   const user = await requireAuth();
@@ -35,6 +46,28 @@ export default async function ManualPostPage({
   if (!bot) notFound();
 
   const connectedPlatforms = bot.platformConns.map(p => p.platform);
+
+  // ── Post list filters & calendar ─────────────────────────────
+  const listView = sp.view || 'list';
+  const statusFilter = sp.status || 'ALL';
+
+  const now = new Date();
+  const rawMonthStr = sp.month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const [parsedYear, parsedMonth] = rawMonthStr.split('-').map(Number);
+  const calYear = (Number.isFinite(parsedYear) && parsedYear >= 2020 && parsedYear <= 2100) ? parsedYear : now.getFullYear();
+  const calMonth = (Number.isFinite(parsedMonth) && parsedMonth >= 1 && parsedMonth <= 12) ? parsedMonth : (now.getMonth() + 1);
+  const monthStr = `${calYear}-${String(calMonth).padStart(2, '0')}`;
+
+  const monthStart = new Date(calYear, calMonth - 1, 1);
+  const monthEnd = new Date(calYear, calMonth, 0, 23, 59, 59);
+
+  const postWhere: Record<string, unknown> = { botId: bot.id };
+  if (statusFilter !== 'ALL') {
+    postWhere.status = statusFilter;
+  }
+  if (listView === 'calendar') {
+    postWhere.scheduledAt = { gte: monthStart, lte: monthEnd };
+  }
 
   // Media library with full details for compatibility checks
   const mediaLibrary = await db.media.findMany({
@@ -54,13 +87,22 @@ export default async function ManualPostPage({
     },
   });
 
-  // Recent posts for reference
-  const recentPosts = await db.scheduledPost.findMany({
-    where: { botId: bot.id },
-    orderBy: { createdAt: 'desc' },
-    take: 5,
-    include: { media: { select: { id: true, filename: true, type: true } } },
-  });
+  // All posts with filters for the post manager section
+  const [allPosts, draftsCount, scheduledCount, publishedCount, failedCount] = await Promise.all([
+    db.scheduledPost.findMany({
+      where: postWhere as any,
+      orderBy: [{ scheduledAt: 'desc' }, { createdAt: 'desc' }],
+      include: { media: { select: { id: true, filename: true, type: true } } },
+      take: 200,
+    }),
+    db.scheduledPost.count({ where: { botId: bot.id, status: 'DRAFT' } }),
+    db.scheduledPost.count({ where: { botId: bot.id, status: 'SCHEDULED' } }),
+    db.scheduledPost.count({ where: { botId: bot.id, status: 'PUBLISHED' } }),
+    db.scheduledPost.count({ where: { botId: bot.id, status: 'FAILED' } }),
+  ]);
+
+  // Recent posts for the form reference (top 5)
+  const recentPosts = allPosts.slice(0, 5);
 
   // Get credit info
   const postCost = await getActionCost('POST');
@@ -275,6 +317,67 @@ export default async function ManualPostPage({
     redirect(`/dashboard/bots/${id}/post?success=${encodeURIComponent(actionLabel)}`);
   }
 
+  // ── Delete server action ──────────────────────────────────────
+
+  async function handleDeletePost(formData: FormData) {
+    'use server';
+
+    const currentUser = await requireAuth();
+    const postId = formData.get('postId') as string;
+    if (!postId) redirect(`/dashboard/bots/${id}/post?error=${encodeURIComponent('Post not found')}`);
+
+    const post = await db.scheduledPost.findUnique({
+      where: { id: postId },
+      include: { bot: { select: { userId: true } } },
+    });
+
+    if (!post || post.bot.userId !== currentUser.id) {
+      redirect(`/dashboard/bots/${id}/post?error=${encodeURIComponent('Post not found')}`);
+    }
+
+    if (!['DRAFT', 'SCHEDULED', 'FAILED'].includes(post.status)) {
+      redirect(`/dashboard/bots/${id}/post?error=${encodeURIComponent('Only draft, scheduled, or failed posts can be deleted')}`);
+    }
+
+    await db.scheduledPost.delete({ where: { id: postId } });
+    redirect(`/dashboard/bots/${id}/post?success=${encodeURIComponent('Post deleted')}`);
+  }
+
+  // ── Retry failed post server action ───────────────────────────
+
+  async function handleRetryPost(formData: FormData) {
+    'use server';
+
+    const currentUser = await requireAuth();
+    const postId = formData.get('postId') as string;
+    if (!postId) redirect(`/dashboard/bots/${id}/post?error=${encodeURIComponent('Post not found')}`);
+
+    const post = await db.scheduledPost.findUnique({
+      where: { id: postId },
+      include: { bot: { select: { userId: true } } },
+    });
+
+    if (!post || post.bot.userId !== currentUser.id) {
+      redirect(`/dashboard/bots/${id}/post?error=${encodeURIComponent('Post not found')}`);
+    }
+
+    if (post.status !== 'FAILED') {
+      redirect(`/dashboard/bots/${id}/post?error=${encodeURIComponent('Only failed posts can be retried')}`);
+    }
+
+    await db.scheduledPost.update({
+      where: { id: postId },
+      data: {
+        status: 'SCHEDULED',
+        scheduledAt: new Date(),
+        error: null,
+        publishedAt: null,
+      },
+    });
+
+    redirect(`/dashboard/bots/${id}/post?success=${encodeURIComponent('Post queued for retry')}`);
+  }
+
   // ── Render ──────────────────────────────────────────────────
 
   // Serialize data for client component
@@ -299,16 +402,64 @@ export default async function ManualPostPage({
     media: post.media ? { id: post.media.id, filename: post.media.filename, type: post.media.type } : null,
   }));
 
+  // ── Calendar data ──────────────────────────────────────────
+
+  const daysInMonth = new Date(calYear, calMonth, 0).getDate();
+  const firstDayOfWeek = new Date(calYear, calMonth - 1, 1).getDay();
+  const prevMonth = calMonth === 1 ? `${calYear - 1}-12` : `${calYear}-${String(calMonth - 1).padStart(2, '0')}`;
+  const nextMonth = calMonth === 12 ? `${calYear + 1}-01` : `${calYear}-${String(calMonth + 1).padStart(2, '0')}`;
+  const monthName = new Date(calYear, calMonth - 1).toLocaleString('en', { month: 'long', year: 'numeric' });
+
+  const postsByDate: Record<string, typeof allPosts> = {};
+  for (const post of allPosts) {
+    if (post.scheduledAt) {
+      const dateKey = post.scheduledAt.toISOString().split('T')[0];
+      if (!postsByDate[dateKey]) postsByDate[dateKey] = [];
+      postsByDate[dateKey].push(post);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">{bot.name} - New Post</h1>
-        <p className="text-sm text-muted-foreground mt-1">Create and publish a manual post to your connected platforms.</p>
+        <h1 className="text-2xl font-bold">{bot.name} - Post Scheduler</h1>
+        <p className="text-sm text-muted-foreground mt-1">Create, schedule, and manage your posts across all platforms.</p>
         <BotNav botId={id} activeTab="post" />
       </div>
 
       <form action={handleCreatePost} id="post-form" className="hidden" />
+      <form action={handleDeletePost} id="delete-form" className="hidden" />
+      <form action={handleRetryPost} id="retry-form" className="hidden" />
 
+      {/* ═══════ Stats Cards ═══════ */}
+      <div className="grid gap-4 grid-cols-2 sm:grid-cols-4">
+        <Card>
+          <CardContent className="p-4 text-center">
+            <p className="text-2xl font-bold">{draftsCount}</p>
+            <p className="text-xs text-muted-foreground">Drafts</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 text-center">
+            <p className="text-2xl font-bold text-blue-600">{scheduledCount}</p>
+            <p className="text-xs text-muted-foreground">Scheduled</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 text-center">
+            <p className="text-2xl font-bold text-green-600">{publishedCount}</p>
+            <p className="text-xs text-muted-foreground">Published</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 text-center">
+            <p className="text-2xl font-bold text-red-600">{failedCount}</p>
+            <p className="text-xs text-muted-foreground">Failed</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ═══════ Create Post Form ═══════ */}
       <PostFormClient
         botId={id}
         botName={bot.name}
@@ -324,6 +475,238 @@ export default async function ManualPostPage({
         successMessage={sp.success || null}
         errorMessage={sp.error || null}
       />
+
+      {/* ═══════ Post Manager ═══════ */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 justify-between flex-wrap">
+          {/* Status filter tabs */}
+          <div className="flex gap-1 flex-wrap">
+            {[
+              { key: 'ALL', label: 'All' },
+              { key: 'DRAFT', label: 'Draft' },
+              { key: 'SCHEDULED', label: 'Scheduled' },
+              { key: 'PUBLISHED', label: 'Published' },
+              { key: 'FAILED', label: 'Failed' },
+            ].map((s) => (
+              <Link
+                key={s.key}
+                href={`/dashboard/bots/${id}/post?view=${listView}&status=${s.key}`}
+                className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                  statusFilter === s.key ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted border-input'
+                }`}
+              >
+                {s.label}
+              </Link>
+            ))}
+          </div>
+
+          {/* View toggle */}
+          <div className="flex gap-1">
+            <Link
+              href={`/dashboard/bots/${id}/post?view=list&status=${statusFilter}`}
+              className={`text-xs px-3 py-1.5 rounded border ${listView === 'list' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
+            >
+              List
+            </Link>
+            <Link
+              href={`/dashboard/bots/${id}/post?view=calendar&status=${statusFilter}&month=${monthStr}`}
+              className={`text-xs px-3 py-1.5 rounded border ${listView === 'calendar' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
+            >
+              Calendar
+            </Link>
+          </div>
+        </div>
+
+        {/* ═══════ Calendar View ═══════ */}
+        {listView === 'calendar' && (
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <Link href={`/dashboard/bots/${id}/post?view=calendar&status=${statusFilter}&month=${prevMonth}`}>
+                  <Button variant="ghost" size="sm"><ChevronLeft className="h-4 w-4" /></Button>
+                </Link>
+                <CardTitle className="text-lg">{monthName}</CardTitle>
+                <Link href={`/dashboard/bots/${id}/post?view=calendar&status=${statusFilter}&month=${nextMonth}`}>
+                  <Button variant="ghost" size="sm"><ChevronRight className="h-4 w-4" /></Button>
+                </Link>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-7 gap-px bg-muted rounded-lg overflow-hidden">
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
+                  <div key={d} className="bg-background p-2 text-center text-xs font-medium text-muted-foreground">{d}</div>
+                ))}
+                {Array.from({ length: firstDayOfWeek }).map((_, i) => (
+                  <div key={`empty-${i}`} className="bg-background p-2 min-h-[80px]" />
+                ))}
+                {Array.from({ length: daysInMonth }).map((_, i) => {
+                  const day = i + 1;
+                  const dateKey = `${calYear}-${String(calMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                  const dayPosts = postsByDate[dateKey] || [];
+                  const isToday = now.getFullYear() === calYear && now.getMonth() === calMonth - 1 && now.getDate() === day;
+
+                  return (
+                    <div key={day} className={`bg-background p-1.5 min-h-[80px] ${isToday ? 'ring-2 ring-primary ring-inset' : ''}`}>
+                      <p className={`text-xs font-medium mb-1 ${isToday ? 'text-primary' : 'text-muted-foreground'}`}>{day}</p>
+                      <div className="space-y-0.5">
+                        {dayPosts.slice(0, 3).map((post) => {
+                          const platforms = Array.isArray(post.platforms) ? post.platforms as string[] : [];
+                          return (
+                            <div
+                              key={post.id}
+                              className={`text-[9px] leading-tight px-1 py-0.5 rounded truncate ${POST_STATUS_COLORS[post.status] || 'bg-gray-100'}`}
+                              title={post.content.slice(0, 100)}
+                            >
+                              {post.scheduledAt ? new Date(post.scheduledAt).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' }) : ''}{' '}
+                              {platforms.map(p => (PLATFORM_NAMES[p] || p).slice(0, 2)).join('·')}
+                            </div>
+                          );
+                        })}
+                        {dayPosts.length > 3 && (
+                          <p className="text-[9px] text-muted-foreground">+{dayPosts.length - 3} more</p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ═══════ List View ═══════ */}
+        {listView === 'list' && (
+          <div className="space-y-3">
+            {allPosts.length === 0 ? (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <Calendar className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                  <p className="text-muted-foreground">
+                    {statusFilter === 'ALL'
+                      ? 'No posts yet. Create your first post above!'
+                      : `No ${statusFilter.toLowerCase()} posts.`}
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              allPosts.map((post) => {
+                const platforms = Array.isArray(post.platforms) ? post.platforms as string[] : [];
+                return (
+                  <Card key={post.id}>
+                    <CardContent className="p-4">
+                      <div className="flex gap-4">
+                        {/* Media thumbnail */}
+                        {post.media && (
+                          <div className="shrink-0 relative group/media">
+                            {post.media.type === 'VIDEO' ? (
+                              <div className="relative h-16 w-16 rounded overflow-hidden bg-muted">
+                                {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                                <video
+                                  src={`/api/media/${post.media.id}`}
+                                  className="h-full w-full object-cover"
+                                  muted
+                                  preload="metadata"
+                                />
+                                <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                                  <div className="h-6 w-6 rounded-full bg-black/50 flex items-center justify-center">
+                                    <svg className="h-3 w-3 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={`/api/media/${post.media.id}`}
+                                alt={post.media.filename}
+                                className="h-16 w-16 rounded object-cover"
+                              />
+                            )}
+                            <a
+                              href={`/api/media/${post.media.id}?download=true`}
+                              download={post.media.filename}
+                              className="absolute -bottom-1 -right-1 h-6 w-6 rounded-full bg-background border shadow-sm flex items-center justify-center opacity-0 group-hover/media:opacity-100 transition-opacity"
+                              title={`Download ${post.media.filename}`}
+                            >
+                              <Download className="h-3 w-3" />
+                            </a>
+                          </div>
+                        )}
+
+                        <div className="flex-1 min-w-0 space-y-2">
+                          {/* Status & platforms */}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${POST_STATUS_COLORS[post.status]}`}>
+                              {post.status}
+                            </span>
+                            {platforms.map((p) => (
+                              <Badge key={p} variant="outline" className="text-[10px] h-5">
+                                {PLATFORM_NAMES[p] || p}
+                              </Badge>
+                            ))}
+                            {post.postType && (
+                              <Badge variant="secondary" className="text-[10px] h-5 capitalize">{post.postType}</Badge>
+                            )}
+                            {post.autoSchedule && (
+                              <Badge variant="secondary" className="text-[10px] h-5">Auto</Badge>
+                            )}
+                          </div>
+
+                          {/* Content preview */}
+                          <p className="text-sm line-clamp-2">{post.content}</p>
+
+                          {/* Time */}
+                          <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
+                            {post.scheduledAt && (
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {new Date(post.scheduledAt).toLocaleString('en', {
+                                  month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+                                })}
+                              </span>
+                            )}
+                            {post.publishedAt && (
+                              <span className="text-green-600">
+                                Published {new Date(post.publishedAt).toLocaleString('en', {
+                                  month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+                                })}
+                              </span>
+                            )}
+                            {post.error && (
+                              <span className="text-destructive text-[11px]">{post.error}</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="shrink-0 flex flex-col gap-1">
+                          {/* Retry button for FAILED posts */}
+                          {post.status === 'FAILED' && (
+                            <form action={handleRetryPost}>
+                              <input type="hidden" name="postId" value={post.id} />
+                              <Button variant="ghost" size="sm" className="text-blue-600 h-8 w-8 p-0" title="Retry">
+                                <RefreshCw className="h-4 w-4" />
+                              </Button>
+                            </form>
+                          )}
+                          {/* Delete button for DRAFT, SCHEDULED, FAILED */}
+                          {['DRAFT', 'SCHEDULED', 'FAILED'].includes(post.status) && (
+                            <form action={handleDeletePost}>
+                              <input type="hidden" name="postId" value={post.id} />
+                              <Button variant="ghost" size="sm" className="text-destructive h-8 w-8 p-0" title="Delete">
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </form>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
