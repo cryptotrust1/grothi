@@ -552,7 +552,7 @@ export function extractTopics(text: string): string[] {
   }
 
   // Combine, deduplicate, return top topics
-  const allTopics = [...new Set([...bigrams, ...unigrams])];
+  const allTopics = Array.from(new Set([...bigrams, ...unigrams]));
   return allTopics.slice(0, 20); // Limit to prevent explosion
 }
 
@@ -921,7 +921,7 @@ export function processRSSBatch(
   }
 
   // Update seen items (keep last 500 for memory efficiency)
-  const updatedSeen = [...seenSet].slice(-500);
+  const updatedSeen = Array.from(seenSet).slice(-500);
 
   // 2. Extract topics from all new items
   const topicMentions: Record<string, { count: number; sources: Set<string>; titles: string[] }> = {};

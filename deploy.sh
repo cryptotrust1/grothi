@@ -61,6 +61,10 @@ echo ""
 echo "[2/11] Pulling latest code..."
 git fetch origin main || fail "git fetch failed. Check network/SSH keys."
 git reset --hard origin/main || fail "git reset failed. Check git status manually."
+# Remove stale untracked files in src/ (prevents build errors from orphaned pages)
+git clean -fd src/ 2>/dev/null
+# Remove stale type cache (tsconfig includes .next/types which persists across builds)
+rm -rf .next/types 2>/dev/null
 echo "  Git: $(git log --oneline -1)"
 
 # ── Step 3/11: Install dependencies ───────────────────────────
@@ -87,10 +91,26 @@ echo "[5/11] Running Prisma generate..."
 
 echo ""
 echo "[6/11] Running Prisma migrations..."
-./node_modules/.bin/prisma migrate deploy 2>&1 || {
-  echo "  migrate deploy failed, trying db push..."
-  ./node_modules/.bin/prisma db push 2>&1 || fail "Both prisma migrate deploy and db push failed. Fix schema manually."
-}
+MIGRATE_OUTPUT=$(./node_modules/.bin/prisma migrate deploy 2>&1)
+MIGRATE_EXIT=$?
+echo "$MIGRATE_OUTPUT"
+
+if [ $MIGRATE_EXIT -ne 0 ]; then
+  # Check for P3009 (failed migration stuck in history) — resolve and retry
+  FAILED_MIGRATION=$(echo "$MIGRATE_OUTPUT" | grep -oP 'The `\K[^`]+' | head -1)
+  if [ -n "$FAILED_MIGRATION" ]; then
+    echo "  Resolving stuck migration: $FAILED_MIGRATION"
+    ./node_modules/.bin/prisma migrate resolve --applied "$FAILED_MIGRATION" 2>&1
+    echo "  Retrying migrate deploy..."
+    ./node_modules/.bin/prisma migrate deploy 2>&1 || {
+      echo "  migrate deploy still failing, trying db push..."
+      ./node_modules/.bin/prisma db push 2>&1 || fail "Both prisma migrate deploy and db push failed. Fix schema manually."
+    }
+  else
+    echo "  migrate deploy failed, trying db push..."
+    ./node_modules/.bin/prisma db push 2>&1 || fail "Both prisma migrate deploy and db push failed. Fix schema manually."
+  fi
+fi
 
 # ── Step 7/11: Seed database ──────────────────────────────────
 
