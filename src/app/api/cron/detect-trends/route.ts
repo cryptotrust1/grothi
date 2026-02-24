@@ -152,7 +152,7 @@ export async function POST(request: NextRequest) {
         const updatedConfig = mergeHypeState(bot.algorithmConfig, updatedState);
         await db.bot.update({
           where: { id: bot.id },
-          data: { algorithmConfig: updatedConfig },
+          data: { algorithmConfig: updatedConfig as unknown as import('@prisma/client').Prisma.InputJsonValue },
         });
 
         // Log activity if trends were detected
