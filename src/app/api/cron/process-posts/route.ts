@@ -234,10 +234,21 @@ export async function POST(request: NextRequest) {
       continue;
     }
 
-    const platforms = (Array.isArray(post.platforms) ? post.platforms : []) as string[];
+    const allPlatforms = (Array.isArray(post.platforms) ? post.platforms : []) as string[];
+
+    // On retry, skip platforms that already succeeded to avoid duplicate posts.
+    // publishResults stores the outcome from the previous attempt.
+    const existingResults = post.publishResults as Record<string, { success: boolean; externalId?: string; error?: string }> | null;
+    const platforms = existingResults
+      ? allPlatforms.filter(p => !existingResults[p]?.success)
+      : allPlatforms;
+
     const platformResults: Record<string, { success: boolean; externalId?: string; error?: string }> = {};
     let allSucceeded = true;
-    let anySucceeded = false;
+    // If some platforms already succeeded in a previous attempt, count them
+    let anySucceeded = existingResults
+      ? Object.values(existingResults).some(r => r.success)
+      : false;
 
     for (const platform of platforms) {
       try {
@@ -365,15 +376,20 @@ export async function POST(request: NextRequest) {
         ? 'PUBLISHED' // Partial success still counts as published
         : 'FAILED';
 
+    // Merge new results with existing results (preserves prior successes on retry)
+    const mergedResults = existingResults
+      ? { ...existingResults, ...platformResults }
+      : platformResults;
+
     await db.scheduledPost.update({
       where: { id: post.id },
       data: {
         status: finalStatus,
         publishedAt: anySucceeded ? now : null,
-        publishResults: platformResults,
+        publishResults: mergedResults,
         error: allSucceeded
           ? null
-          : Object.entries(platformResults)
+          : Object.entries(mergedResults)
               .filter(([, r]) => !r.success)
               .map(([p, r]) => `${p}: ${r.error}`)
               .join('; '),
@@ -401,7 +417,7 @@ export async function POST(request: NextRequest) {
     results.push({
       postId: post.id,
       status: finalStatus,
-      platforms: platformResults,
+      platforms: mergedResults,
     });
   }
 
