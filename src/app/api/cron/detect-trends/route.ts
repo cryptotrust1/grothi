@@ -16,6 +16,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { validateCronSecret } from '@/lib/api-helpers';
 import { db } from '@/lib/db';
 import {
   parseRSSFeed,
@@ -26,8 +27,6 @@ import {
 } from '@/lib/hype-engine';
 import type { RSSItem } from '@/lib/hype-engine';
 
-const CRON_SECRET = process.env.CRON_SECRET;
-
 /** Maximum number of bots to process per invocation */
 const BATCH_SIZE = 20;
 
@@ -35,12 +34,8 @@ const BATCH_SIZE = 20;
 const FETCH_TIMEOUT = 8000;
 
 export async function POST(request: NextRequest) {
-  const authHeader = request.headers.get('authorization');
-  const cronSecret = authHeader?.replace('Bearer ', '');
-
-  if (!CRON_SECRET || cronSecret !== CRON_SECRET) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const cronError = validateCronSecret(request.headers.get('authorization'));
+  if (cronError) return cronError;
 
   console.log('[detect-trends] Starting trend detection scan...');
   const startTime = Date.now();

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { apiError } from '@/lib/api-helpers';
 
 // GET: Get a single scheduled post
 export async function GET(
@@ -8,9 +9,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  if (!user) return apiError.unauthorized();
 
   const { id } = await params;
 
@@ -22,9 +21,7 @@ export async function GET(
     },
   });
 
-  if (!post || post.bot.userId !== user.id) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 });
-  }
+  if (!post || post.bot.userId !== user.id) return apiError.notFound('Post');
 
   return NextResponse.json(post);
 }
@@ -36,9 +33,7 @@ export async function PATCH(
 ) {
   try {
     const user = await getCurrentUser();
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    if (!user) return apiError.unauthorized();
 
     const { id } = await params;
 
@@ -47,16 +42,11 @@ export async function PATCH(
       include: { bot: { select: { userId: true } } },
     });
 
-    if (!post || post.bot.userId !== user.id) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    }
+    if (!post || post.bot.userId !== user.id) return apiError.notFound('Post');
 
     // Only allow editing DRAFT and SCHEDULED posts
     if (!['DRAFT', 'SCHEDULED'].includes(post.status)) {
-      return NextResponse.json(
-        { error: `Cannot edit a post with status ${post.status}` },
-        { status: 400 }
-      );
+      return apiError.badRequest(`Cannot edit a post with status ${post.status}`);
     }
 
     let body: Record<string, unknown>;
@@ -139,9 +129,7 @@ export async function DELETE(
 ) {
   try {
     const user = await getCurrentUser();
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    if (!user) return apiError.unauthorized();
 
     const { id } = await params;
 
@@ -150,12 +138,10 @@ export async function DELETE(
       include: { bot: { select: { userId: true } } },
     });
 
-    if (!post || post.bot.userId !== user.id) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    }
+    if (!post || post.bot.userId !== user.id) return apiError.notFound('Post');
 
     if (post.status === 'PUBLISHING') {
-      return NextResponse.json({ error: 'Cannot delete a post that is currently publishing' }, { status: 400 });
+      return apiError.badRequest('Cannot delete a post that is currently publishing');
     }
 
     await db.scheduledPost.delete({ where: { id } });

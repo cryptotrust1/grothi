@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
-import { SignJWT } from 'jose';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.NEXTAUTH_SECRET!
-);
+import { createOAuthStateToken } from '@/lib/oauth-helpers';
 
 /**
  * GET /api/oauth/pinterest?botId=xxx
@@ -33,11 +29,7 @@ export async function GET(request: NextRequest) {
   }
   const redirectUri = `${baseUrl}/api/oauth/pinterest/callback`;
 
-  const state = await new SignJWT({ botId, userId: user.id })
-    .setProtectedHeader({ alg: 'HS256' })
-    .setExpirationTime('10m')
-    .setIssuedAt()
-    .sign(JWT_SECRET);
+  const state = await createOAuthStateToken(botId, user.id);
 
   // Scopes for creating and managing Pins:
   // - user_accounts:read: Read user profile

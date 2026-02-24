@@ -14,6 +14,7 @@ import {
   ArrowLeft, User, Mail, Calendar, CreditCard, Bot, Activity,
   Shield, ShieldOff, Trash2, Globe, CheckCircle, XCircle, Clock,
 } from 'lucide-react';
+import { AlertMessage } from '@/components/ui/alert-message';
 
 export const metadata: Metadata = { title: 'Admin - User Details', robots: { index: false } };
 
@@ -172,7 +173,7 @@ export default async function AdminUserDetailPage({
         </Link>
       </div>
 
-      {sp.success && <div className="rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-800">{sp.success}</div>}
+      {sp.success && <AlertMessage type="success" message={sp.success} />}
       {sp.error && <div className="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-800">{sp.error}</div>}
 
       {/* User Profile Card */}

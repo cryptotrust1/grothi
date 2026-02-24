@@ -34,3 +34,15 @@ export function truncate(str: string, length: number): string {
   if (str.length <= length) return str;
   return str.slice(0, length) + '...';
 }
+
+/**
+ * Parse a comma-separated keywords string into a cleaned array.
+ * Trims, lowercases, removes empty strings, and limits to maxCount.
+ */
+export function parseKeywords(raw: string, maxCount: number = 50): string[] {
+  return raw
+    .split(',')
+    .map((k) => k.trim().toLowerCase())
+    .filter((k) => k.length > 0)
+    .slice(0, maxCount);
+}

@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
-import { SignJWT } from 'jose';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.NEXTAUTH_SECRET!
-);
+import { createOAuthStateToken } from '@/lib/oauth-helpers';
 
 /**
  * GET /api/oauth/linkedin?botId=xxx
@@ -35,11 +31,7 @@ export async function GET(request: NextRequest) {
   const redirectUri = `${baseUrl}/api/oauth/linkedin/callback`;
 
   // Signed state token for CSRF protection
-  const state = await new SignJWT({ botId, userId: user.id })
-    .setProtectedHeader({ alg: 'HS256' })
-    .setExpirationTime('10m')
-    .setIssuedAt()
-    .sign(JWT_SECRET);
+  const state = await createOAuthStateToken(botId, user.id);
 
   // Scopes:
   // - openid: OpenID Connect (required for Sign In with LinkedIn)

@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
+import { decodeJwt } from 'jose';
 import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { encrypt } from '@/lib/encryption';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.NEXTAUTH_SECRET!
-);
+import { verifyOAuthStateToken } from '@/lib/oauth-helpers';
 
 /**
  * GET /api/oauth/twitter/callback?code=...&state=...
@@ -47,24 +44,16 @@ export async function GET(request: NextRequest) {
   }
 
   // Verify state and extract PKCE code_verifier
-  let botId: string;
-  let codeVerifier: string;
-  try {
-    const { payload } = await jwtVerify(state, JWT_SECRET);
-    botId = payload.botId as string;
-    codeVerifier = payload.codeVerifier as string;
-    const stateUserId = payload.userId as string;
-
-    if (stateUserId !== user.id) {
-      return NextResponse.redirect(
-        new URL('/dashboard?error=' + encodeURIComponent('Session mismatch'), origin)
-      );
-    }
-  } catch {
+  const stateResult = await verifyOAuthStateToken(state, user.id);
+  if (stateResult.error) {
     return NextResponse.redirect(
-      new URL('/dashboard?error=' + encodeURIComponent('Invalid or expired state token. Please try again.'), origin)
+      new URL('/dashboard?error=' + encodeURIComponent(stateResult.error), origin)
     );
   }
+  const botId = stateResult.botId!;
+  // Extract codeVerifier from the already-verified state token
+  const statePayload = decodeJwt(state);
+  const codeVerifier = statePayload.codeVerifier as string;
 
   // Verify bot ownership
   const bot = await db.bot.findFirst({ where: { id: botId, userId: user.id } });

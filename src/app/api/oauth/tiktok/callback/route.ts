@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { encrypt } from '@/lib/encryption';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.NEXTAUTH_SECRET!
-);
+import { verifyOAuthStateToken } from '@/lib/oauth-helpers';
 
 /**
  * GET /api/oauth/tiktok/callback?code=...&state=...
@@ -47,22 +43,13 @@ export async function GET(request: NextRequest) {
   }
 
   // Verify state token
-  let botId: string;
-  try {
-    const { payload } = await jwtVerify(state, JWT_SECRET);
-    botId = payload.botId as string;
-    const stateUserId = payload.userId as string;
-
-    if (stateUserId !== user.id) {
-      return NextResponse.redirect(
-        new URL('/dashboard?error=' + encodeURIComponent('Session mismatch'), origin)
-      );
-    }
-  } catch {
+  const stateResult = await verifyOAuthStateToken(state, user.id);
+  if (stateResult.error) {
     return NextResponse.redirect(
-      new URL('/dashboard?error=' + encodeURIComponent('Invalid or expired state token. Please try again.'), origin)
+      new URL('/dashboard?error=' + encodeURIComponent(stateResult.error), origin)
     );
   }
+  const botId = stateResult.botId!;
 
   // Verify bot ownership
   const bot = await db.bot.findFirst({ where: { id: botId, userId: user.id } });

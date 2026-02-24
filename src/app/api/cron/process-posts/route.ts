@@ -16,6 +16,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { validateCronSecret } from '@/lib/api-helpers';
 import { db } from '@/lib/db';
 import { deductCredits, getActionCost, hasEnoughCredits, addCredits } from '@/lib/credits';
 import {
@@ -64,8 +65,6 @@ const UPLOAD_DIR = path.join(process.cwd(), 'data', 'uploads');
  * The /media/ location in nginx-grothi.conf serves from data/uploads/ with gzip off.
  */
 const MEDIA_DIRECT_BASE = process.env.MEDIA_DIRECT_BASE;
-
-const CRON_SECRET = process.env.CRON_SECRET;
 
 /** Max posts to process per invocation (prevents long-running requests). */
 const BATCH_SIZE = 10;
@@ -140,12 +139,8 @@ async function convertToJpegForInstagram(
 
 export async function POST(request: NextRequest) {
   // Verify cron secret
-  const authHeader = request.headers.get('authorization');
-  const cronSecret = authHeader?.replace('Bearer ', '');
-
-  if (!CRON_SECRET || cronSecret !== CRON_SECRET) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const cronError = validateCronSecret(request.headers.get('authorization'));
+  if (cronError) return cronError;
 
   const now = new Date();
 
