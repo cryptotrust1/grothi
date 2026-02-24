@@ -52,8 +52,9 @@ src/
 │   │   │       ├── activity/       # Activity log with filters + pagination
 │   │   │       ├── analytics/      # Charts (Recharts), KPIs, platform breakdown
 │   │   │       ├── platforms/      # 17 platform connections with credential forms
+│   │   │       ├── post/            # Post Scheduler (create + manage + calendar + list)
 │   │   │       ├── media/          # Media library (upload, grid, AI captions)
-│   │   │       ├── scheduler/      # Post scheduler (calendar + list view)
+│   │   │       ├── scheduler/      # Redirect → /post (consolidated)
 │   │   │       ├── image-style/    # AI image preferences questionnaire
 │   │   │       └── settings/       # Bot settings (goal, schedule, RSS, GA4)
 │   │   └── credits/
@@ -143,7 +144,7 @@ src/
 - `BOT_STATUS_CONFIG` - Badge variant + label per status
 - `POST_STATUS_COLORS` - CSS classes per post status
 - `GOAL_LABELS` - 6 bot goal display names
-- `BOT_NAV_TABS` - 8 bot navigation tabs (overview, activity, platforms, media, scheduler, image-style, analytics, settings)
+- `BOT_NAV_TABS` - 11 bot navigation tabs (overview, post-scheduler, activity, platforms, email, strategy, media, creative-style, analytics, ai-insights, settings)
 - `TIMEZONES` - 17 timezone options
 - `SCHEDULE_PRESETS` - 11 cron schedule options
 - `CONTENT_TYPES` - 7 content type options
@@ -152,7 +153,7 @@ src/
 
 ### Bot Navigation
 
-All 8 bot sub-pages use the shared `<BotNav>` component from `src/components/dashboard/bot-nav.tsx`. This uses `BOT_NAV_TABS` from constants. To add a new tab, update both `BOT_NAV_TABS` in constants.ts and create the corresponding page.
+All 11 bot sub-pages use the shared `<BotNav>` component from `src/components/dashboard/bot-nav.tsx`. This uses `BOT_NAV_TABS` from constants. To add a new tab, update both `BOT_NAV_TABS` in constants.ts and create the corresponding page.
 
 ### Media System
 
@@ -162,13 +163,19 @@ All 8 bot sub-pages use the shared `<BotNav>` component from `src/components/das
 - AI Captions: `POST /api/media/{id}/generate` calls Claude Vision API
 - Platform-specific guidelines in generate route (15 platforms, maxLength + style per platform)
 
-### Post Scheduler
+### Post Scheduler (Unified in /post)
 
+- **Single page** for creating posts AND managing all scheduled/published posts
 - Status lifecycle: DRAFT → SCHEDULED → PUBLISHING → PUBLISHED/FAILED/CANCELLED
-- Calendar view (month grid) + list view with status filters
-- Auto-scheduling uses `OPTIMAL_POSTING_TIMES` from platform-specs.ts
-- Server actions for create + delete in the page component
-- API routes for programmatic CRUD
+- **Create section**: AI assistant, platform validation, media compatibility, post preview
+- **Stats cards**: Drafts, Scheduled, Published, Failed counts
+- **Filter tabs**: ALL / DRAFT / SCHEDULED / PUBLISHED / FAILED
+- **List view**: Posts with status, platforms, media thumbnails, error messages
+- **Calendar view**: Month grid showing posts by date
+- **Retry failed posts**: One-click retry requeues FAILED posts for immediate publishing
+- **Delete**: Available for DRAFT, SCHEDULED, and FAILED posts
+- Old `/scheduler` route redirects to `/post` for backwards compatibility
+- API routes (`/api/scheduled-posts/`) for programmatic CRUD
 
 ### Stripe Integration
 

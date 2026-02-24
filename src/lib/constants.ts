@@ -125,13 +125,12 @@ export const GOAL_LABELS: Record<string, string> = {
 // ============ BOT NAVIGATION TABS ============
 export const BOT_NAV_TABS = [
   { key: 'overview', label: 'Overview', path: '' },
-  { key: 'post', label: 'New Post', path: '/post' },
+  { key: 'post', label: 'Post Scheduler', path: '/post' },
   { key: 'activity', label: 'Activity', path: '/activity' },
   { key: 'platforms', label: 'Platforms', path: '/platforms' },
   { key: 'email', label: 'Email Marketing', path: '/email' },
   { key: 'strategy', label: 'Content Strategy', path: '/strategy' },
   { key: 'media', label: 'Media', path: '/media' },
-  { key: 'scheduler', label: 'Scheduler', path: '/scheduler' },
   { key: 'creative-style', label: 'Creative Style', path: '/creative-style' },
   { key: 'analytics', label: 'Analytics', path: '/analytics' },
   { key: 'ai-insights', label: 'AI Insights', path: '/ai-insights' },
