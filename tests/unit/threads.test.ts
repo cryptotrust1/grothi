@@ -198,7 +198,7 @@ describe('postText', () => {
 
     const result = await postText(makeCreds(), 'Test');
     expect(result.success).toBe(false);
-    expect(result.error).toBe('Threads rate limit reached. Posts will resume automatically.');
+    expect(result.error).toContain('Threads rate limit reached');
   });
 
   it('returns error if container processing fails', async () => {
@@ -215,7 +215,7 @@ describe('postText', () => {
 
     const result = await postText(makeCreds(), 'Test');
     expect(result.success).toBe(false);
-    expect(result.error).toBe('Connection timeout');
+    expect(result.error).toContain('Connection timeout');
   });
 });
 
@@ -271,14 +271,14 @@ describe('postCarousel', () => {
   it('rejects fewer than 2 items', async () => {
     const result = await postCarousel(makeCreds(), 'Caption', ['https://example.com/1.jpg']);
     expect(result.success).toBe(false);
-    expect(result.error).toContain('2-20 items');
+    expect(result.error).toContain('2-20 media items');
   });
 
   it('rejects more than 20 items', async () => {
     const urls = Array.from({ length: 21 }, (_, i) => `https://example.com/${i}.jpg`);
     const result = await postCarousel(makeCreds(), 'Caption', urls);
     expect(result.success).toBe(false);
-    expect(result.error).toContain('2-20 items');
+    expect(result.error).toContain('2-20 media items');
   });
 
   it('creates child containers, carousel, and publishes', async () => {

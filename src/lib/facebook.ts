@@ -98,7 +98,7 @@ export async function getFacebookCredentials(
     // Mark connection as errored if decryption fails
     await db.platformConnection.update({
       where: { id: conn.id },
-      data: { status: 'ERROR', lastError: 'Failed to decrypt credentials' },
+      data: { status: 'ERROR', lastError: 'Failed to decrypt Facebook credentials — the encryption key may have changed. Disconnect and reconnect Facebook in Platforms settings.' },
     });
     return null;
   }
@@ -151,7 +151,7 @@ async function graphFetch(
         await new Promise((r) => setTimeout(r, 30_000));
       }
       const data = await res.json().catch(() => ({
-        error: { message: 'Rate limit exceeded. Please wait a few minutes.', type: 'OAuthException', code: 429 },
+        error: { message: 'Facebook rate limit exceeded (HTTP 429) — too many requests. Your post will be retried automatically. No action needed.', type: 'OAuthException', code: 429 },
       }));
       return { data, rateLimits };
     }
@@ -167,7 +167,7 @@ async function graphFetch(
   } catch (e) {
     clearTimeout(timer);
     if (e instanceof Error && e.name === 'AbortError') {
-      throw new Error('Facebook API request timed out (30s). Try again later.');
+      throw new Error('Facebook API request timed out after 30 seconds. Facebook servers may be slow or temporarily unreachable. Your post will be retried automatically.');
     }
     throw e;
   }
@@ -192,14 +192,22 @@ function isTokenError(data: unknown): boolean {
 function friendlyFbError(data: GraphApiError): string {
   const err = data.error;
   const code = err.code;
+  const subcode = err.error_subcode;
 
-  if (code === 190) return 'Facebook token expired. Please reconnect Facebook in Platforms.';
-  if (code === 10 || code === 200) return 'Missing Facebook permissions. Please reconnect with full permissions.';
-  if (code === 4 || code === 32) return 'Facebook rate limit reached. Posts will resume automatically.';
-  if (code === 2) return 'Facebook is temporarily unavailable. The post will be retried.';
-  if (code === 324) return 'Facebook could not process the image. The file may be corrupted or too large.';
+  if (code === 190) {
+    if (subcode === 460) return 'Facebook token expired — your password was changed. Go to Platforms → Facebook and reconnect your account.';
+    if (subcode === 463) return 'Facebook token expired — it has passed its expiration date. Go to Platforms → Facebook and reconnect your account.';
+    if (subcode === 467) return 'Facebook token expired — it was invalidated by the user. Go to Platforms → Facebook and reconnect your account.';
+    return 'Facebook access token expired or was revoked. Go to Platforms → Facebook and reconnect your account.';
+  }
+  if (code === 10 || code === 200) return 'Missing Facebook permissions — your account does not have the required posting permissions. Go to Platforms → Facebook, disconnect, and reconnect with full permissions (pages_manage_posts, pages_read_engagement).';
+  if (code === 4 || code === 32) return 'Facebook rate limit reached — too many API requests in a short time. Your post will be retried automatically in the next cron cycle. No action needed.';
+  if (code === 2) return 'Facebook servers are temporarily unavailable (API error code 2). Your post will be retried automatically. If this persists for more than 1 hour, check Meta Platform Status at https://metastatus.com.';
+  if (code === 324) return 'Facebook rejected the image file — the file may be corrupted, have an unsupported format, or exceed the 8MB size limit. Try re-uploading a JPEG or PNG image under 8MB.';
+  if (code === 368) return 'Facebook temporarily blocked this action due to unusual activity. Wait 24 hours and try again. If this persists, review your posting frequency.';
+  if (code === 506) return 'Facebook rejected this as a duplicate post — identical content was already published. Change the text or image and try again.';
 
-  return `Facebook error: ${err.message}`;
+  return `Facebook error (code ${code}): ${err.message}`;
 }
 
 // ── Token Validation ───────────────────────────────────────────
@@ -284,7 +292,7 @@ export async function postText(
     return { success: true, postId: (data as Record<string, unknown>).id as string };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Network error';
-    return { success: false, error: msg };
+    return { success: false, error: `Facebook publishing failed: ${msg}` };
   }
 }
 
@@ -303,7 +311,7 @@ export async function postWithImage(
     try {
       await fs.access(imagePath);
     } catch {
-      return { success: false, error: `Image file not found: ${path.basename(imagePath)}. It may have been deleted.` };
+      return { success: false, error: `Image file "${path.basename(imagePath)}" not found on server. The file may have been deleted from the Media library. Upload the image again and retry.` };
     }
 
     const fileBuffer = await fs.readFile(imagePath);
@@ -337,7 +345,7 @@ export async function postWithImage(
     return { success: true, postId: (d.post_id as string) || (d.id as string) };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Network error';
-    return { success: false, error: msg };
+    return { success: false, error: `Facebook publishing failed: ${msg}` };
   }
 }
 
@@ -357,7 +365,7 @@ export async function postWithVideo(
     try {
       await fs.access(videoPath);
     } catch {
-      return { success: false, error: `Video file not found: ${path.basename(videoPath)}. It may have been deleted.` };
+      return { success: false, error: `Video file "${path.basename(videoPath)}" not found on server. The file may have been deleted from the Media library. Upload the video again and retry.` };
     }
 
     const fileBuffer = await fs.readFile(videoPath);
@@ -387,7 +395,7 @@ export async function postWithVideo(
     return { success: true, postId: (data as Record<string, unknown>).id as string };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Network error';
-    return { success: false, error: msg };
+    return { success: false, error: `Facebook publishing failed: ${msg}` };
   }
 }
 
@@ -414,7 +422,7 @@ export async function postReel(
     try {
       await fs.access(videoPath);
     } catch {
-      return { success: false, error: `Video file not found: ${path.basename(videoPath)}. It may have been deleted.` };
+      return { success: false, error: `Video file "${path.basename(videoPath)}" not found on server. The file may have been deleted from the Media library. Upload the video again and retry.` };
     }
 
     const fileBuffer = await fs.readFile(videoPath);
@@ -437,7 +445,7 @@ export async function postReel(
 
     const videoId = (initData as Record<string, unknown>).video_id;
     if (!videoId || typeof videoId !== 'string') {
-      return { success: false, error: 'Facebook did not return a video_id for Reel upload.' };
+      return { success: false, error: 'Facebook Reel upload failed — Facebook did not return a video ID. The video format may be unsupported. Use MP4 (H.264+AAC), vertical 9:16, 3s-15min duration.' };
     }
 
     // Step 2: Upload video binary to rupload endpoint
@@ -460,12 +468,12 @@ export async function postReel(
 
       if (!uploadRes.ok) {
         const errorBody = await uploadRes.text().catch(() => 'Unknown upload error');
-        return { success: false, error: `Reel upload failed (HTTP ${uploadRes.status}): ${errorBody.slice(0, 200)}` };
+        return { success: false, error: `Facebook Reel video upload failed (HTTP ${uploadRes.status}). The video may be too large or in an unsupported format. Use MP4 (H.264+AAC), max 1GB, vertical 9:16.` };
       }
     } catch (e) {
       clearTimeout(uploadTimer);
       if (e instanceof Error && e.name === 'AbortError') {
-        return { success: false, error: 'Reel video upload timed out (2 minutes). File may be too large.' };
+        return { success: false, error: 'Facebook Reel video upload timed out after 2 minutes. The file is likely too large. Try compressing the video or reducing the resolution. Max recommended: 1080x1920, under 100MB.' };
       }
       throw e;
     }
@@ -491,7 +499,7 @@ export async function postReel(
     return { success: true, postId: (typeof finishVideoId === 'string' ? finishVideoId : videoId) };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Network error';
-    return { success: false, error: msg };
+    return { success: false, error: `Facebook publishing failed: ${msg}` };
   }
 }
 
@@ -526,7 +534,7 @@ export async function postScheduled(
     return { success: true, postId: (data as Record<string, unknown>).id as string };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Network error';
-    return { success: false, error: msg };
+    return { success: false, error: `Facebook publishing failed: ${msg}` };
   }
 }
 
@@ -743,7 +751,7 @@ export async function deletePost(
     return { success: (data as Record<string, unknown>).success === true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Network error';
-    return { success: false, error: msg };
+    return { success: false, error: `Facebook publishing failed: ${msg}` };
   }
 }
 

@@ -198,7 +198,7 @@ describe('postImage', () => {
 
     const result = await postImage(makeCreds(), 'Test', 'https://example.com/bad.jpg');
     expect(result.success).toBe(false);
-    expect(result.error).toBe('Instagram error: Invalid image URL');
+    expect(result.error).toContain('Instagram error');
   });
 
   it('returns error if container processing fails', async () => {
@@ -219,7 +219,7 @@ describe('postImage', () => {
 
     const result = await postImage(makeCreds(), 'Test', 'https://example.com/img.jpg');
     expect(result.success).toBe(false);
-    expect(result.error).toBe('Instagram rate limit reached. Posts will resume automatically.');
+    expect(result.error).toContain('Instagram rate limit reached');
   });
 
   it('proceeds to Instagram API when pre-check has network error', async () => {
@@ -262,14 +262,14 @@ describe('postCarousel', () => {
   it('rejects fewer than 2 images', async () => {
     const result = await postCarousel(makeCreds(), 'Caption', ['https://example.com/1.jpg']);
     expect(result.success).toBe(false);
-    expect(result.error).toContain('2-10 images');
+    expect(result.error).toContain('2-10 media items');
   });
 
   it('rejects more than 10 images', async () => {
     const urls = Array.from({ length: 11 }, (_, i) => `https://example.com/${i}.jpg`);
     const result = await postCarousel(makeCreds(), 'Caption', urls);
     expect(result.success).toBe(false);
-    expect(result.error).toContain('2-10 images');
+    expect(result.error).toContain('2-10 media items');
   });
 
   it('creates child containers, carousel, and publishes', async () => {
