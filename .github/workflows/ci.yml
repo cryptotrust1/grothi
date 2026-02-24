@@ -1,0 +1,50 @@
+# CI — runs on every PR targeting main
+# Ensures build + tests pass BEFORE merge is allowed
+#
+# To enforce: GitHub → Settings → Branches → main → Require status checks
+# Add "Build & Test" as a required check
+
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ci-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: ./node_modules/.bin/prisma generate
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+        env:
+          # Prisma needs a DATABASE_URL at build time for type checking
+          # This is a dummy URL — no actual DB connection happens during build
+          DATABASE_URL: "postgresql://dummy:dummy@localhost:5432/dummy"
+          # Skip telemetry
+          NEXT_TELEMETRY_DISABLED: "1"
