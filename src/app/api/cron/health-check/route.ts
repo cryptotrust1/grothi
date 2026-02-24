@@ -9,20 +9,15 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { validateCronSecret } from '@/lib/api-helpers';
 import { db } from '@/lib/db';
 import { healthCheckAllConnections as fbHealthCheck } from '@/lib/facebook';
 import { healthCheckAllConnections as igHealthCheck } from '@/lib/instagram';
 import { healthCheckAllConnections as threadsHealthCheck } from '@/lib/threads';
 
-const CRON_SECRET = process.env.CRON_SECRET;
-
 export async function POST(request: NextRequest) {
-  const authHeader = request.headers.get('authorization');
-  const cronSecret = authHeader?.replace('Bearer ', '');
-
-  if (!CRON_SECRET || cronSecret !== CRON_SECRET) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const cronError = validateCronSecret(request.headers.get('authorization'));
+  if (cronError) return cronError;
 
   try {
     console.log('[health-check] Starting daily health check...');

@@ -8,6 +8,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Package, Trash2, Eye, EyeOff } from 'lucide-react';
+import { AlertMessage } from '@/components/ui/alert-message';
 
 export const metadata: Metadata = { title: 'Products', robots: { index: false } };
 
@@ -94,8 +95,8 @@ export default async function ProductsPage({
         <BotNav botId={id} activeTab="products" />
       </div>
 
-      {sp.success && <div className="rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-800">{sp.success}</div>}
-      {sp.error && <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">{sp.error}</div>}
+      {sp.success && <AlertMessage type="success" message={sp.success} />}
+      {sp.error && <AlertMessage type="error" message={sp.error} />}
 
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">{products.length} product{products.length !== 1 ? 's' : ''}</p>

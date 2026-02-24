@@ -3,13 +3,12 @@ import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { OPTIMAL_POSTING_TIMES } from '@/lib/platform-specs';
 import { ALL_PLATFORMS } from '@/lib/constants';
+import { apiError } from '@/lib/api-helpers';
 
 // GET: List scheduled posts for a bot
 export async function GET(request: NextRequest) {
   const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  if (!user) return apiError.unauthorized();
 
   const { searchParams } = new URL(request.url);
   const botId = searchParams.get('botId');
@@ -17,14 +16,10 @@ export async function GET(request: NextRequest) {
   const from = searchParams.get('from');
   const to = searchParams.get('to');
 
-  if (!botId) {
-    return NextResponse.json({ error: 'botId required' }, { status: 400 });
-  }
+  if (!botId) return apiError.badRequest('botId required');
 
   const bot = await db.bot.findFirst({ where: { id: botId, userId: user.id } });
-  if (!bot) {
-    return NextResponse.json({ error: 'Bot not found' }, { status: 404 });
-  }
+  if (!bot) return apiError.notFound('Bot');
 
   const where: Record<string, unknown> = { botId };
   if (status && status !== 'ALL') {
@@ -49,22 +44,16 @@ export async function GET(request: NextRequest) {
 // POST: Create a scheduled post
 export async function POST(request: NextRequest) {
   const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  if (!user) return apiError.unauthorized();
 
   try {
     const body = await request.json();
     const { botId, content, contentType, mediaId, platforms, platformContent, scheduledAt, autoSchedule, postType, mediaIds, fbPostType, threadsPostType } = body;
 
-    if (!botId || !content) {
-      return NextResponse.json({ error: 'botId and content are required' }, { status: 400 });
-    }
+    if (!botId || !content) return apiError.badRequest('botId and content are required');
 
     const bot = await db.bot.findFirst({ where: { id: botId, userId: user.id } });
-    if (!bot) {
-      return NextResponse.json({ error: 'Bot not found' }, { status: 404 });
-    }
+    if (!bot) return apiError.notFound('Bot');
 
     // Validate platforms
     const selectedPlatforms = Array.isArray(platforms) ? platforms : ['MASTODON'];

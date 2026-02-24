@@ -10,69 +10,11 @@ import { Separator } from '@/components/ui/separator';
 import { Palette, Sparkles, Type, Image, Layout, Smile, Info, Film } from 'lucide-react';
 import { BotNav } from '@/components/dashboard/bot-nav';
 import { HelpTip } from '@/components/ui/help-tip';
-import { VIDEO_STYLES } from '@/lib/constants';
+import { AlertMessage } from '@/components/ui/alert-message';
+import { VIDEO_STYLES, VISUAL_STYLES, IMAGE_TYPES, CREATIVE_TONES, TEXT_OVERLAY_OPTIONS, LOGO_PLACEMENT_OPTIONS, VIDEO_PACING_OPTIONS, VIDEO_MUSIC_OPTIONS } from '@/lib/constants';
 
 export const metadata: Metadata = { title: 'Creative Style', robots: { index: false } };
 
-const VISUAL_STYLES = [
-  { value: 'minimalist', label: 'Minimalist', desc: 'Clean, simple, lots of whitespace' },
-  { value: 'bold', label: 'Bold & Vibrant', desc: 'Bright colors, strong contrast, eye-catching' },
-  { value: 'corporate', label: 'Corporate', desc: 'Professional, polished, business-focused' },
-  { value: 'playful', label: 'Playful', desc: 'Fun, colorful, casual vibe' },
-  { value: 'elegant', label: 'Elegant', desc: 'Luxury feel, sophisticated, refined' },
-  { value: 'tech', label: 'Tech/Modern', desc: 'Futuristic, gradients, tech-forward' },
-  { value: 'organic', label: 'Organic/Natural', desc: 'Earth tones, natural textures, warm' },
-  { value: 'retro', label: 'Retro/Vintage', desc: 'Nostalgic, classic aesthetics' },
-];
-
-const IMAGE_TYPES = [
-  { value: 'photos', label: 'Photography', desc: 'Real photos, stock imagery' },
-  { value: 'illustrations', label: 'Illustrations', desc: 'Hand-drawn or digital art style' },
-  { value: 'flat_design', label: 'Flat Design', desc: 'Simple shapes, solid colors' },
-  { value: '3d_renders', label: '3D Renders', desc: 'Three-dimensional objects and scenes' },
-  { value: 'infographics', label: 'Infographics', desc: 'Data visualization, charts, diagrams' },
-  { value: 'abstract', label: 'Abstract', desc: 'Shapes, patterns, non-representational' },
-];
-
-const TONES = [
-  { value: 'professional', label: 'Professional' },
-  { value: 'casual', label: 'Casual & Friendly' },
-  { value: 'exciting', label: 'Exciting & Dynamic' },
-  { value: 'calming', label: 'Calming & Trustworthy' },
-  { value: 'luxurious', label: 'Luxurious & Premium' },
-  { value: 'educational', label: 'Educational & Informative' },
-  { value: 'humorous', label: 'Humorous & Witty' },
-  { value: 'inspirational', label: 'Inspirational & Motivating' },
-];
-
-const TEXT_OVERLAY_OPTIONS = [
-  { value: 'always', label: 'Always', desc: 'Include text/headlines on every image' },
-  { value: 'sometimes', label: 'Sometimes', desc: 'Only when it adds value' },
-  { value: 'never', label: 'Never', desc: 'Images only, no text overlay' },
-];
-
-const LOGO_PLACEMENT_OPTIONS = [
-  { value: 'bottom_right', label: 'Bottom Right' },
-  { value: 'bottom_left', label: 'Bottom Left' },
-  { value: 'top_right', label: 'Top Right' },
-  { value: 'top_left', label: 'Top Left' },
-  { value: 'center', label: 'Center (watermark)' },
-  { value: 'none', label: 'No Logo' },
-];
-
-const VIDEO_PACING_OPTIONS = [
-  { value: 'fast', label: 'Fast', desc: 'Quick cuts, high energy — TikTok, Reels' },
-  { value: 'medium', label: 'Medium', desc: 'Balanced pacing — most platforms' },
-  { value: 'slow', label: 'Slow', desc: 'Cinematic, thoughtful — YouTube, LinkedIn' },
-];
-
-const VIDEO_MUSIC_OPTIONS = [
-  { value: 'upbeat', label: 'Upbeat & Energetic' },
-  { value: 'chill', label: 'Chill & Relaxed' },
-  { value: 'corporate', label: 'Corporate & Professional' },
-  { value: 'cinematic', label: 'Cinematic & Epic' },
-  { value: 'none', label: 'No Music' },
-];
 
 export default async function CreativeStylePage({
   params,
@@ -88,10 +30,10 @@ export default async function CreativeStylePage({
   const bot = await db.bot.findFirst({ where: { id, userId: user.id } });
   if (!bot) notFound();
 
-  // Load from both old imagePreferences and new creativePreferences (merge)
-  const oldPrefs = (bot.imagePreferences as Record<string, unknown>) || {};
-  const newPrefs = (bot.creativePreferences as Record<string, unknown>) || {};
-  const prefs = { ...oldPrefs, ...newPrefs };
+  // Read from creativePreferences (primary), fallback to imagePreferences (legacy)
+  const prefs = (bot.creativePreferences as Record<string, unknown>)
+    || (bot.imagePreferences as Record<string, unknown>)
+    || {};
 
   const brandColors = (prefs.brandColors as string[]) || ['#3B82F6', '#10B981'];
   const visualStyles = (prefs.visualStyles as string[]) || ['minimalist'];
@@ -162,8 +104,8 @@ export default async function CreativeStylePage({
         <BotNav botId={id} activeTab="creative-style" />
       </div>
 
-      {sp.success && <div className="rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-800">{sp.success}</div>}
-      {sp.error && <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">{sp.error}</div>}
+      {sp.success && <AlertMessage type="success" message={sp.success} />}
+      {sp.error && <AlertMessage type="error" message={sp.error} />}
 
       {/* How it works */}
       <Card className="bg-blue-50/50 border-blue-200">
@@ -250,7 +192,7 @@ export default async function CreativeStylePage({
               <div className="space-y-2">
                 <Label>Primary Tone</Label>
                 <select name="tone" defaultValue={tone} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                  {TONES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  {CREATIVE_TONES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                 </select>
               </div>
               <div className="space-y-2">

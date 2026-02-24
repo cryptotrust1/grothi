@@ -8,9 +8,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Globe, Info, ExternalLink, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Globe, Info, ExternalLink } from 'lucide-react';
 import { BotNav } from '@/components/dashboard/bot-nav';
 import { HelpTip } from '@/components/ui/help-tip';
+import { AlertMessage } from '@/components/ui/alert-message';
 import { SubmitButton } from '@/components/dashboard/platform-form-client';
 
 export const metadata: Metadata = { title: 'Bot Platforms', robots: { index: false } };
@@ -422,18 +423,8 @@ export default async function BotPlatformsPage({ params, searchParams }: {
       </Card>
 
       {/* Status / error / success messages */}
-      {sp.error && (
-        <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive flex items-start gap-2">
-          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-          <span>{sp.error}</span>
-        </div>
-      )}
-      {sp.success && (
-        <div className="rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-800 flex items-start gap-2">
-          <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
-          <span>{sp.success}</span>
-        </div>
-      )}
+      {sp.error && <AlertMessage type="error" message={sp.error} />}
+      {sp.success && <AlertMessage type="success" message={sp.success} />}
 
       {/* Quick status summary */}
       {bot.platformConns.length > 0 && (

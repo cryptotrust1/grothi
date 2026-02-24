@@ -1,4 +1,4 @@
-import { formatCredits, creditsToDollars, formatDate, formatDateTime, truncate } from '@/lib/utils';
+import { formatCredits, creditsToDollars, formatDate, formatDateTime, truncate, parseKeywords } from '@/lib/utils';
 
 describe('utils', () => {
   describe('formatCredits', () => {
@@ -93,6 +93,34 @@ describe('utils', () => {
       const result = truncate(longText, 10);
       expect(result).toBe('a'.repeat(10) + '...');
       expect(result.length).toBe(13);
+    });
+  });
+
+  describe('parseKeywords', () => {
+    it('parses comma-separated keywords', () => {
+      expect(parseKeywords('crypto, bitcoin, trading')).toEqual(['crypto', 'bitcoin', 'trading']);
+    });
+
+    it('trims whitespace and lowercases', () => {
+      expect(parseKeywords('  Crypto ,  BITCOIN , Trading  ')).toEqual(['crypto', 'bitcoin', 'trading']);
+    });
+
+    it('filters empty strings', () => {
+      expect(parseKeywords('crypto,,, bitcoin,  ,trading')).toEqual(['crypto', 'bitcoin', 'trading']);
+    });
+
+    it('handles empty input', () => {
+      expect(parseKeywords('')).toEqual([]);
+    });
+
+    it('respects max count', () => {
+      const keywords = Array.from({ length: 100 }, (_, i) => `keyword${i}`).join(',');
+      expect(parseKeywords(keywords, 5)).toHaveLength(5);
+    });
+
+    it('defaults to max 50 keywords', () => {
+      const keywords = Array.from({ length: 100 }, (_, i) => `keyword${i}`).join(',');
+      expect(parseKeywords(keywords)).toHaveLength(50);
     });
   });
 });

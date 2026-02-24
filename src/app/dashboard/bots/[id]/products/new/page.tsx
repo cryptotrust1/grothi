@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { HelpTip } from '@/components/ui/help-tip';
 import { ArrowLeft, Save } from 'lucide-react';
+import { AlertMessage } from '@/components/ui/alert-message';
 
 export const metadata: Metadata = { title: 'Add Product', robots: { index: false } };
 
@@ -135,7 +136,7 @@ export default async function NewProductPage({
         <BotNav botId={id} activeTab="products" />
       </div>
 
-      {sp.error && <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">{sp.error}</div>}
+      {sp.error && <AlertMessage type="error" message={sp.error} />}
 
       <Link href={`/dashboard/bots/${id}/products`} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="h-4 w-4" /> Back to Products

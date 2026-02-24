@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
-import { SignJWT } from 'jose';
+import { createOAuthStateToken } from '@/lib/oauth-helpers';
 
 const FB_GRAPH_VERSION = 'v24.0';
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.NEXTAUTH_SECRET!
-);
 
 /**
  * GET /api/oauth/facebook?botId=xxx
@@ -38,11 +35,7 @@ export async function GET(request: NextRequest) {
   const redirectUri = `${baseUrl}/api/oauth/facebook/callback`;
 
   // Create a signed state token with botId + userId for CSRF protection
-  const state = await new SignJWT({ botId, userId: user.id })
-    .setProtectedHeader({ alg: 'HS256' })
-    .setExpirationTime('10m')
-    .setIssuedAt()
-    .sign(JWT_SECRET);
+  const state = await createOAuthStateToken(botId, user.id);
 
   // Required scopes for posting to Pages and reading analytics:
   // - pages_show_list: list pages the user manages

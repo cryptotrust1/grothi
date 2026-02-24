@@ -10,6 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { validateCronSecret } from '@/lib/api-helpers';
 import { db } from '@/lib/db';
 import {
   decryptFacebookCredentials,
@@ -29,8 +30,6 @@ import type { PlatformType } from '@prisma/client';
 /** Platforms that support engagement collection via API. */
 const SUPPORTED_PLATFORMS = new Set(['FACEBOOK', 'INSTAGRAM', 'THREADS']);
 
-const CRON_SECRET = process.env.CRON_SECRET;
-
 /** Only collect engagement for posts published within this window. */
 const COLLECTION_WINDOW_DAYS = 7;
 
@@ -38,12 +37,8 @@ const COLLECTION_WINDOW_DAYS = 7;
 const BATCH_SIZE = 50;
 
 export async function POST(request: NextRequest) {
-  const authHeader = request.headers.get('authorization');
-  const cronSecret = authHeader?.replace('Bearer ', '');
-
-  if (!CRON_SECRET || cronSecret !== CRON_SECRET) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const cronError = validateCronSecret(request.headers.get('authorization'));
+  if (cronError) return cronError;
 
   console.log('[collect-engagement] Starting engagement collection...');
   const startTime = Date.now();

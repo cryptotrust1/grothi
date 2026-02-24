@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
-import { SignJWT } from 'jose';
+import { createOAuthStateToken } from '@/lib/oauth-helpers';
 import { randomBytes, createHash } from 'crypto';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.NEXTAUTH_SECRET!
-);
 
 /**
  * GET /api/oauth/twitter?botId=xxx
@@ -44,15 +40,7 @@ export async function GET(request: NextRequest) {
     .digest('base64url');
 
   // Create signed state with botId, userId, and code_verifier for callback
-  const state = await new SignJWT({
-    botId,
-    userId: user.id,
-    codeVerifier,
-  })
-    .setProtectedHeader({ alg: 'HS256' })
-    .setExpirationTime('10m')
-    .setIssuedAt()
-    .sign(JWT_SECRET);
+  const state = await createOAuthStateToken(botId, user.id, '10m', { codeVerifier });
 
   // Scopes needed for posting tweets and reading user info:
   // - tweet.read: Read tweets

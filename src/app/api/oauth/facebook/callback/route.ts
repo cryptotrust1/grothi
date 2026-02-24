@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify, SignJWT } from 'jose';
+import { SignJWT } from 'jose';
 import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { encrypt } from '@/lib/encryption';
+import { verifyOAuthStateToken } from '@/lib/oauth-helpers';
 
 const FB_GRAPH_VERSION = 'v24.0';
 const GRAPH_BASE = `https://graph.facebook.com/${FB_GRAPH_VERSION}`;
@@ -60,22 +61,13 @@ export async function GET(request: NextRequest) {
   }
 
   // Verify state token (CSRF protection)
-  let botId: string;
-  try {
-    const { payload } = await jwtVerify(state, JWT_SECRET);
-    botId = payload.botId as string;
-    const stateUserId = payload.userId as string;
-
-    if (stateUserId !== user.id) {
-      return NextResponse.redirect(
-        new URL('/dashboard?error=' + encodeURIComponent('Session mismatch'), origin)
-      );
-    }
-  } catch {
+  const stateResult = await verifyOAuthStateToken(state, user.id);
+  if (stateResult.error) {
     return NextResponse.redirect(
-      new URL('/dashboard?error=' + encodeURIComponent('Invalid or expired state token. Please try again.'), origin)
+      new URL('/dashboard?error=' + encodeURIComponent(stateResult.error), origin)
     );
   }
+  const botId = stateResult.botId!;
 
   // Verify bot belongs to user
   const bot = await db.bot.findFirst({ where: { id: botId, userId: user.id } });
