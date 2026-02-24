@@ -591,7 +591,7 @@ export function PostChatAssistant({ botId, platforms, productId, onUseContent, o
         </div>
 
         <div className="flex items-center justify-between mt-1.5">
-          <p className="text-[10px] text-muted-foreground">
+          <p className="text-[13px] text-muted-foreground">
             Shift+Enter for new line. Upload images for AI analysis.
           </p>
           {/* Model selector */}
@@ -599,20 +599,20 @@ export function PostChatAssistant({ botId, platforms, productId, onUseContent, o
             <button
               type="button"
               onClick={() => setShowModelDropdown(!showModelDropdown)}
-              className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-muted"
+              className="flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted font-medium"
               disabled={isSending}
             >
               {AI_MODELS.find(m => m.id === selectedModel)?.label || 'Select model'}
-              <ChevronDown className="h-2.5 w-2.5" />
+              <ChevronDown className="h-3.5 w-3.5" />
             </button>
             {showModelDropdown && (
-              <div className="absolute bottom-full right-0 mb-1 w-52 bg-white rounded-md border shadow-lg z-50 py-1">
+              <div className="absolute bottom-full right-0 mb-1 w-56 bg-white rounded-md border shadow-lg z-50 py-1">
                 {(['anthropic', 'openai', 'google'] as const).map((provider) => {
                   const providerModels = AI_MODELS.filter(m => m.provider === provider);
                   const providerLabel = provider === 'anthropic' ? 'Anthropic' : provider === 'openai' ? 'OpenAI' : 'Google';
                   return (
                     <div key={provider}>
-                      <div className="px-3 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                      <div className="px-3 py-1 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
                         {providerLabel}
                       </div>
                       {providerModels.map((model) => (
@@ -623,7 +623,7 @@ export function PostChatAssistant({ botId, platforms, productId, onUseContent, o
                             setSelectedModel(model.id);
                             setShowModelDropdown(false);
                           }}
-                          className={`w-full text-left px-3 py-1.5 text-xs hover:bg-muted transition-colors ${
+                          className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${
                             selectedModel === model.id ? 'text-purple-700 font-medium bg-purple-50' : 'text-gray-700'
                           }`}
                         >

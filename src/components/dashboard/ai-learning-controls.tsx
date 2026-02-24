@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ThumbsUp, ThumbsDown, RotateCcw, Loader2, CheckCircle2 } from 'lucide-react';
+import { ThumbsUp, ThumbsDown, RotateCcw, Loader2, CheckCircle2, Lock, Unlock } from 'lucide-react';
 
 interface ArmInfo {
   armKey: string;
@@ -16,8 +16,6 @@ interface ArmInfo {
 
 /** Minimum pulls to consider a strategy "proven" */
 const PROVEN_MIN_PULLS = 10;
-/** Minimum reward above 0 to be "proven" */
-const PROVEN_MIN_REWARD = 0.1;
 
 interface LearningControlsProps {
   botId: string;
@@ -28,10 +26,12 @@ interface LearningControlsProps {
 }
 
 type FeedbackState = Record<string, 'boosted' | 'penalized' | undefined>;
+type StableState = Record<string, boolean>;
 
 export function LearningControls({ botId, armsByDimension, dimensionLabels }: LearningControlsProps) {
   const [loading, setLoading] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<FeedbackState>({});
+  const [stableArms, setStableArms] = useState<StableState>({});
   const [message, setMessage] = useState<string | null>(null);
 
   const doAction = async (
@@ -58,7 +58,6 @@ export function LearningControls({ botId, armsByDimension, dimensionLabels }: Le
           setFeedback(prev => ({ ...prev, [feedbackKey]: feedbackType }));
         }
         if (action.startsWith('reset')) {
-          // Reload page to reflect reset
           window.location.reload();
         }
       } else {
@@ -69,6 +68,10 @@ export function LearningControls({ botId, armsByDimension, dimensionLabels }: Le
     } finally {
       setLoading(null);
     }
+  };
+
+  const toggleStable = (feedbackKey: string) => {
+    setStableArms(prev => ({ ...prev, [feedbackKey]: !prev[feedbackKey] }));
   };
 
   const dimensions = Object.keys(armsByDimension);
@@ -119,22 +122,30 @@ export function LearningControls({ botId, armsByDimension, dimensionLabels }: Le
               {arms.slice(0, 6).map((arm, armIdx) => {
                 const feedbackKey = `${dim}-${arm.platform}-${arm.armKey}`;
                 const currentFeedback = feedback[feedbackKey];
-                const isProven = arm.pulls >= PROVEN_MIN_PULLS && arm.reward >= PROVEN_MIN_REWARD;
+                const isStable = stableArms[feedbackKey] === true;
+                const isProven = arm.pulls >= PROVEN_MIN_PULLS;
                 const isBest = armIdx === 0 && arm.pulls >= 3;
-                const isStable = currentFeedback === 'boosted' || (isProven && arm.pulls >= 20);
 
                 return (
                   <div
                     key={feedbackKey}
-                    className={`flex items-center justify-between gap-2 p-2.5 rounded-lg border ${
-                      isStable ? 'bg-green-50/50 border-green-200' : isProven ? 'bg-blue-50/30 border-blue-100' : 'bg-muted/20'
+                    className={`flex items-center justify-between gap-2 p-3 rounded-lg border ${
+                      isStable
+                        ? 'bg-green-50 border-green-300 ring-1 ring-green-200'
+                        : currentFeedback === 'boosted'
+                          ? 'bg-emerald-50/50 border-emerald-200'
+                          : currentFeedback === 'penalized'
+                            ? 'bg-red-50/30 border-red-200'
+                            : isProven
+                              ? 'bg-blue-50/30 border-blue-100'
+                              : 'bg-muted/20'
                     }`}
                   >
                     <div className="flex items-center gap-2 min-w-0 flex-1 flex-wrap">
                       <span className="text-sm font-medium truncate">{arm.label}</span>
                       {isStable && (
-                        <Badge className="bg-green-100 text-green-800 text-[10px] gap-0.5 shrink-0">
-                          <CheckCircle2 className="h-2.5 w-2.5" /> Stable
+                        <Badge className="bg-green-600 text-white text-[10px] gap-0.5 shrink-0">
+                          <Lock className="h-2.5 w-2.5" /> Stable
                         </Badge>
                       )}
                       {isBest && !isStable && (
@@ -155,22 +166,31 @@ export function LearningControls({ botId, armsByDimension, dimensionLabels }: Le
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-1 shrink-0">
-                      {currentFeedback === 'boosted' ? (
-                        <Badge className="bg-green-100 text-green-800 text-xs gap-0.5">
-                          <ThumbsUp className="h-3 w-3" /> Confirmed
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {/* Confirmed/Rejected badge - stays permanently */}
+                      {currentFeedback === 'boosted' && (
+                        <Badge className="bg-green-100 text-green-800 text-[10px] gap-0.5">
+                          <ThumbsUp className="h-2.5 w-2.5" /> Liked
                         </Badge>
-                      ) : currentFeedback === 'penalized' ? (
-                        <Badge className="bg-red-100 text-red-800 text-xs gap-0.5">
-                          <ThumbsDown className="h-3 w-3" /> Rejected
+                      )}
+                      {currentFeedback === 'penalized' && (
+                        <Badge className="bg-red-100 text-red-800 text-[10px] gap-0.5">
+                          <ThumbsDown className="h-2.5 w-2.5" /> Rejected
                         </Badge>
-                      ) : (
+                      )}
+
+                      {/* Thumbs up/down - always visible unless stable locked */}
+                      {!isStable && (
                         <>
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-7 w-7 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
-                            title="Confirm: Boost this strategy's score. Use when you know this works well for your audience."
+                            className={`h-8 w-8 p-0 ${
+                              currentFeedback === 'boosted'
+                                ? 'text-green-700 bg-green-100'
+                                : 'text-green-600 hover:text-green-700 hover:bg-green-50'
+                            }`}
+                            title="Like: This strategy works well"
                             disabled={loading !== null}
                             onClick={() => doAction(
                               'boost_arm',
@@ -180,16 +200,20 @@ export function LearningControls({ botId, armsByDimension, dimensionLabels }: Le
                             )}
                           >
                             {loading === feedbackKey ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              <Loader2 className="h-4 w-4 animate-spin" />
                             ) : (
-                              <ThumbsUp className="h-3.5 w-3.5" />
+                              <ThumbsUp className="h-4 w-4" />
                             )}
                           </Button>
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-7 w-7 p-0 text-red-500 hover:text-red-600 hover:bg-red-50"
-                            title="Reject: Lower this strategy's score. Use when you know this doesn't work for your audience."
+                            className={`h-8 w-8 p-0 ${
+                              currentFeedback === 'penalized'
+                                ? 'text-red-700 bg-red-100'
+                                : 'text-red-500 hover:text-red-600 hover:bg-red-50'
+                            }`}
+                            title="Dislike: This strategy doesn't work"
                             disabled={loading !== null}
                             onClick={() => doAction(
                               'penalize_arm',
@@ -199,13 +223,32 @@ export function LearningControls({ botId, armsByDimension, dimensionLabels }: Le
                             )}
                           >
                             {loading === feedbackKey ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              <Loader2 className="h-4 w-4 animate-spin" />
                             ) : (
-                              <ThumbsDown className="h-3.5 w-3.5" />
+                              <ThumbsDown className="h-4 w-4" />
                             )}
                           </Button>
                         </>
                       )}
+
+                      {/* Lock/Unlock as Stable */}
+                      <Button
+                        variant={isStable ? 'default' : 'ghost'}
+                        size="sm"
+                        className={`h-8 px-2 text-[10px] gap-1 ${
+                          isStable
+                            ? 'bg-green-600 hover:bg-green-700 text-white'
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                        title={isStable ? 'Unlock: Remove stable lock so AI can re-evaluate' : 'Lock as Stable: Keep this learning permanently'}
+                        onClick={() => toggleStable(feedbackKey)}
+                      >
+                        {isStable ? (
+                          <><Unlock className="h-3 w-3" /> Unlock</>
+                        ) : (
+                          <><Lock className="h-3 w-3" /> Stable</>
+                        )}
+                      </Button>
                     </div>
                   </div>
                 );
