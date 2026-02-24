@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   Scissors, Type, Crop, Play, Pause, RotateCcw,
   Download, Film, CheckCircle2, Loader2, ChevronRight,
-  Sparkles, ChevronDown, ChevronUp, Wand2,
+  Sparkles, ChevronDown, ChevronUp, Wand2, Camera, Copy, MessageSquare,
 } from 'lucide-react';
 import Link from 'next/link';
 import { VIDEO_MODELS, getDefaultVideoModel } from '@/lib/ai-models';
@@ -104,6 +104,19 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
   const [result, setResult] = useState<{ mediaId: string; url: string; filename: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // ── Phase 3: AI Caption Generator ──
+  const [showCaptionForm, setShowCaptionForm] = useState(false);
+  const [captionPlatforms, setCaptionPlatforms] = useState<string[]>(['INSTAGRAM', 'TIKTOK', 'FACEBOOK']);
+  const [generatingCaptions, setGeneratingCaptions] = useState(false);
+  const [captions, setCaptions] = useState<Record<string, string> | null>(null);
+  const [captionError, setCaptionError] = useState<string | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  // ── Phase 4: Thumbnail Extraction ──
+  const [capturingThumb, setCapturingThumb] = useState(false);
+  const [thumbResult, setThumbResult] = useState<{ mediaId: string; url: string; filename: string } | null>(null);
+  const [thumbError, setThumbError] = useState<string | null>(null);
+
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const handleVideoSelect = useCallback((videoId: string) => {
@@ -115,6 +128,12 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
     setIsPlaying(false);
     setResult(null);
     setError(null);
+    // Reset Phase 3 + 4 state
+    setShowCaptionForm(false);
+    setCaptions(null);
+    setCaptionError(null);
+    setThumbResult(null);
+    setThumbError(null);
   }, []);
 
   const handleVideoLoaded = useCallback(() => {
@@ -185,6 +204,12 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
     setResult(null);
     setError(null);
     setShowGenSection(false);
+    // Reset Phase 3+4 — clear stale state from any previously selected video
+    setShowCaptionForm(false);
+    setCaptions(null);
+    setCaptionError(null);
+    setThumbResult(null);
+    setThumbError(null);
   }, []);
 
   const handleGenerate = useCallback(async () => {
@@ -253,6 +278,72 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
       setGenError(err instanceof Error ? err.message : 'Generation failed');
     }
   }, [botId, genModelId, genPlatform, genPrompt, addGeneratedVideo]);
+
+  // ── Phase 3: Generate AI captions for the processed video ──
+  const handleGenerateCaptions = useCallback(async (mediaId: string, videoDescription?: string) => {
+    setGeneratingCaptions(true);
+    setCaptionError(null);
+    setCaptions(null);
+
+    try {
+      const res = await fetch('/api/studio/caption', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mediaId,
+          botId,
+          platforms: captionPlatforms,
+          videoDescription,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Caption generation failed');
+      setCaptions(data.captions || {});
+    } catch (err) {
+      setCaptionError(err instanceof Error ? err.message : 'Caption generation failed');
+    } finally {
+      setGeneratingCaptions(false);
+    }
+  }, [botId, captionPlatforms]);
+
+  const handleCopyCaption = useCallback((platform: string, text: string) => {
+    navigator.clipboard.writeText(text).catch(() => {});
+    setCopiedKey(platform);
+    setTimeout(() => setCopiedKey(null), 2000);
+  }, []);
+
+  const toggleCaptionPlatform = useCallback((platform: string) => {
+    setCaptionPlatforms(prev =>
+      prev.includes(platform) ? prev.filter(p => p !== platform) : [...prev, platform]
+    );
+  }, []);
+
+  // ── Phase 4: Extract thumbnail frame from current video position ──
+  const handleCaptureThumb = useCallback(async () => {
+    if (!selectedVideoId) return;
+    setCapturingThumb(true);
+    setThumbError(null);
+    setThumbResult(null);
+
+    try {
+      const res = await fetch('/api/studio/thumbnail', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mediaId: selectedVideoId,
+          botId,
+          timestamp: Math.round(currentTime * 100) / 100,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Thumbnail capture failed');
+      setThumbResult(data);
+    } catch (err) {
+      setThumbError(err instanceof Error ? err.message : 'Thumbnail capture failed');
+    } finally {
+      setCapturingThumb(false);
+    }
+  }, [selectedVideoId, botId, currentTime]);
 
   const handleProcess = async () => {
     if (!selectedVideoId) return;
@@ -538,6 +629,22 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
                 <span className="text-xs font-mono text-muted-foreground tabular-nums">
                   {formatTime(currentTime)} / {formatTime(videoDuration)}
                 </span>
+                {/* Phase 4: Capture thumbnail at current frame */}
+                {videoDuration > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleCaptureThumb}
+                    disabled={capturingThumb}
+                    className="shrink-0"
+                    title={`Capture thumbnail at ${formatTime(currentTime)}`}
+                  >
+                    {capturingThumb
+                      ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Capturing…</>
+                      : <><Camera className="h-3.5 w-3.5 mr-1.5" />Capture Thumbnail</>
+                    }
+                  </Button>
+                )}
                 {videoDuration > 0 && (
                   <Badge variant="secondary" className="ml-auto text-xs">
                     <Scissors className="h-3 w-3 mr-1" />
@@ -545,6 +652,34 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
                   </Badge>
                 )}
               </div>
+
+              {/* Phase 4: Thumbnail result */}
+              {thumbError && (
+                <div className="rounded-md bg-destructive/10 border border-destructive/20 p-2 text-xs text-destructive">
+                  {thumbError}
+                </div>
+              )}
+              {thumbResult && (
+                <div className="rounded-lg bg-green-50 border border-green-200 p-3 flex items-center gap-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={thumbResult.url}
+                    alt="Thumbnail"
+                    className="h-14 w-24 object-cover rounded border shrink-0"
+                  />
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <p className="text-xs font-medium text-green-800 truncate">{thumbResult.filename}</p>
+                    <p className="text-[11px] text-green-700">Saved to Media library as image</p>
+                  </div>
+                  <button
+                    onClick={() => setThumbResult(null)}
+                    className="text-green-600 hover:text-green-800 shrink-0 text-lg leading-none"
+                    title="Dismiss"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
 
               {/* Timeline visualiser + sliders */}
               {videoDuration > 0 && (
@@ -776,6 +911,7 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
                   <div className="rounded-xl overflow-hidden bg-black aspect-video max-h-64 shadow-inner">
                     {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
                     <video
+                      key={result.url}
                       src={result.url}
                       className="w-full h-full object-contain"
                       controls
@@ -795,13 +931,106 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
                       </Button>
                     </Link>
                     <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => { setShowCaptionForm(v => !v); setCaptions(null); setCaptionError(null); }}
+                    >
+                      <MessageSquare className="h-3.5 w-3.5 mr-1.5" />
+                      {showCaptionForm ? 'Hide Captions' : 'Generate Caption'}
+                    </Button>
+                    <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => { setResult(null); setError(null); }}
+                      onClick={() => { setResult(null); setError(null); setShowCaptionForm(false); setCaptions(null); }}
                     >
                       <RotateCcw className="h-3.5 w-3.5 mr-1.5" /> Edit another
                     </Button>
                   </div>
+
+                  {/* ── Phase 3: AI Caption Generator ── */}
+                  {showCaptionForm && (
+                    <div className="rounded-xl border bg-muted/30 p-4 space-y-4">
+                      <p className="text-xs font-semibold flex items-center gap-1.5">
+                        <MessageSquare className="h-3.5 w-3.5 text-primary" />
+                        Generate post captions for this video
+                      </p>
+
+                      {/* Platform toggles */}
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-medium">Platforms</Label>
+                        <div className="flex flex-wrap gap-2">
+                          {['INSTAGRAM', 'TIKTOK', 'FACEBOOK', 'TWITTER', 'LINKEDIN', 'THREADS', 'YOUTUBE'].map(p => (
+                            <button
+                              key={p}
+                              onClick={() => toggleCaptionPlatform(p)}
+                              className={`text-[11px] px-2.5 py-1 rounded-full border transition-all ${
+                                captionPlatforms.includes(p)
+                                  ? 'bg-primary text-primary-foreground border-primary'
+                                  : 'border-input text-muted-foreground hover:border-primary/50'
+                              }`}
+                            >
+                              {p.charAt(0) + p.slice(1).toLowerCase()}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {captionError && (
+                        <div className="rounded-md bg-destructive/10 border border-destructive/20 p-2 text-xs text-destructive">
+                          {captionError}
+                        </div>
+                      )}
+
+                      {!captions && (
+                        <Button
+                          size="sm"
+                          onClick={() => handleGenerateCaptions(
+                            result.mediaId,
+                            selectedVideo?.filename?.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ')
+                          )}
+                          disabled={generatingCaptions || captionPlatforms.length === 0}
+                          className="w-full gap-2"
+                        >
+                          {generatingCaptions
+                            ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Generating captions…</>
+                            : <><Sparkles className="h-3.5 w-3.5" />Generate Captions</>
+                          }
+                        </Button>
+                      )}
+
+                      {captions && Object.keys(captions).length > 0 && (
+                        <div className="space-y-3">
+                          {Object.entries(captions).map(([platform, caption]) => (
+                            <div key={platform} className="space-y-1">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                                  {platform}
+                                </span>
+                                <button
+                                  onClick={() => handleCopyCaption(platform, caption)}
+                                  className="text-[11px] flex items-center gap-1 text-primary hover:underline"
+                                >
+                                  <Copy className="h-3 w-3" />
+                                  {copiedKey === platform ? 'Copied!' : 'Copy'}
+                                </button>
+                              </div>
+                              <div className="rounded-md bg-background border p-2.5 text-xs whitespace-pre-wrap leading-relaxed">
+                                {caption}
+                              </div>
+                            </div>
+                          ))}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => { setCaptions(null); setCaptionError(null); }}
+                            className="text-xs"
+                          >
+                            <RotateCcw className="h-3 w-3 mr-1.5" /> Regenerate
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-4">
