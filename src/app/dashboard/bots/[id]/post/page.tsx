@@ -17,6 +17,10 @@ import {
 } from 'lucide-react';
 import type { PlatformType } from '@prisma/client';
 
+// Per-platform publish result stored in publishResults JSON field
+type PlatformPublishResult = { success: boolean; externalId?: string; error?: string };
+type PublishResults = Record<string, PlatformPublishResult>;
+
 export const metadata: Metadata = { title: 'New Post', robots: { index: false } };
 
 export default async function ManualPostPage({
@@ -589,14 +593,47 @@ export default async function ManualPostPage({
                       <div className="space-y-0.5">
                         {dayPosts.slice(0, 3).map((post) => {
                           const platforms = Array.isArray(post.platforms) ? post.platforms as string[] : [];
+                          const results = (post.status === 'PUBLISHED' || post.status === 'FAILED')
+                            ? post.publishResults as PublishResults | null
+                            : null;
+
+                          // Build detailed tooltip
+                          const tipLines: string[] = [
+                            post.content.slice(0, 150),
+                            '',
+                            `Status: ${post.status}`,
+                            `Created: ${new Date(post.createdAt).toLocaleString('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
+                          ];
+                          if (post.scheduledAt) tipLines.push(`Scheduled: ${new Date(post.scheduledAt).toLocaleString('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`);
+                          if (post.publishedAt) tipLines.push(`Posted: ${new Date(post.publishedAt).toLocaleString('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`);
+                          if (results) {
+                            tipLines.push('');
+                            for (const [p, r] of Object.entries(results)) {
+                              tipLines.push(`${r.success ? '✓' : '✗'} ${PLATFORM_NAMES[p] || p}${r.error ? ': ' + r.error : ''}`);
+                            }
+                          }
+
                           return (
                             <div
                               key={post.id}
                               className={`text-[9px] leading-tight px-1 py-0.5 rounded truncate ${POST_STATUS_COLORS[post.status] || 'bg-gray-100'}`}
-                              title={post.content.slice(0, 100)}
+                              title={tipLines.join('\n')}
                             >
                               {post.scheduledAt ? new Date(post.scheduledAt).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' }) : ''}{' '}
-                              {platforms.map(p => (PLATFORM_NAMES[p] || p).slice(0, 2)).join('·')}
+                              {results ? (
+                                platforms.map((p, i) => {
+                                  const abbr = (PLATFORM_NAMES[p] || p).slice(0, 2);
+                                  const r = results[p];
+                                  if (!r) return <span key={p}>{i > 0 ? '·' : ''}{abbr}</span>;
+                                  return (
+                                    <span key={p} className={r.success ? '' : 'line-through opacity-60'}>
+                                      {i > 0 ? '·' : ''}{r.success ? '✓' : '✗'}{abbr}
+                                    </span>
+                                  );
+                                })
+                              ) : (
+                                platforms.map(p => (PLATFORM_NAMES[p] || p).slice(0, 2)).join('·')
+                              )}
                             </div>
                           );
                         })}
@@ -671,19 +708,35 @@ export default async function ManualPostPage({
                         )}
 
                         <div className="flex-1 min-w-0 space-y-2">
-                          {/* Status & platforms */}
-                          <div className="flex items-center gap-2 flex-wrap">
+                          {/* Status & per-platform results */}
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${POST_STATUS_COLORS[post.status]}`}>
                               {post.status}
                             </span>
-                            {platforms.map((p) => (
-                              <Badge key={p} variant="outline" className="text-[10px] h-5">
-                                {PLATFORM_NAMES[p] || p}
-                              </Badge>
-                            ))}
-                            {post.postType && (
-                              <Badge variant="secondary" className="text-[10px] h-5 capitalize">{post.postType}</Badge>
-                            )}
+                            {(() => {
+                              const results = (post.status === 'PUBLISHED' || post.status === 'FAILED')
+                                ? post.publishResults as PublishResults | null
+                                : null;
+                              return platforms.map((p) => {
+                                const name = PLATFORM_NAMES[p] || p;
+                                if (results && results[p]) {
+                                  return results[p].success ? (
+                                    <Badge key={p} variant="outline" className="text-[10px] h-5 border-green-300 text-green-700 bg-green-50">
+                                      ✓ {name}
+                                    </Badge>
+                                  ) : (
+                                    <Badge key={p} variant="outline" className="text-[10px] h-5 border-red-300 text-red-700 bg-red-50">
+                                      ✗ {name}
+                                    </Badge>
+                                  );
+                                }
+                                return (
+                                  <Badge key={p} variant="outline" className="text-[10px] h-5">
+                                    {name}
+                                  </Badge>
+                                );
+                              });
+                            })()}
                             {post.autoSchedule && (
                               <Badge variant="secondary" className="text-[10px] h-5">Auto</Badge>
                             )}
@@ -697,27 +750,56 @@ export default async function ManualPostPage({
                           {/* Content preview */}
                           <p className="text-sm line-clamp-2">{post.content}</p>
 
-                          {/* Time */}
-                          <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
+                          {/* Times */}
+                          <div className="flex items-center gap-3 text-[11px] text-muted-foreground flex-wrap">
+                            <span>
+                              Created {new Date(post.createdAt).toLocaleString('en', {
+                                month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+                              })}
+                            </span>
                             {post.scheduledAt && (
                               <span className="flex items-center gap-1">
                                 <Clock className="h-3 w-3" />
-                                {new Date(post.scheduledAt).toLocaleString('en', {
+                                Scheduled {new Date(post.scheduledAt).toLocaleString('en', {
                                   month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
                                 })}
                               </span>
                             )}
                             {post.publishedAt && (
                               <span className="text-green-600">
-                                Published {new Date(post.publishedAt).toLocaleString('en', {
+                                Posted {new Date(post.publishedAt).toLocaleString('en', {
                                   month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
                                 })}
                               </span>
                             )}
-                            {post.error && (
-                              <span className="text-destructive text-[11px]">{post.error}</span>
-                            )}
                           </div>
+
+                          {/* Per-platform error details */}
+                          {(() => {
+                            const results = (post.status === 'PUBLISHED' || post.status === 'FAILED')
+                              ? post.publishResults as PublishResults | null
+                              : null;
+                            if (results) {
+                              const failed = Object.entries(results).filter(([, r]) => !r.success && r.error);
+                              if (failed.length > 0) {
+                                return (
+                                  <div className="space-y-0.5 mt-1">
+                                    {failed.map(([p, r]) => (
+                                      <p key={p} className="text-[11px] text-red-600">
+                                        ✗ {PLATFORM_NAMES[p] || p}: {r.error}
+                                      </p>
+                                    ))}
+                                  </div>
+                                );
+                              }
+                              return null;
+                            }
+                            // Fallback: show generic error for older posts without publishResults
+                            if (post.error) {
+                              return <p className="text-[11px] text-destructive mt-1">{post.error}</p>;
+                            }
+                            return null;
+                          })()}
                         </div>
 
                         {/* Actions */}
