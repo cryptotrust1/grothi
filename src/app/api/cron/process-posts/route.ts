@@ -46,6 +46,7 @@ import {
   isTokenNearExpiry,
   type ThreadsPostResult,
 } from '@/lib/threads';
+import { processEngagementFeedback } from '@/lib/rl-engine';
 import type { PlatformType, PlatformConnection } from '@prisma/client';
 import path from 'path';
 import { existsSync, mkdirSync } from 'fs';
@@ -297,10 +298,15 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        // Create PostEngagement record for RL learning pipeline
+        // Create PostEngagement record AND trigger immediate RL learning.
+        // This ensures learning starts from the very first post, not just
+        // after engagement collection. Content fingerprinting (tone, type,
+        // hashtags, time slot) is recorded immediately for the RL engine.
+        // Even zero-engagement posts provide valuable signal about what
+        // content/timing combinations the bot is using.
         if (result.success) {
           try {
-            await db.postEngagement.create({
+            const pe = await db.postEngagement.create({
               data: {
                 botId: post.botId,
                 platform: platform as PlatformType,
@@ -314,6 +320,17 @@ export async function POST(request: NextRequest) {
                 postedAt: now,
               },
             });
+
+            // Immediately trigger RL learning with initial (zero) engagement.
+            // The content dimensions (type, tone, time, hashtags) are recorded
+            // so the RL engine starts building arm statistics from post #1.
+            // When engagement is collected later, processEngagementFeedback
+            // will update the reward with actual metrics.
+            try {
+              await processEngagementFeedback(pe.id);
+            } catch {
+              // Non-fatal: engagement collection will retry later
+            }
           } catch (peError) {
             // Don't fail the post if engagement tracking fails
             const peMsg = peError instanceof Error ? peError.message : 'Unknown';
