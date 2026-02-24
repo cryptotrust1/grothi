@@ -325,16 +325,6 @@ export function PostFormClient({
     }).sort((a, b) => a.max - b.max);
   }, [content, selectedPlatforms, platformRequirements, getPlatformContent, platformContentOverrides]);
 
-  // ── Lowest char limit for tip ──────────────────────────────
-  const lowestLimit = useMemo(() => {
-    let min = 100000;
-    for (const p of Array.from(selectedPlatforms)) {
-      const req = platformRequirements[p];
-      if (req && req.maxCharacters < min) min = req.maxCharacters;
-    }
-    return min;
-  }, [selectedPlatforms, platformRequirements]);
-
   // ── Platform toggle ────────────────────────────────────────
 
   const togglePlatform = (platform: string) => {
@@ -559,9 +549,90 @@ ${pContent}`;
 
       {connectedPlatforms.length > 0 && (
         <form action={`/dashboard/bots/${botId}/post`} method="POST" onSubmit={(e) => e.preventDefault()}>
-          <div className="grid gap-6 lg:grid-cols-3">
-            {/* ═══════ Main Content - Left Column ═══════ */}
-            <div className="lg:col-span-2 space-y-4">
+          <div className="space-y-4">
+            {/* ═══════ Target Platforms — Full Width ═══════ */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Globe className="h-5 w-5" /> Target Platforms
+                </CardTitle>
+                <CardDescription>Select where to publish this post.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {/* Select All/None */}
+                <div className="flex gap-3 pb-2 border-b text-xs">
+                  <button type="button" onClick={selectAllPlatforms} className="text-primary hover:underline">
+                    Select all
+                  </button>
+                  <button type="button" onClick={deselectAllPlatforms} className="text-muted-foreground hover:underline">
+                    Deselect all
+                  </button>
+                </div>
+
+                {/* Platform checkboxes in a responsive grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5">
+                  {connectedPlatforms.map((p) => {
+                    const req = platformRequirements[p];
+                    const isSelected = selectedPlatforms.has(p);
+                    const requiresMedia = req?.mediaRequired;
+                    const hasIssues = isSelected && errors.some(e => e.platform === p);
+
+                    return (
+                      <label
+                        key={p}
+                        className={`flex items-center gap-3 p-2.5 rounded-md border cursor-pointer transition-colors ${
+                          isSelected
+                            ? hasIssues
+                              ? 'border-destructive/50 bg-destructive/5'
+                              : 'border-primary bg-primary/5'
+                            : 'hover:bg-muted/50'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => togglePlatform(p)}
+                          className="h-4 w-4 rounded"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm font-medium">{platformNames[p] || p}</span>
+                            {requiresMedia && (
+                              <Badge
+                                variant={isSelected && !hasMedia ? 'destructive' : 'secondary'}
+                                className="text-[9px] h-4 px-1"
+                              >
+                                <Camera className="h-2.5 w-2.5 mr-0.5" />
+                                Media required
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px] text-muted-foreground">
+                              max {req ? req.maxCharacters.toLocaleString() : '?'} chars
+                            </span>
+                            {req && (
+                              <span className="text-[10px] text-muted-foreground">
+                                {req.supportedMediaTypes.join(', ').toLowerCase()}
+                              </span>
+                            )}
+                          </div>
+                          {/* Show error for this platform */}
+                          {isSelected && errors.filter(e => e.platform === p).map((e, i) => (
+                            <p key={i} className="text-[10px] text-destructive mt-0.5 flex items-center gap-0.5">
+                              <AlertCircle className="h-3 w-3 shrink-0" /> {e.message.replace(`${req?.name || p}: `, '')}
+                            </p>
+                          ))}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* ═══════ All Content Cards — Full Width ═══════ */}
+            <div className="space-y-4">
               {/* Product Selector */}
               {products.length > 0 && (
                 <Card>
@@ -952,36 +1023,34 @@ ${pContent}`;
                                 />
                               </div>
 
-                              {/* Optimize button - only show if over limit */}
-                              {charStatus === 'error' && (
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  className="gap-1.5 text-[10px] h-7"
-                                  onClick={() => optimizeForPlatform(platform)}
-                                  disabled={optimizingPlatform !== null}
-                                >
-                                  {optimizingPlatform === platform ? (
-                                    <><Loader2 className="h-3 w-3 animate-spin" /> Optimizing...</>
-                                  ) : (
-                                    <><Sparkles className="h-3 w-3" /> Optimize for {pName} ({req.maxCharacters.toLocaleString()} chars) — ~2 credits</>
-                                  )}
-                                </Button>
-                              )}
+                              {/* Optimize button - always visible */}
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="gap-1.5 text-xs h-8"
+                                onClick={() => optimizeForPlatform(platform)}
+                                disabled={optimizingPlatform !== null || !pContent.trim()}
+                              >
+                                {optimizingPlatform === platform ? (
+                                  <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Optimizing...</>
+                                ) : (
+                                  <><Sparkles className="h-3.5 w-3.5" /> Optimize for {pName} ({req.maxCharacters.toLocaleString()} chars) — ~2 credits</>
+                                )}
+                              </Button>
                               {optimizeError && optimizingPlatform === null && (
                                 <p className="text-[10px] text-destructive">{optimizeError}</p>
                               )}
                             </div>
 
                             {/* Per-platform media + post type row */}
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div className="grid grid-cols-2 gap-3 items-end">
                               {/* Media selector */}
                               <div className="space-y-1">
                                 <div className="flex items-center justify-between">
-                                  <Label className="text-[10px] text-muted-foreground">Media</Label>
+                                  <Label className="text-xs text-muted-foreground">Media</Label>
                                   {hasMediaOverride && (
-                                    <button type="button" onClick={() => resetPlatformMedia(platform)} className="text-[9px] text-primary hover:underline">
+                                    <button type="button" onClick={() => resetPlatformMedia(platform)} className="text-[10px] text-primary hover:underline">
                                       Reset
                                     </button>
                                   )}
@@ -989,7 +1058,7 @@ ${pContent}`;
                                 <select
                                   value={pMediaId}
                                   onChange={(e) => setPlatformMedia(platform, e.target.value)}
-                                  className={`flex h-8 w-full rounded-md border px-2 py-1 text-[10px] ${
+                                  className={`flex h-9 w-full rounded-md border px-2 py-1 text-xs ${
                                     hasMediaOverride ? 'border-primary/50 bg-primary/5' : 'border-input bg-background'
                                   }`}
                                 >
@@ -1004,21 +1073,25 @@ ${pContent}`;
                                 </select>
                               </div>
 
-                              {/* Post type selector */}
-                              {postTypeOptions.length > 0 && (
-                                <div className="space-y-1">
-                                  <Label className="text-[10px] text-muted-foreground">Post Type</Label>
+                              {/* Post type selector - always takes its column */}
+                              <div className="space-y-1">
+                                <Label className="text-xs text-muted-foreground">Post Type</Label>
+                                {postTypeOptions.length > 0 ? (
                                   <select
                                     value={pPostType}
                                     onChange={(e) => setPlatformPostType(platform, e.target.value)}
-                                    className="flex h-8 w-full rounded-md border border-input bg-background px-2 py-1 text-[10px]"
+                                    className="flex h-9 w-full rounded-md border border-input bg-background px-2 py-1 text-xs"
                                   >
                                     {postTypeOptions.map((opt) => (
                                       <option key={opt.value} value={opt.value}>{opt.label}</option>
                                     ))}
                                   </select>
-                                </div>
-                              )}
+                                ) : (
+                                  <div className="flex h-9 w-full items-center rounded-md border border-input bg-muted/30 px-2 text-xs text-muted-foreground">
+                                    Standard post
+                                  </div>
+                                )}
+                              </div>
                             </div>
 
                             {/* Validation issues for this platform */}
@@ -1037,109 +1110,181 @@ ${pContent}`;
                             <div className="space-y-1">
                               <Label className="text-[10px] text-muted-foreground">Preview</Label>
 
-                              {platform === 'FACEBOOK' && (
-                                <div className="rounded-lg border bg-white shadow-sm max-w-full overflow-hidden">
-                                  <div className="flex items-center gap-2 p-2.5">
-                                    <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-[10px] font-bold shrink-0">
-                                      {botName.charAt(0).toUpperCase()}
-                                    </div>
-                                    <div>
-                                      <p className="text-xs font-semibold text-gray-900">{botName}</p>
-                                      <p className="text-[9px] text-gray-500">Just now · 🌐</p>
-                                    </div>
-                                  </div>
-                                  <div className="px-2.5 pb-1.5">
-                                    <p className="text-[11px] text-gray-900 whitespace-pre-wrap break-words">
-                                      {pContent.length > 300 ? pContent.slice(0, 300) + '... See more' : pContent}
-                                    </p>
-                                  </div>
-                                  {mediaUrl && (
-                                    <div className="aspect-[1.91/1] bg-gray-100 overflow-hidden">
-                                      {isVideo ? (
-                                        /* eslint-disable-next-line jsx-a11y/media-has-caption */
-                                        <video src={mediaUrl} className="w-full h-full object-cover" muted preload="metadata" />
-                                      ) : (
-                                        /* eslint-disable-next-line @next/next/no-img-element */
-                                        <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
-                                      )}
-                                    </div>
-                                  )}
-                                  <div className="flex items-center justify-around py-1 px-2 border-t text-gray-400 text-[9px]">
-                                    <span>👍 Like</span><span>💬 Comment</span><span>↗️ Share</span>
-                                  </div>
-                                </div>
-                              )}
-
-                              {platform === 'INSTAGRAM' && (
-                                <div className="rounded-lg border bg-white shadow-sm max-w-full overflow-hidden">
-                                  <div className="flex items-center gap-2 p-2.5">
-                                    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-yellow-400 via-red-500 to-purple-600 p-[1.5px] shrink-0">
-                                      <div className="w-full h-full rounded-full bg-white flex items-center justify-center text-[9px] font-bold text-gray-900">
+                              {platform === 'FACEBOOK' && (() => {
+                                const fbIsReel = pPostType === 'reel';
+                                const fbMediaAspect = fbIsReel ? 'aspect-[9/16] max-h-[280px]' : 'aspect-[1.91/1]';
+                                return (
+                                  <div className="rounded-lg border bg-white shadow-sm max-w-full overflow-hidden">
+                                    <div className="flex items-center gap-2 p-2.5">
+                                      <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-[10px] font-bold shrink-0">
                                         {botName.charAt(0).toUpperCase()}
                                       </div>
+                                      <div>
+                                        <p className="text-xs font-semibold text-gray-900">{botName}</p>
+                                        <p className="text-[9px] text-gray-500">Just now · 🌐{fbIsReel ? ' · Reel' : ''}</p>
+                                      </div>
                                     </div>
-                                    <p className="text-xs font-semibold text-gray-900">{botName.toLowerCase().replace(/\s+/g, '')}</p>
-                                  </div>
-                                  {mediaUrl ? (
-                                    <div className="aspect-square bg-gray-100 overflow-hidden">
-                                      {isVideo ? (
-                                        /* eslint-disable-next-line jsx-a11y/media-has-caption */
-                                        <video src={mediaUrl} className="w-full h-full object-cover" muted preload="metadata" />
-                                      ) : (
-                                        /* eslint-disable-next-line @next/next/no-img-element */
-                                        <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
-                                      )}
+                                    {!fbIsReel && (
+                                      <div className="px-2.5 pb-1.5">
+                                        <p className="text-[11px] text-gray-900 whitespace-pre-wrap break-words">
+                                          {pContent.length > 300 ? pContent.slice(0, 300) + '... See more' : pContent}
+                                        </p>
+                                      </div>
+                                    )}
+                                    {mediaUrl && (
+                                      <div className={`${fbMediaAspect} bg-gray-100 overflow-hidden relative`}>
+                                        {isVideo ? (
+                                          /* eslint-disable-next-line jsx-a11y/media-has-caption */
+                                          <video src={mediaUrl} className="w-full h-full object-cover" muted preload="metadata" />
+                                        ) : (
+                                          /* eslint-disable-next-line @next/next/no-img-element */
+                                          <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
+                                        )}
+                                        {fbIsReel && (
+                                          <div className="absolute bottom-2 left-2 right-2">
+                                            <p className="text-[10px] text-white drop-shadow-lg line-clamp-2">{pContent.slice(0, 100)}</p>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                    {fbIsReel && !mediaUrl && (
+                                      <div className="aspect-[9/16] max-h-[280px] bg-gray-900 flex items-center justify-center text-gray-500 text-xs">
+                                        Reel requires video
+                                      </div>
+                                    )}
+                                    <div className="flex items-center justify-around py-1 px-2 border-t text-gray-400 text-[9px]">
+                                      <span>👍 Like</span><span>💬 Comment</span><span>↗️ Share</span>
                                     </div>
-                                  ) : (
-                                    <div className="aspect-[4/3] bg-gray-100 flex items-center justify-center text-gray-400 text-xs">
-                                      {req.mediaRequired ? '⚠ Image/video required' : 'No media'}
-                                    </div>
-                                  )}
-                                  <div className="flex items-center justify-between px-2.5 py-1.5 text-gray-900">
-                                    <div className="flex items-center gap-3"><span>♡</span><span>💬</span><span>↗️</span></div>
-                                    <span>🔖</span>
                                   </div>
-                                  <div className="px-2.5 pb-2">
-                                    <p className="text-[11px] text-gray-900">
-                                      <span className="font-semibold">{botName.toLowerCase().replace(/\s+/g, '')}</span>{' '}
-                                      {pContent.length > 100 ? pContent.slice(0, 100) + '... more' : pContent}
-                                    </p>
-                                  </div>
-                                </div>
-                              )}
+                                );
+                              })()}
 
-                              {platform === 'THREADS' && (
-                                <div className="rounded-lg border bg-white shadow-sm max-w-full p-2.5">
-                                  <div className="flex items-start gap-2">
-                                    <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-600 shrink-0">
-                                      {botName.charAt(0).toUpperCase()}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                      <div className="flex items-center gap-1">
-                                        <span className="text-xs font-semibold text-gray-900">{botName.toLowerCase().replace(/\s+/g, '')}</span>
-                                        <span className="text-[10px] text-gray-500">· now</span>
-                                      </div>
-                                      <p className="text-[11px] text-gray-900 mt-0.5 whitespace-pre-wrap break-words">
-                                        {pContent.length > 500 ? pContent.slice(0, 500) : pContent}
-                                      </p>
-                                      {mediaUrl && (
-                                        <div className="mt-1.5 rounded-lg overflow-hidden border aspect-[16/9] bg-gray-100">
-                                          {isVideo ? (
-                                            /* eslint-disable-next-line jsx-a11y/media-has-caption */
-                                            <video src={mediaUrl} className="w-full h-full object-cover" muted preload="metadata" />
-                                          ) : (
-                                            /* eslint-disable-next-line @next/next/no-img-element */
-                                            <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
-                                          )}
+                              {platform === 'INSTAGRAM' && (() => {
+                                const igIsReel = pPostType === 'reel';
+                                const igIsStory = pPostType === 'story';
+                                const igIsCarousel = pPostType === 'carousel';
+                                const igIsVertical = igIsReel || igIsStory;
+                                const igMediaAspect = igIsVertical ? 'aspect-[9/16] max-h-[300px]' : 'aspect-square';
+                                return (
+                                  <div className="rounded-lg border bg-white shadow-sm max-w-full overflow-hidden">
+                                    {/* Story/Reel: no header, overlay style */}
+                                    {!igIsStory && (
+                                      <div className="flex items-center gap-2 p-2.5">
+                                        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-yellow-400 via-red-500 to-purple-600 p-[1.5px] shrink-0">
+                                          <div className="w-full h-full rounded-full bg-white flex items-center justify-center text-[9px] font-bold text-gray-900">
+                                            {botName.charAt(0).toUpperCase()}
+                                          </div>
                                         </div>
-                                      )}
-                                      <div className="flex items-center gap-4 mt-1.5 text-gray-400 text-[10px]">
-                                        <span>♡</span><span>💬</span><span>🔁</span><span>↗️</span>
+                                        <p className="text-xs font-semibold text-gray-900">
+                                          {botName.toLowerCase().replace(/\s+/g, '')}
+                                          {igIsReel && <span className="text-[9px] font-normal text-gray-500 ml-1">· Reel</span>}
+                                          {igIsCarousel && <span className="text-[9px] font-normal text-gray-500 ml-1">· Carousel</span>}
+                                        </p>
+                                      </div>
+                                    )}
+                                    {mediaUrl ? (
+                                      <div className={`${igMediaAspect} bg-gray-100 overflow-hidden relative`}>
+                                        {isVideo ? (
+                                          /* eslint-disable-next-line jsx-a11y/media-has-caption */
+                                          <video src={mediaUrl} className="w-full h-full object-cover" muted preload="metadata" />
+                                        ) : (
+                                          /* eslint-disable-next-line @next/next/no-img-element */
+                                          <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
+                                        )}
+                                        {igIsStory && (
+                                          <div className="absolute top-2 left-2 flex items-center gap-1.5">
+                                            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-yellow-400 via-red-500 to-purple-600 p-[1px]">
+                                              <div className="w-full h-full rounded-full bg-white flex items-center justify-center text-[7px] font-bold">
+                                                {botName.charAt(0).toUpperCase()}
+                                              </div>
+                                            </div>
+                                            <span className="text-[10px] text-white font-semibold drop-shadow-lg">{botName.toLowerCase().replace(/\s+/g, '')}</span>
+                                          </div>
+                                        )}
+                                        {igIsReel && (
+                                          <div className="absolute bottom-2 left-2 right-2">
+                                            <p className="text-[10px] text-white drop-shadow-lg line-clamp-2">
+                                              <span className="font-semibold">{botName.toLowerCase().replace(/\s+/g, '')}</span>{' '}
+                                              {pContent.slice(0, 80)}
+                                            </p>
+                                          </div>
+                                        )}
+                                        {igIsCarousel && (
+                                          <div className="absolute top-2 right-2 bg-black/50 text-white text-[8px] px-1.5 py-0.5 rounded-full">
+                                            1 / 2+
+                                          </div>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <div className={`${igIsVertical ? 'aspect-[9/16] max-h-[300px]' : 'aspect-[4/3]'} bg-gray-100 flex items-center justify-center text-gray-400 text-xs`}>
+                                        {req.mediaRequired ? '⚠ Image/video required' : 'No media'}
+                                      </div>
+                                    )}
+                                    {!igIsStory && (
+                                      <>
+                                        <div className="flex items-center justify-between px-2.5 py-1.5 text-gray-900">
+                                          <div className="flex items-center gap-3"><span>♡</span><span>💬</span><span>↗️</span></div>
+                                          <span>🔖</span>
+                                        </div>
+                                        {igIsCarousel && (
+                                          <div className="flex justify-center gap-1 pb-1">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                                            <span className="w-1.5 h-1.5 rounded-full bg-gray-300" />
+                                            <span className="w-1.5 h-1.5 rounded-full bg-gray-300" />
+                                          </div>
+                                        )}
+                                        <div className="px-2.5 pb-2">
+                                          <p className="text-[11px] text-gray-900">
+                                            <span className="font-semibold">{botName.toLowerCase().replace(/\s+/g, '')}</span>{' '}
+                                            {pContent.length > 100 ? pContent.slice(0, 100) + '... more' : pContent}
+                                          </p>
+                                        </div>
+                                      </>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+
+                              {platform === 'THREADS' && (() => {
+                                const thIsCarousel = pPostType === 'carousel';
+                                return (
+                                  <div className="rounded-lg border bg-white shadow-sm max-w-full p-2.5">
+                                    <div className="flex items-start gap-2">
+                                      <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-600 shrink-0">
+                                        {botName.charAt(0).toUpperCase()}
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-1">
+                                          <span className="text-xs font-semibold text-gray-900">{botName.toLowerCase().replace(/\s+/g, '')}</span>
+                                          <span className="text-[10px] text-gray-500">· now</span>
+                                        </div>
+                                        <p className="text-[11px] text-gray-900 mt-0.5 whitespace-pre-wrap break-words">
+                                          {pContent.length > 500 ? pContent.slice(0, 500) : pContent}
+                                        </p>
+                                        {mediaUrl && (
+                                          <div className={`mt-1.5 rounded-lg overflow-hidden border ${thIsCarousel ? 'aspect-square' : 'aspect-[16/9]'} bg-gray-100 relative`}>
+                                            {isVideo ? (
+                                              /* eslint-disable-next-line jsx-a11y/media-has-caption */
+                                              <video src={mediaUrl} className="w-full h-full object-cover" muted preload="metadata" />
+                                            ) : (
+                                              /* eslint-disable-next-line @next/next/no-img-element */
+                                              <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
+                                            )}
+                                            {thIsCarousel && (
+                                              <div className="absolute top-1.5 right-1.5 bg-black/50 text-white text-[8px] px-1.5 py-0.5 rounded-full">
+                                                1 / 2+
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
+                                        <div className="flex items-center gap-4 mt-1.5 text-gray-400 text-[10px]">
+                                          <span>♡</span><span>💬</span><span>🔁</span><span>↗️</span>
+                                        </div>
                                       </div>
                                     </div>
                                   </div>
-                                </div>
-                              )}
+                                );
+                              })()}
 
                               {/* Generic preview for other platforms */}
                               {platform !== 'FACEBOOK' && platform !== 'INSTAGRAM' && platform !== 'THREADS' && (
@@ -1287,110 +1432,6 @@ ${pContent}`;
               </Card>
             </div>
 
-            {/* ═══════ Right Sidebar ═══════ */}
-            <div className="space-y-4">
-              {/* Target Platforms Card */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Globe className="h-5 w-5" /> Target Platforms
-                  </CardTitle>
-                  <CardDescription>Select where to publish this post.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {/* Select All/None */}
-                  <div className="flex gap-3 pb-2 border-b text-xs">
-                    <button type="button" onClick={selectAllPlatforms} className="text-primary hover:underline">
-                      Select all
-                    </button>
-                    <button type="button" onClick={deselectAllPlatforms} className="text-muted-foreground hover:underline">
-                      Deselect all
-                    </button>
-                  </div>
-
-                  {/* Platform checkboxes with requirements */}
-                  <div className="space-y-1.5">
-                    {connectedPlatforms.map((p) => {
-                      const req = platformRequirements[p];
-                      const isSelected = selectedPlatforms.has(p);
-                      const requiresMedia = req?.mediaRequired;
-                      const hasIssues = isSelected && errors.some(e => e.platform === p);
-
-                      return (
-                        <label
-                          key={p}
-                          className={`flex items-center gap-3 p-2.5 rounded-md border cursor-pointer transition-colors ${
-                            isSelected
-                              ? hasIssues
-                                ? 'border-destructive/50 bg-destructive/5'
-                                : 'border-primary bg-primary/5'
-                              : 'hover:bg-muted/50'
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => togglePlatform(p)}
-                            className="h-4 w-4 rounded"
-                          />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-sm font-medium">{platformNames[p] || p}</span>
-                              {requiresMedia && (
-                                <Badge
-                                  variant={isSelected && !hasMedia ? 'destructive' : 'secondary'}
-                                  className="text-[9px] h-4 px-1"
-                                >
-                                  <Camera className="h-2.5 w-2.5 mr-0.5" />
-                                  Media required
-                                </Badge>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <span className="text-[10px] text-muted-foreground">
-                                max {req ? req.maxCharacters.toLocaleString() : '?'} chars
-                              </span>
-                              {req && (
-                                <span className="text-[10px] text-muted-foreground">
-                                  {req.supportedMediaTypes.join(', ').toLowerCase()}
-                                </span>
-                              )}
-                            </div>
-                            {/* Show error for this platform */}
-                            {isSelected && errors.filter(e => e.platform === p).map((e, i) => (
-                              <p key={i} className="text-[10px] text-destructive mt-0.5 flex items-center gap-0.5">
-                                <AlertCircle className="h-3 w-3 shrink-0" /> {e.message.replace(`${req?.name || p}: `, '')}
-                              </p>
-                            ))}
-                          </div>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Preview + specs now integrated into per-platform cards above */}
-
-              {/* Tips Card */}
-              <Card className="bg-blue-50/50 border-blue-200">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm text-blue-900">Tips for better reach</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ul className="text-xs text-blue-800 space-y-1.5 list-disc list-inside">
-                    {selectedPlatforms.size > 0 && (
-                      <li>Keep text under {lowestLimit.toLocaleString()} chars for all platforms</li>
-                    )}
-                    <li>Posts with images get 2-3x more engagement</li>
-                    <li>Instagram requires JPEG/PNG images — no text-only posts</li>
-                    <li>Use hashtags for Instagram & TikTok, avoid for Facebook</li>
-                    <li>Best times: weekdays 9-11 AM and 1-3 PM</li>
-                    <li>Ask a question to boost comments</li>
-                  </ul>
-                </CardContent>
-              </Card>
-            </div>
           </div>
         </form>
       )}
