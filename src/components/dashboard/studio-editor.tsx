@@ -204,6 +204,12 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
     setResult(null);
     setError(null);
     setShowGenSection(false);
+    // Reset Phase 3+4 — clear stale state from any previously selected video
+    setShowCaptionForm(false);
+    setCaptions(null);
+    setCaptionError(null);
+    setThumbResult(null);
+    setThumbError(null);
   }, []);
 
   const handleGenerate = useCallback(async () => {
@@ -905,6 +911,7 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
                   <div className="rounded-xl overflow-hidden bg-black aspect-video max-h-64 shadow-inner">
                     {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
                     <video
+                      key={result.url}
                       src={result.url}
                       className="w-full h-full object-contain"
                       controls

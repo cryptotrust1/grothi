@@ -115,7 +115,8 @@ export async function POST(request: NextRequest) {
           .replace(/:/g, '\\:')
           .replace(/,/g, '\\,')
           .replace(/\[/g, '\\[')
-          .replace(/\]/g, '\\]');
+          .replace(/\]/g, '\\]')
+          .replace(/%/g, '%%');  // FFmpeg drawtext expands %{...} sequences — %% is literal %
 
         const fontSize = Math.max(24, Math.min(96, textOverlay.fontSize || 48));
         const color = ['white', 'yellow', 'black'].includes(textOverlay.color)
