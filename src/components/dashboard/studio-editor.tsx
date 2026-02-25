@@ -24,6 +24,17 @@ import {
   type FilterCategory,
   type AdjustmentValues,
 } from '@/lib/studio-filters';
+import { StudioTimeline } from '@/components/dashboard/studio-timeline';
+import {
+  type TimelineState,
+  type TimelineClip,
+  type TrackType,
+  createDefaultTimeline,
+  computeTotalDuration,
+  findNextAvailableTime,
+  splitClipAtTime,
+  genId,
+} from '@/lib/timeline-types';
 
 interface VideoMedia {
   id: string;
@@ -179,9 +190,14 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
   const [videoLoadError, setVideoLoadError] = useState<string | null>(null);
   const [videoFrameUrl, setVideoFrameUrl] = useState<string | null>(null);
 
-  // ── Timeline dragging ──
+  // ── Timeline dragging (legacy single-clip) ──
   const [dragging, setDragging] = useState<'start' | 'end' | null>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
+
+  // ── Multi-track timeline ──
+  const [timeline, setTimeline] = useState<TimelineState>(createDefaultTimeline);
+  // Track durations of loaded video elements by mediaId
+  const [mediaDurations, setMediaDurations] = useState<Record<string, number>>({});
 
   // ── Section collapse state ──
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
@@ -225,6 +241,11 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
     setTextContent('');
   }, [processing]);
 
+  // Record media durations when videos load (for timeline clip sizing)
+  const handleVideoMetadataForTimeline = useCallback((videoId: string, duration: number) => {
+    setMediaDurations(prev => ({ ...prev, [videoId]: duration }));
+  }, []);
+
   // ── Capture video frame for filter swatches ──
   const captureVideoFrame = useCallback(() => {
     if (!videoRef.current) return;
@@ -245,12 +266,16 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
       if (isFinite(dur) && dur > 0) {
         setVideoDuration(dur);
         setTrimEnd(dur);
+        // Also record for timeline
+        if (selectedVideoId) {
+          handleVideoMetadataForTimeline(selectedVideoId, dur);
+        }
       }
       setVideoLoading(false);
       setVideoLoadError(null);
       setTimeout(() => captureVideoFrame(), 200);
     }
-  }, [captureVideoFrame]);
+  }, [captureVideoFrame, selectedVideoId, handleVideoMetadataForTimeline]);
 
   const handleVideoError = useCallback(() => {
     setVideoLoading(false);
@@ -497,13 +522,140 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
     } finally { setSubtitleGenerating(false); }
   }, [selectedVideoId, botId, videos, videoDuration]);
 
+  // ── Multi-track timeline handlers ──
+
+  const handleAddToTimeline = useCallback((video: VideoMedia) => {
+    const dur = mediaDurations[video.id] || 10; // fallback 10s if not loaded
+    setTimeline(prev => {
+      const tracks = prev.tracks.map(t => ({ ...t, clips: [...t.clips] }));
+      // Find V1 track (or first video track)
+      const v1 = tracks.find(t => t.type === 'video') || tracks[0];
+      if (!v1) return prev;
+
+      const startTime = findNextAvailableTime(v1, dur);
+      const newClip: TimelineClip = {
+        id: genId('clip'),
+        mediaId: video.id,
+        trackId: v1.id,
+        startTime,
+        duration: dur,
+        mediaOffset: 0,
+        mediaDuration: dur,
+        filename: video.filename,
+      };
+      v1.clips.push(newClip);
+      const totalDuration = computeTotalDuration(tracks);
+      return { ...prev, tracks, totalDuration, selectedClipId: newClip.id };
+    });
+  }, [mediaDurations]);
+
+  const handleTimelineChange = useCallback((newTimeline: TimelineState) => {
+    setTimeline(newTimeline);
+  }, []);
+
+  const handlePlayheadChange = useCallback((time: number) => {
+    setTimeline(prev => ({ ...prev, playheadPosition: time }));
+    // Seek the video if current clip is under playhead
+    if (videoRef.current) {
+      videoRef.current.currentTime = time;
+      setCurrentTime(time);
+    }
+  }, []);
+
+  const handleClipSelect = useCallback((clipId: string | null) => {
+    setTimeline(prev => ({ ...prev, selectedClipId: clipId }));
+    // If selecting a clip, also select its video for preview
+    if (clipId) {
+      const clip = timeline.tracks.flatMap(t => t.clips).find(c => c.id === clipId);
+      if (clip && clip.mediaId !== selectedVideoId) {
+        setSelectedVideoId(clip.mediaId);
+        setVideoLoading(true);
+        setVideoLoadError(null);
+        setVideoFrameUrl(null);
+        setResult(null);
+        setError(null);
+      }
+    }
+  }, [timeline.tracks, selectedVideoId]);
+
+  const handleClipDelete = useCallback((clipId: string) => {
+    setTimeline(prev => {
+      const tracks = prev.tracks.map(t => ({
+        ...t,
+        clips: t.clips.filter(c => c.id !== clipId),
+      }));
+      return {
+        ...prev,
+        tracks,
+        totalDuration: computeTotalDuration(tracks),
+        selectedClipId: prev.selectedClipId === clipId ? null : prev.selectedClipId,
+      };
+    });
+  }, []);
+
+  const handleClipSplit = useCallback((clipId: string, time: number) => {
+    setTimeline(prev => {
+      const tracks = prev.tracks.map(t => ({ ...t, clips: [...t.clips] }));
+      for (const track of tracks) {
+        const idx = track.clips.findIndex(c => c.id === clipId);
+        if (idx === -1) continue;
+        const result = splitClipAtTime(track.clips[idx], time);
+        if (!result) return prev;
+        const [first, second] = result;
+        first.trackId = track.id;
+        second.trackId = track.id;
+        track.clips.splice(idx, 1, first, second);
+        return {
+          ...prev,
+          tracks,
+          totalDuration: computeTotalDuration(tracks),
+          selectedClipId: second.id,
+        };
+      }
+      return prev;
+    });
+  }, []);
+
+  const handleAddTrack = useCallback((type: TrackType) => {
+    setTimeline(prev => {
+      const count = prev.tracks.filter(t => t.type === type).length + 1;
+      const prefix = type === 'video' ? 'V' : type === 'audio' ? 'A' : 'T';
+      const newTrack = {
+        id: genId(prefix.toLowerCase()),
+        type,
+        name: `${prefix}${count}`,
+        clips: [],
+        muted: false,
+        locked: false,
+        height: type === 'text' ? 36 : 48,
+      };
+      return { ...prev, tracks: [...prev.tracks, newTrack] };
+    });
+  }, []);
+
+  // Update playhead from video timeupdate
+  useEffect(() => {
+    if (!videoRef.current) return;
+    const onTimeUpdate = () => {
+      if (videoRef.current) {
+        const t = videoRef.current.currentTime;
+        setTimeline(prev => ({ ...prev, playheadPosition: t }));
+      }
+    };
+    const video = videoRef.current;
+    video.addEventListener('timeupdate', onTimeUpdate);
+    return () => video.removeEventListener('timeupdate', onTimeUpdate);
+  }, [selectedVideoId]);
+
   // ── Process & Save ──
+  const timelineHasClips = timeline.tracks.some(t => t.clips.length > 0);
+
   const handleProcess = async () => {
-    if (!selectedVideoId) return;
+    if (!selectedVideoId && !timelineHasClips) return;
     setProcessing(true); setError(null); setResult(null);
     try {
       const body: Record<string, unknown> = {
-        mediaId: selectedVideoId, botId,
+        mediaId: selectedVideoId || '', botId,
         trim: { start: Math.round(trimStart * 100) / 100, end: Math.round(trimEnd * 100) / 100 },
       };
       if (selectedFilterId !== 'original') body.filterId = selectedFilterId;
@@ -522,6 +674,36 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
           startTime: Math.round(s.startTime * 100) / 100,
           endTime: Math.round(s.endTime * 100) / 100,
         }));
+      }
+      // Include multi-track timeline clips if any
+      if (timelineHasClips) {
+        const videoClips = timeline.tracks
+          .filter(t => t.type === 'video' && !t.muted)
+          .flatMap(t => t.clips)
+          .sort((a, b) => a.startTime - b.startTime)
+          .map(c => ({
+            mediaId: c.mediaId,
+            startTime: Math.round(c.startTime * 100) / 100,
+            duration: Math.round(c.duration * 100) / 100,
+            mediaOffset: Math.round(c.mediaOffset * 100) / 100,
+          }));
+        if (videoClips.length > 0) {
+          body.timelineClips = videoClips;
+          // Use the first clip's mediaId as the primary media
+          body.mediaId = videoClips[0].mediaId;
+        }
+        const textClips = timeline.tracks
+          .filter(t => t.type === 'text' && !t.muted)
+          .flatMap(t => t.clips)
+          .filter(c => c.text && c.text.trim())
+          .map(c => ({
+            text: c.text!.trim(),
+            startTime: Math.round(c.startTime * 100) / 100,
+            endTime: Math.round((c.startTime + c.duration) * 100) / 100,
+            color: c.textColor || 'white',
+            position: c.textPosition || 'bottom',
+          }));
+        if (textClips.length > 0) body.timelineTextClips = textClips;
       }
       const resp = await fetch('/api/studio/process', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -632,7 +814,7 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
               </Button>
             </>
           ) : (
-            <Button onClick={handleProcess} disabled={processing || !selectedVideoId} size="sm" className="gap-1.5">
+            <Button onClick={handleProcess} disabled={processing || (!selectedVideoId && !timelineHasClips)} size="sm" className="gap-1.5">
               {processing ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Processing…</> : <><Sparkles className="h-3.5 w-3.5" /> Process &amp; Save</>}
             </Button>
           )}
@@ -694,18 +876,35 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
                 {videos.map((v) => {
                   const isSelected = selectedVideoId === v.id;
                   return (
-                    <button key={v.id} onClick={() => handleVideoSelect(v.id)} disabled={processing}
-                      className={`w-full rounded-md border overflow-hidden text-left transition-all outline-none focus-visible:ring-2 focus-visible:ring-primary ${isSelected ? 'border-primary ring-1 ring-primary/30 shadow-sm' : 'border-muted hover:border-primary/40'} ${processing ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                      <div className="aspect-video bg-black relative flex items-center justify-center overflow-hidden">
-                        {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                        <video src={`/api/media/${v.id}#t=0.5`} className="w-full h-full object-contain" preload="metadata" muted playsInline />
-                        {isSelected && <div className="absolute inset-0 bg-primary/20 flex items-center justify-center"><CheckCircle2 className="h-5 w-5 text-primary drop-shadow-md" /></div>}
+                    <div key={v.id} className={`rounded-md border overflow-hidden transition-all ${isSelected ? 'border-primary ring-1 ring-primary/30 shadow-sm' : 'border-muted hover:border-primary/40'} ${processing ? 'opacity-50' : ''}`}>
+                      <button onClick={() => handleVideoSelect(v.id)} disabled={processing}
+                        className="w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                        <div className="aspect-video bg-black relative flex items-center justify-center overflow-hidden">
+                          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                          <video src={`/api/media/${v.id}#t=0.5`} className="w-full h-full object-contain" preload="metadata" muted playsInline
+                            onLoadedMetadata={(e) => {
+                              const vid = e.currentTarget;
+                              if (vid.duration && isFinite(vid.duration)) {
+                                handleVideoMetadataForTimeline(v.id, vid.duration);
+                              }
+                            }} />
+                          {isSelected && <div className="absolute inset-0 bg-primary/20 flex items-center justify-center"><CheckCircle2 className="h-5 w-5 text-primary drop-shadow-md" /></div>}
+                        </div>
+                      </button>
+                      <div className="px-2 py-1 bg-muted/40 flex items-center gap-1">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[10px] font-medium truncate">{v.filename}</p>
+                          <p className="text-[9px] text-muted-foreground">{formatFileSize(v.fileSize)}{mediaDurations[v.id] ? ` · ${Math.round(mediaDurations[v.id])}s` : ''}</p>
+                        </div>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleAddToTimeline(v); }}
+                          disabled={processing}
+                          className="shrink-0 text-[9px] bg-primary/10 hover:bg-primary/20 text-primary px-1.5 py-0.5 rounded transition-colors"
+                          title="Add to timeline">
+                          <Plus className="h-3 w-3" />
+                        </button>
                       </div>
-                      <div className="px-2 py-1 bg-muted/40">
-                        <p className="text-[10px] font-medium truncate">{v.filename}</p>
-                        <p className="text-[9px] text-muted-foreground">{formatFileSize(v.fileSize)}</p>
-                      </div>
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -829,55 +1028,12 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
                 </div>
               )}
 
-              {/* ── PROFESSIONAL TIMELINE ── */}
-              {videoDuration > 0 && !result && (
-                <div className="px-3 py-2 bg-black/60 border-t border-white/5 shrink-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[10px] text-white/50 font-mono tabular-nums">{formatTime(trimStart)}</span>
-                    <div className="flex-1 text-center">
-                      <span className="text-[10px] text-white/40">
-                        Trim: {formatTime(trimDuration)} of {formatTime(videoDuration)}
-                        <span className="ml-2 text-white/30">( I = set start, O = set end )</span>
-                      </span>
-                    </div>
-                    <span className="text-[10px] text-white/50 font-mono tabular-nums">{formatTime(trimEnd)}</span>
-                  </div>
-                  {/* Timeline bar */}
-                  <div ref={timelineRef} className="relative h-8 cursor-pointer select-none"
-                    onClick={handleTimelineClick}>
-                    {/* Full duration background */}
-                    <div className="absolute inset-x-0 top-3 h-2 bg-white/10 rounded-full" />
-                    {/* Trimmed region highlight */}
-                    <div className="absolute top-3 h-2 bg-primary/50 rounded-full"
-                      style={{ left: `${(trimStart / videoDuration) * 100}%`, right: `${100 - (trimEnd / videoDuration) * 100}%` }} />
-                    {/* Playhead */}
-                    <div className="absolute top-1 h-6 w-0.5 bg-white shadow-lg pointer-events-none z-20"
-                      style={{ left: `${(currentTime / videoDuration) * 100}%` }} />
-                    {/* Start handle */}
-                    <div className="absolute top-1 z-30 -translate-x-1/2 cursor-ew-resize touch-none"
-                      style={{ left: `${(trimStart / videoDuration) * 100}%` }}
-                      onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); setDragging('start'); }}>
-                      <div className="w-4 h-6 rounded-sm bg-primary border-2 border-white shadow-lg flex items-center justify-center">
-                        <div className="w-0.5 h-3 bg-white/60 rounded-full" />
-                      </div>
-                    </div>
-                    {/* End handle */}
-                    <div className="absolute top-1 z-30 -translate-x-1/2 cursor-ew-resize touch-none"
-                      style={{ left: `${(trimEnd / videoDuration) * 100}%` }}
-                      onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); setDragging('end'); }}>
-                      <div className="w-4 h-6 rounded-sm bg-primary border-2 border-white shadow-lg flex items-center justify-center">
-                        <div className="w-0.5 h-3 bg-white/60 rounded-full" />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
             </>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-white/40">
               <Film className="h-16 w-16 mb-3" />
               <p className="text-sm font-medium">Select a video from the Media Pool</p>
-              <p className="text-xs mt-1">or generate one with AI</p>
+              <p className="text-xs mt-1">or add clips to the timeline below</p>
             </div>
           )}
         </div>
@@ -1259,6 +1415,21 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
         </div>
       </div>
 
+      {/* ══════════════ MULTI-TRACK TIMELINE ══════════════ */}
+      {!result && (
+        <StudioTimeline
+          timeline={timeline}
+          isPlaying={isPlaying}
+          onTimelineChange={handleTimelineChange}
+          onPlayheadChange={handlePlayheadChange}
+          onClipSelect={handleClipSelect}
+          onClipDelete={handleClipDelete}
+          onClipSplit={handleClipSplit}
+          onAddTrack={handleAddTrack}
+          onTogglePlay={togglePlay}
+        />
+      )}
+
       {/* ══════════════ BOTTOM STATUS BAR ══════════════ */}
       <div className="flex items-center gap-3 px-3 py-2 border rounded-b-lg bg-muted/30 mt-0 shrink-0">
         {error && (
@@ -1272,16 +1443,25 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
             <Loader2 className="h-3 w-3 animate-spin" /> Processing video… keep this page open
           </span>
         )}
-        {!error && !processing && editSummary.length > 0 && (
+        {!error && !processing && (
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[10px] text-muted-foreground font-medium">Edits:</span>
-            {editSummary.map((s, i) => <Badge key={i} variant="outline" className="text-[10px]">{s}</Badge>)}
+            {editSummary.length > 0 && (
+              <>
+                <span className="text-[10px] text-muted-foreground font-medium">Edits:</span>
+                {editSummary.map((s, i) => <Badge key={i} variant="outline" className="text-[10px]">{s}</Badge>)}
+              </>
+            )}
+            {timelineHasClips && (
+              <Badge variant="secondary" className="text-[10px]">
+                Timeline: {timeline.tracks.reduce((n, t) => n + t.clips.length, 0)} clips
+              </Badge>
+            )}
+            {!timelineHasClips && editSummary.length === 0 && (
+              <span className="text-[10px] text-muted-foreground">
+                {selectedVideo ? 'Add clips to timeline or apply effects' : 'Select a video or add clips to timeline'}
+              </span>
+            )}
           </div>
-        )}
-        {!error && !processing && editSummary.length === 0 && (
-          <span className="text-[10px] text-muted-foreground">
-            {selectedVideo ? 'No edits applied — the original will be copied as-is' : 'Select a video to begin editing'}
-          </span>
         )}
         <span className="text-[10px] text-muted-foreground ml-auto">Original stays untouched</span>
       </div>
