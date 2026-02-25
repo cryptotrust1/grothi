@@ -416,10 +416,9 @@ export function isTokenNearExpiry(config: Record<string, unknown>): boolean {
  * This pre-check catches accessibility issues early with a clear error message.
  */
 async function verifyMediaUrlAccessible(url: string): Promise<{ ok: boolean; error?: string }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15_000);
-
     const res = await fetch(url, {
       method: 'HEAD',
       signal: controller.signal,
@@ -427,7 +426,6 @@ async function verifyMediaUrlAccessible(url: string): Promise<{ ok: boolean; err
         'User-Agent': 'facebookexternalhit/1.1',
       },
     });
-    clearTimeout(timer);
 
     if (!res.ok) {
       return {
@@ -472,6 +470,8 @@ async function verifyMediaUrlAccessible(url: string): Promise<{ ok: boolean; err
       return { ok: false, error: 'Media URL timed out (15s). Server may be unreachable from itself.' };
     }
     return { ok: false, error: `Media URL not accessible: ${msg}` };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
