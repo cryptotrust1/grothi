@@ -13,10 +13,32 @@ const nextConfig = {
     formats: ['image/avif', 'image/webp'],
   },
   async headers() {
+    // Content-Security-Policy notes:
+    // - 'unsafe-inline' on script-src is required for JSON-LD structured data and inline GA4 init
+    // - 'unsafe-inline' on style-src is required for Tailwind/shadcn runtime styles
+    // - object-src 'none' blocks all plugin/Flash exploitation vectors
+    // - base-uri 'self' prevents <base> tag injection attacks
+    // - frame-ancestors 'none' redundantly mirrors X-Frame-Options (belt-and-suspenders)
+    const csp = [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' https://js.stripe.com https://www.googletagmanager.com",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "font-src 'self' https://fonts.gstatic.com",
+      "img-src 'self' data: blob: https:",
+      "media-src 'self' blob:",
+      "connect-src 'self' https://api.stripe.com https://www.google-analytics.com https://region1.google-analytics.com",
+      "frame-src https://js.stripe.com https://hooks.stripe.com",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "frame-ancestors 'none'",
+      "upgrade-insecure-requests",
+    ].join('; ');
+
     return [
       {
         source: '/(.*)',
         headers: [
+          { key: 'Content-Security-Policy', value: csp },
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { timingSafeEqual, createHash } from 'crypto';
 
 /**
  * Shared API response helpers to eliminate duplicate error response patterns.
@@ -68,7 +69,16 @@ export function validateCronSecret(authHeader: string | null): NextResponse | nu
   const cronSecret = process.env.CRON_SECRET;
   const token = authHeader?.replace('Bearer ', '');
 
-  if (!cronSecret || token !== cronSecret) {
+  if (!cronSecret || !token) {
+    return apiError.unauthorized();
+  }
+
+  // Use timing-safe comparison to prevent timing-based secret enumeration attacks.
+  // Both buffers must have the same length — hash both to a fixed 32-byte digest.
+  const expected = createHash('sha256').update(cronSecret).digest();
+  const actual   = createHash('sha256').update(token).digest();
+
+  if (!timingSafeEqual(expected, actual)) {
     return apiError.unauthorized();
   }
 

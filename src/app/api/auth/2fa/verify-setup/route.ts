@@ -2,12 +2,22 @@ import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { verifyTotpToken, decryptTotpSecret, generateRecoveryCodes } from '@/lib/totp';
+import { twoFactorLimiter } from '@/lib/rate-limit';
 
 // POST /api/auth/2fa/verify-setup — Verify code to confirm setup, returns recovery codes
 export async function POST(request: Request) {
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // Rate limit: 5 verification attempts per 15 minutes to block TOTP brute-force
+  const rateCheck = twoFactorLimiter.check(user.id);
+  if (!rateCheck.allowed) {
+    return NextResponse.json(
+      { error: 'Too many 2FA attempts. Please wait 15 minutes before trying again.' },
+      { status: 429 }
+    );
   }
 
   if (user.twoFactorEnabled) {
