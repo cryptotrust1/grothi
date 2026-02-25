@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { readFile } from 'fs/promises';
-import { existsSync } from 'fs';
+import { existsSync, statSync } from 'fs';
 import { join, resolve } from 'path';
 
 const UPLOAD_DIR = join(process.cwd(), 'data', 'uploads');
@@ -46,6 +46,12 @@ export async function GET(
 
   if (!existsSync(filePath)) {
     return NextResponse.json({ error: 'File not found on disk' }, { status: 404 });
+  }
+
+  // Ensure it's a file, not a directory (prevents EISDIR error)
+  const pathStat = statSync(filePath);
+  if (!pathStat.isFile()) {
+    return NextResponse.json({ error: 'Invalid file path' }, { status: 400 });
   }
 
   const isImage = media.mimeType.startsWith('image/');
@@ -224,7 +230,13 @@ export async function DELETE(
   try {
     const { unlink } = await import('fs/promises');
     if (existsSync(filePath)) {
-      await unlink(filePath);
+      // Ensure it's a file before attempting to delete
+      const pathStat = statSync(filePath);
+      if (pathStat.isFile()) {
+        await unlink(filePath);
+      } else {
+        console.warn(`[media] Path is not a file, skipping delete: ${filePath}`);
+      }
     }
   } catch (error) {
     // Log but don't fail — DB record is already deleted
