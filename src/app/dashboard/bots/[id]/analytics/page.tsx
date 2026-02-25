@@ -6,7 +6,6 @@ import { db } from '@/lib/db';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Heart, MessageSquare, Share2, TrendingUp, Activity, DollarSign, BarChart3, Brain } from 'lucide-react';
 import { EngagementChart, ActivityChart, CreditsChart } from '@/components/dashboard/analytics-charts';
-import { BotNav } from '@/components/dashboard/bot-nav';
 import { Badge } from '@/components/ui/badge';
 import { HelpTip } from '@/components/ui/help-tip';
 import { RL_DIMENSION_LABELS, TONE_STYLES, HASHTAG_PATTERNS, CONTENT_TYPES, PLATFORM_NAMES } from '@/lib/constants';
@@ -79,7 +78,6 @@ export default async function BotAnalyticsPage({ params }: { params: Promise<{ i
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">{bot.name} - Analytics</h1>
-        <BotNav botId={id} activeTab="analytics" />
       </div>
 
       {/* Engagement KPIs */}

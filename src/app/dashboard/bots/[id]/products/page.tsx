@@ -3,7 +3,6 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { BotNav } from '@/components/dashboard/bot-nav';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -92,7 +91,6 @@ export default async function ProductsPage({
         <p className="text-sm text-muted-foreground mt-1">
           Manage your products and services. AI uses this info to create targeted promotional posts.
         </p>
-        <BotNav botId={id} activeTab="products" />
       </div>
 
       {sp.success && <AlertMessage type="success" message={sp.success} />}

@@ -5,7 +5,6 @@ import { db } from '@/lib/db';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { BotNav } from '@/components/dashboard/bot-nav';
 import {
   ArrowLeft, BarChart3, Mail, Eye, MousePointer,
   AlertTriangle, Ban, TrendingUp, Users, Shield,
@@ -74,8 +73,6 @@ export default async function EmailAnalyticsPage({
         </Link>
         <h1 className="text-2xl font-bold">Email Analytics</h1>
       </div>
-
-      <BotNav botId={bot.id} activeTab="email" />
 
       {/* Overview KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

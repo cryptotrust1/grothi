@@ -10,7 +10,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { BotNav } from '@/components/dashboard/bot-nav';
 import {
   Mail, Users, Send, BarChart3, Settings, Plus,
   CheckCircle2, AlertCircle, ArrowRight, FileText, Zap,
@@ -215,8 +214,6 @@ export default async function EmailMarketingPage({
           Send campaigns, manage contacts, and track email performance
         </p>
       </div>
-
-      <BotNav botId={bot.id} activeTab="email" />
 
       {/* Status messages */}
       {sp.error && (

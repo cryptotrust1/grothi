@@ -3,7 +3,6 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { BotNav } from '@/components/dashboard/bot-nav';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { HelpTip } from '@/components/ui/help-tip';
@@ -133,7 +132,6 @@ export default async function NewProductPage({
       <div>
         <h1 className="text-2xl font-bold">{bot.name} - Add Product</h1>
         <p className="text-sm text-muted-foreground mt-1">Add a product or service for AI to promote in posts.</p>
-        <BotNav botId={id} activeTab="products" />
       </div>
 
       {sp.error && <AlertMessage type="error" message={sp.error} />}

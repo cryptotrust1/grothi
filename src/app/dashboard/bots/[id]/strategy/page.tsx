@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Info, Lightbulb, FileText, ImageIcon, Film, Smartphone, CheckCircle2, AlertCircle, ExternalLink } from 'lucide-react';
-import { BotNav } from '@/components/dashboard/bot-nav';
 import { HelpTip } from '@/components/ui/help-tip';
 import { PLATFORM_NAMES, TONE_STYLES, HASHTAG_PATTERNS, VIDEO_STYLES, VIDEO_LENGTHS, VIDEO_FORMATS } from '@/lib/constants';
 import { PLATFORM_DEFAULTS } from '@/lib/platform-defaults';
@@ -186,7 +185,6 @@ export default async function ContentStrategyPage({
         <p className="text-sm text-muted-foreground mt-1">
           Define what and how often to post on each platform. The bot auto-generates content based on these settings.
         </p>
-        <BotNav botId={id} activeTab="strategy" />
       </div>
 
       {/* Messages */}

@@ -6,7 +6,6 @@ import { db } from '@/lib/db';
 import { getActionCost, hasEnoughCredits } from '@/lib/credits';
 import { getContentRecommendation, fingerprintContent } from '@/lib/rl-engine';
 import { PLATFORM_NAMES, PLATFORM_REQUIREMENTS, POST_STATUS_COLORS } from '@/lib/constants';
-import { BotNav } from '@/components/dashboard/bot-nav';
 import { PostFormClient } from '@/components/dashboard/post-form-client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -486,7 +485,6 @@ export default async function ManualPostPage({
       <div>
         <h1 className="text-2xl font-bold">{bot.name} - Post Scheduler</h1>
         <p className="text-sm text-muted-foreground mt-1">Create, schedule, and manage your posts across all platforms.</p>
-        <BotNav botId={id} activeTab="post" />
       </div>
 
       <form action={handleCreatePost} id="post-form" className="hidden" />

@@ -8,7 +8,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Palette, Sparkles, Type, Image, Layout, Smile, Info, Film } from 'lucide-react';
-import { BotNav } from '@/components/dashboard/bot-nav';
 import { HelpTip } from '@/components/ui/help-tip';
 import { AlertMessage } from '@/components/ui/alert-message';
 import { VIDEO_STYLES, VISUAL_STYLES, IMAGE_TYPES, CREATIVE_TONES, TEXT_OVERLAY_OPTIONS, LOGO_PLACEMENT_OPTIONS, VIDEO_PACING_OPTIONS, VIDEO_MUSIC_OPTIONS } from '@/lib/constants';
@@ -101,7 +100,6 @@ export default async function CreativeStylePage({
       <div>
         <h1 className="text-2xl font-bold">{bot.name} - Creative Style</h1>
         <p className="text-sm text-muted-foreground mt-1">Define your visual brand identity for images and videos. AI uses these preferences when generating content.</p>
-        <BotNav botId={id} activeTab="creative-style" />
       </div>
 
       {sp.success && <AlertMessage type="success" message={sp.success} />}

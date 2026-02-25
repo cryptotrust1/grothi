@@ -9,7 +9,6 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { BotNav } from '@/components/dashboard/bot-nav';
 import { AlertMessage } from '@/components/ui/alert-message';
 import { HelpTip } from '@/components/ui/help-tip';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -246,7 +245,6 @@ export default async function AutopilotPage({
         <p className="text-sm text-muted-foreground mt-1">
           Fully autonomous content creation and posting powered by AI and platform algorithm research.
         </p>
-        <BotNav botId={id} activeTab="autopilot" />
       </div>
 
       {sp.success && <AlertMessage type="success" message={sp.success} />}

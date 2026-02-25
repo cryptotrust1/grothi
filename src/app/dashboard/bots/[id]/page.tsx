@@ -10,7 +10,6 @@ import {
   Activity, Clock, Brain,
   TrendingUp, Globe, Zap, CheckCircle2, Circle, Settings,
 } from 'lucide-react';
-import { BotNav } from '@/components/dashboard/bot-nav';
 import { HelpTip } from '@/components/ui/help-tip';
 import { Progress } from '@/components/ui/progress';
 import { BOT_STATUS_CONFIG, PLATFORM_NAMES, GOAL_LABELS, RL_DIMENSION_LABELS, TONE_STYLES, HASHTAG_PATTERNS, CONTENT_TYPES } from '@/lib/constants';
@@ -126,8 +125,6 @@ export default async function BotDetailPage({
         </div>
         <p className="text-muted-foreground">{bot.brandName}</p>
       </div>
-
-      <BotNav botId={bot.id} activeTab="overview" />
 
       {/* Setup Checklist - shown until all steps are complete */}
       {!isSetupComplete && (
