@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { readFile } from 'fs/promises';
 import { existsSync, statSync } from 'fs';
 import { join, resolve } from 'path';
+import { validateMediaForServing, validateMediaForDeletion } from '@/lib/media-validation';
 
 const UPLOAD_DIR = join(process.cwd(), 'data', 'uploads');
 
@@ -23,151 +24,161 @@ export async function GET(
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 
-  // Detect if request is from Meta's servers (Instagram/Facebook/Threads).
-  // Meta crawlers use user-agents like "facebookexternalhit/1.1" and "Instagram".
-  const userAgent = request.headers.get('user-agent') || '';
-  const isMetaCrawler = /facebookexternalhit|Instagram|Facebot/i.test(userAgent);
+    // Detect if request is from Meta's servers (Instagram/Facebook/Threads).
+    // Meta crawlers use user-agents like "facebookexternalhit/1.1" and "Instagram".
+    const userAgent = request.headers.get('user-agent') || '';
+    const isMetaCrawler = /facebookexternalhit|Instagram|Facebot/i.test(userAgent);
 
-  // Auth: if user is logged in, verify ownership.
-  // If no user (external access from Instagram/Threads/Facebook servers), allow access.
-  // The CUID media ID is unguessable (25+ random chars) so it acts as a secret token.
-  // This is required because Instagram Graph API fetches the image URL server-side.
-  const user = isMetaCrawler ? null : await getCurrentUser();
-  if (user && media.bot.userId !== user.id) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 });
-  }
+    // Auth: if user is logged in, verify ownership.
+    // If no user (external access from Instagram/Threads/Facebook servers), allow access.
+    // The CUID media ID is unguessable (25+ random chars) so it acts as a secret token.
+    // This is required because Instagram Graph API fetches the image URL server-side.
+    const user = isMetaCrawler ? null : await getCurrentUser();
+    if (user && media.bot.userId !== user.id) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
 
-  const filePath = resolve(join(UPLOAD_DIR, media.filePath));
+    // Validate media can be served (prevents EISDIR errors)
+    const validation = validateMediaForServing(media);
+    if (!validation.valid) {
+      return NextResponse.json(
+        { error: validation.error, status: media.generationStatus },
+        { status: validation.statusCode }
+      );
+    }
 
-  // Prevent path traversal - ensure resolved path is within UPLOAD_DIR
-  if (!filePath.startsWith(resolve(UPLOAD_DIR))) {
-    return NextResponse.json({ error: 'Invalid file path' }, { status: 400 });
-  }
+    // At this point filePath is guaranteed to exist and be valid
+    const filePath = resolve(join(UPLOAD_DIR, media.filePath!));
 
-  if (!existsSync(filePath)) {
-    return NextResponse.json({ error: 'File not found on disk' }, { status: 404 });
-  }
+    // Prevent path traversal - ensure resolved path is within UPLOAD_DIR
+    if (!filePath.startsWith(resolve(UPLOAD_DIR))) {
+      return NextResponse.json({ error: 'Invalid file path' }, { status: 400 });
+    }
 
-  // Ensure it's a file, not a directory (prevents EISDIR error)
-  const pathStat = statSync(filePath);
-  if (!pathStat.isFile()) {
-    return NextResponse.json({ error: 'Invalid file path' }, { status: 400 });
-  }
+    if (!existsSync(filePath)) {
+      return NextResponse.json({ error: 'File not found on disk' }, { status: 404 });
+    }
 
-  const isImage = media.mimeType.startsWith('image/');
-  const isVideo = media.mimeType.startsWith('video/');
-  const safeFilename = media.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+    // Ensure it's a file, not a directory (prevents EISDIR error)
+    const pathStat = statSync(filePath);
+    if (!pathStat.isFile()) {
+      return NextResponse.json({ error: 'Invalid file path' }, { status: 400 });
+    }
 
-  // Force download when ?download=true is passed
-  const forceDownload = request.nextUrl.searchParams.get('download') === 'true';
+    const isImage = media.mimeType.startsWith('image/');
+    const isVideo = media.mimeType.startsWith('video/');
+    const safeFilename = media.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
 
-  // Serve images and videos inline (for preview/playback), others as attachment
-  const disposition = forceDownload ? 'attachment' : (isImage || isVideo) ? 'inline' : 'attachment';
+    // Force download when ?download=true is passed
+    const forceDownload = request.nextUrl.searchParams.get('download') === 'true';
 
-  // Support Range requests for video streaming (required for HTML5 <video>)
-  if (isVideo && !forceDownload) {
-    const rangeHeader = request.headers.get('range');
-    const { stat } = await import('fs/promises');
-    const fileStat = await stat(filePath);
-    const fileSize = fileStat.size;
+    // Serve images and videos inline (for preview/playback), others as attachment
+    const disposition = forceDownload ? 'attachment' : (isImage || isVideo) ? 'inline' : 'attachment';
 
-    if (rangeHeader) {
-      const parts = rangeHeader.replace(/bytes=/, '').split('-');
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+    // Support Range requests for video streaming (required for HTML5 <video>)
+    if (isVideo && !forceDownload) {
+      const rangeHeader = request.headers.get('range');
+      const { stat } = await import('fs/promises');
+      const fileStat = await stat(filePath);
+      const fileSize = fileStat.size;
 
-      // Validate range boundaries
-      if (isNaN(start) || isNaN(end) || start < 0 || end < start || end >= fileSize) {
-        return new NextResponse(null, {
-          status: 416,
-          headers: { 'Content-Range': `bytes */${fileSize}` },
+      if (rangeHeader) {
+        const parts = rangeHeader.replace(/bytes=/, '').split('-');
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+
+        // Validate range boundaries
+        if (isNaN(start) || isNaN(end) || start < 0 || end < start || end >= fileSize) {
+          return new NextResponse(null, {
+            status: 416,
+            headers: { 'Content-Range': `bytes */${fileSize}` },
+          });
+        }
+
+        const chunkSize = end - start + 1;
+
+        const { createReadStream } = await import('fs');
+        const stream = createReadStream(filePath, { start, end });
+
+        // Convert Node.js Readable to Web ReadableStream.
+        // Track closed state to prevent ERR_INVALID_STATE when data arrives
+        // after the controller has been closed (race condition in Node streams).
+        const webStream = new ReadableStream({
+          start(controller) {
+            let closed = false;
+            stream.on('data', (chunk) => {
+              if (!closed) {
+                try {
+                  controller.enqueue(new Uint8Array(Buffer.from(chunk)));
+                } catch {
+                  // Controller already closed — ignore
+                  closed = true;
+                }
+              }
+            });
+            stream.on('end', () => {
+              if (!closed) {
+                closed = true;
+                try {
+                  controller.close();
+                } catch {
+                  // Already closed — ignore
+                }
+              }
+            });
+            stream.on('error', (err) => {
+              if (!closed) {
+                closed = true;
+                try {
+                  controller.error(err);
+                } catch {
+                  // Already closed/errored — ignore
+                }
+              }
+            });
+          },
+          cancel() {
+            // Client disconnected — destroy the file stream to free resources
+            stream.destroy();
+          },
+        });
+
+        return new NextResponse(webStream, {
+          status: 206,
+          headers: {
+            'Content-Type': media.mimeType,
+            'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+            'Accept-Ranges': 'bytes',
+            'Content-Length': String(chunkSize),
+            'Content-Disposition': `inline; filename="${safeFilename}"`,
+            'X-Content-Type-Options': 'nosniff',
+            'Cache-Control': 'private, max-age=86400',
+          },
         });
       }
 
-      const chunkSize = end - start + 1;
-
-      const { createReadStream } = await import('fs');
-      const stream = createReadStream(filePath, { start, end });
-
-      // Convert Node.js Readable to Web ReadableStream.
-      // Track closed state to prevent ERR_INVALID_STATE when data arrives
-      // after the controller has been closed (race condition in Node streams).
-      const webStream = new ReadableStream({
-        start(controller) {
-          let closed = false;
-          stream.on('data', (chunk) => {
-            if (!closed) {
-              try {
-                controller.enqueue(new Uint8Array(Buffer.from(chunk)));
-              } catch {
-                // Controller already closed — ignore
-                closed = true;
-              }
-            }
-          });
-          stream.on('end', () => {
-            if (!closed) {
-              closed = true;
-              try {
-                controller.close();
-              } catch {
-                // Already closed — ignore
-              }
-            }
-          });
-          stream.on('error', (err) => {
-            if (!closed) {
-              closed = true;
-              try {
-                controller.error(err);
-              } catch {
-                // Already closed/errored — ignore
-              }
-            }
-          });
-        },
-        cancel() {
-          // Client disconnected — destroy the file stream to free resources
-          stream.destroy();
-        },
-      });
-
-      return new NextResponse(webStream, {
-        status: 206,
+      // No Range header — return full video with Accept-Ranges
+      const buffer = await readFile(filePath);
+      const videoCacheControl = isMetaCrawler ? 'public, max-age=86400' : 'private, max-age=86400';
+      return new NextResponse(buffer, {
         headers: {
           'Content-Type': media.mimeType,
-          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+          'Content-Length': String(fileSize),
           'Accept-Ranges': 'bytes',
-          'Content-Length': String(chunkSize),
+          'Cache-Control': videoCacheControl,
           'Content-Disposition': `inline; filename="${safeFilename}"`,
           'X-Content-Type-Options': 'nosniff',
-          'Cache-Control': 'private, max-age=86400',
+          'Access-Control-Allow-Origin': '*',
         },
       });
     }
 
-    // No Range header — return full video with Accept-Ranges
+    // Non-video files: serve as before
     const buffer = await readFile(filePath);
-    const videoCacheControl = isMetaCrawler ? 'public, max-age=86400' : 'private, max-age=86400';
-    return new NextResponse(buffer, {
-      headers: {
-        'Content-Type': media.mimeType,
-        'Content-Length': String(fileSize),
-        'Accept-Ranges': 'bytes',
-        'Cache-Control': videoCacheControl,
-        'Content-Disposition': `inline; filename="${safeFilename}"`,
-        'X-Content-Type-Options': 'nosniff',
-        'Access-Control-Allow-Origin': '*',
-      },
-    });
-  }
 
-  // Non-video files: serve as before
-  const buffer = await readFile(filePath);
-
-  // Use public cache for Meta crawlers so Cloudflare doesn't interfere.
-  // For logged-in users, keep private caching.
-  const cacheControl = isMetaCrawler ? 'public, max-age=86400' : 'private, max-age=86400';
+    // Use public cache for Meta crawlers so Cloudflare doesn't interfere.
+    // For logged-in users, keep private caching.
+    const cacheControl = isMetaCrawler ? 'public, max-age=86400' : 'private, max-age=86400';
 
     return new NextResponse(buffer, {
       headers: {
@@ -210,11 +221,13 @@ export async function DELETE(
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
-  const filePath = resolve(join(UPLOAD_DIR, media.filePath));
-
-  // Prevent path traversal
-  if (!filePath.startsWith(resolve(UPLOAD_DIR))) {
-    return NextResponse.json({ error: 'Invalid file path' }, { status: 400 });
+  // Validate deletion is allowed
+  const validation = validateMediaForDeletion(media);
+  if (!validation.valid) {
+    return NextResponse.json(
+      { error: validation.error },
+      { status: validation.statusCode }
+    );
   }
 
   // Delete from database first (authoritative), then filesystem
@@ -227,21 +240,27 @@ export async function DELETE(
   }
 
   // Delete from filesystem (best-effort after DB delete)
-  try {
-    const { unlink } = await import('fs/promises');
-    if (existsSync(filePath)) {
-      // Ensure it's a file before attempting to delete
-      const pathStat = statSync(filePath);
-      if (pathStat.isFile()) {
-        await unlink(filePath);
-      } else {
-        console.warn(`[media] Path is not a file, skipping delete: ${filePath}`);
+  // Only attempt if filePath exists
+  if (media.filePath && media.filePath.trim() !== '') {
+    try {
+      const filePath = resolve(join(UPLOAD_DIR, media.filePath));
+      
+      // Security check
+      if (filePath.startsWith(resolve(UPLOAD_DIR)) && existsSync(filePath)) {
+        // Ensure it's a file before attempting to delete
+        const pathStat = statSync(filePath);
+        if (pathStat.isFile()) {
+          const { unlink } = await import('fs/promises');
+          await unlink(filePath);
+        } else {
+          console.warn(`[media] Path is not a file, skipping delete: ${filePath}`);
+        }
       }
+    } catch (error) {
+      // Log but don't fail — DB record is already deleted
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`[media] File delete failed for ${media.filePath}:`, msg);
     }
-  } catch (error) {
-    // Log but don't fail — DB record is already deleted
-    const msg = error instanceof Error ? error.message : 'Unknown error';
-    console.error(`[media] File delete failed for ${filePath}:`, msg);
   }
 
   return NextResponse.json({ success: true });

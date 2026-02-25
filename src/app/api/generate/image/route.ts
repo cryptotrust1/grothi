@@ -9,6 +9,7 @@ import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, resolve } from 'path';
 import { randomUUID } from 'crypto';
+import { generateFilePath } from '@/lib/media-validation';
 
 export const maxDuration = 120;
 
@@ -216,6 +217,8 @@ export async function POST(request: NextRequest) {
     const filename = `${uuid}.${fileExt}`;
     const filePath = join(botDir, filename);
     await writeFile(filePath, imageBuffer);
+    
+    const dbFilePath = generateFilePath(botId, uuid, fileExt);
 
     // Credits were already deducted before generation (atomically)
     // Get dimensions for DB
@@ -229,7 +232,7 @@ export async function POST(request: NextRequest) {
         filename: `ai-${model.id}-${platform || 'general'}.${fileExt}`,
         mimeType,
         fileSize: imageBuffer.length,
-        filePath: `${botId}/${filename}`,
+        filePath: dbFilePath,
         width: dims.width,
         height: dims.height,
         aiDescription: fullPrompt,

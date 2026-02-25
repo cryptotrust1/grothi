@@ -6,6 +6,7 @@ import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, resolve } from 'path';
 import { randomUUID } from 'crypto';
+import { sanitizeFilename, generateFilePath } from '@/lib/media-validation';
 
 // Allow up to 2 minutes for large video uploads
 export const maxDuration = 120;
@@ -175,8 +176,10 @@ export async function POST(request: NextRequest) {
     // Generate unique filename
     const uuid = randomUUID();
     const ext = getExtension(mimeType);
+    const safeOriginalName = sanitizeFilename(file.name);
     const filename = `${uuid}${ext}`;
     const filePath = join(botDir, filename);
+    const dbFilePath = generateFilePath(botId, uuid, ext.replace(/^\./, ''));
 
     // Write file
     await writeFile(filePath, buffer);
@@ -218,10 +221,10 @@ export async function POST(request: NextRequest) {
       data: {
         botId,
         type: getMediaType(mimeType),
-        filename: file.name,
+        filename: safeOriginalName,
         mimeType,
         fileSize: file.size,
-        filePath: `${botId}/${filename}`,
+        filePath: dbFilePath,
         width,
         height,
       },

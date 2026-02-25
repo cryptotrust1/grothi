@@ -93,6 +93,10 @@ export async function POST(
     );
   }
 
+  if (!media.filePath) {
+    return NextResponse.json({ error: 'Media file not ready or unavailable' }, { status: 404 });
+  }
+
   const filePath = resolve(join(UPLOAD_DIR, media.filePath));
 
   // Prevent path traversal — ensure resolved path is within UPLOAD_DIR

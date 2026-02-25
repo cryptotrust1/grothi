@@ -93,6 +93,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Video not found' }, { status: 404 });
   }
 
+  if (!media.filePath) {
+    return NextResponse.json({ error: 'Video file not ready or generation pending' }, { status: 404 });
+  }
+
   const inputPath = resolve(join(UPLOAD_DIR, media.filePath));
   if (!inputPath.startsWith(resolve(UPLOAD_DIR)) || !existsSync(inputPath)) {
     return NextResponse.json({ error: 'Video file not found on disk' }, { status: 404 });

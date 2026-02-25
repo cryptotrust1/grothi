@@ -801,6 +801,12 @@ async function publishToInstagram(
 
         const imageUrls: string[] = [];
         for (const m of allMedia) {
+          // Skip media without filePath (pending generations, failed uploads)
+          if (!m.filePath) {
+            console.warn(`[process-posts] Instagram: skipping media ${m.id} - no filePath (status: pending/failed)`);
+            continue;
+          }
+          
           // Convert non-JPEG carousel items to JPEG
           let carouselFilePath = m.filePath;
           if (m.type === 'IMAGE' && m.mimeType && IG_CONVERT_TO_JPEG_MIMES.includes(m.mimeType.toLowerCase())) {
@@ -958,6 +964,12 @@ async function publishToThreads(
 
         const imageUrls: string[] = [];
         for (const m of allMedia) {
+          // Skip media without filePath
+          if (!m.filePath) {
+            console.warn(`[process-posts] Threads: skipping media ${m.id} - no filePath`);
+            continue;
+          }
+          
           // Convert non-JPEG images
           let itemPath = m.filePath;
           if (m.type === 'IMAGE' && m.mimeType && IG_CONVERT_TO_JPEG_MIMES.includes(m.mimeType.toLowerCase())) {

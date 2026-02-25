@@ -1382,7 +1382,7 @@ export async function runDiagnostics(botId: string): Promise<{
     createdAt: string;
     postType: string | null;
     hasMedia: boolean;
-    mediaDetails: { id: string; filePath: string; type: string; mimeType: string; filename: string } | null;
+    mediaDetails: { id: string; filePath: string | null; type: string; mimeType: string; filename: string } | null;
     resolvedUrl: string | null;
     fileExistsOnDisk: boolean | null;
     urlAccessible: boolean | null;
@@ -1869,7 +1869,7 @@ export async function runDiagnostics(botId: string): Promise<{
     createdAt: string;
     postType: string | null;
     hasMedia: boolean;
-    mediaDetails: { id: string; filePath: string; type: string; mimeType: string; filename: string } | null;
+    mediaDetails: { id: string; filePath: string | null; type: string; mimeType: string; filename: string } | null;
     resolvedUrl: string | null;
     fileExistsOnDisk: boolean | null;
     urlAccessible: boolean | null;
