@@ -10,9 +10,19 @@ import {
   Scissors, Type, Crop, Play, Pause, RotateCcw,
   Download, Film, CheckCircle2, Loader2, ChevronRight,
   Sparkles, ChevronDown, ChevronUp, Wand2, Camera, Copy, MessageSquare,
+  Palette, SlidersHorizontal,
 } from 'lucide-react';
 import Link from 'next/link';
 import { VIDEO_MODELS, getDefaultVideoModel } from '@/lib/ai-models';
+import {
+  VIDEO_FILTERS,
+  ADJUSTMENT_DEFS,
+  FILTER_CATEGORY_LABELS,
+  hasActiveAdjustments,
+  adjustmentSummary,
+  type FilterCategory,
+  type AdjustmentValues,
+} from '@/lib/studio-filters';
 
 interface VideoMedia {
   id: string;
@@ -104,6 +114,11 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
   const [result, setResult] = useState<{ mediaId: string; url: string; filename: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // ── Color & Filters (Step 3) ──
+  const [selectedFilterId, setSelectedFilterId] = useState('original');
+  const [filterCategory, setFilterCategory] = useState<FilterCategory | 'all'>('all');
+  const [adjustments, setAdjustments] = useState<AdjustmentValues>({});
+
   // ── Phase 3: AI Caption Generator ──
   const [showCaptionForm, setShowCaptionForm] = useState(false);
   const [captionPlatforms, setCaptionPlatforms] = useState<string[]>(['INSTAGRAM', 'TIKTOK', 'FACEBOOK']);
@@ -128,6 +143,10 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
     setIsPlaying(false);
     setResult(null);
     setError(null);
+    // Reset Color & Filters
+    setSelectedFilterId('original');
+    setAdjustments({});
+    setFilterCategory('all');
     // Reset Phase 3 + 4 state
     setShowCaptionForm(false);
     setCaptions(null);
@@ -204,6 +223,10 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
     setResult(null);
     setError(null);
     setShowGenSection(false);
+    // Reset Color & Filters
+    setSelectedFilterId('original');
+    setAdjustments({});
+    setFilterCategory('all');
     // Reset Phase 3+4 — clear stale state from any previously selected video
     setShowCaptionForm(false);
     setCaptions(null);
@@ -278,6 +301,15 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
       setGenError(err instanceof Error ? err.message : 'Generation failed');
     }
   }, [botId, genModelId, genPlatform, genPrompt, addGeneratedVideo]);
+
+  // ── Color & Filters handlers ──
+  const handleSetAdjustment = useCallback((key: string, value: number) => {
+    setAdjustments(prev => ({ ...prev, [key]: value }));
+  }, []);
+
+  const handleResetAdjustments = useCallback(() => {
+    setAdjustments({});
+  }, []);
 
   // ── Phase 3: Generate AI captions for the processed video ──
   const handleGenerateCaptions = useCallback(async (mediaId: string, videoDescription?: string) => {
@@ -360,6 +392,14 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
           end: Math.round(trimEnd * 100) / 100,
         },
       };
+
+      if (selectedFilterId !== 'original') {
+        body.filterId = selectedFilterId;
+      }
+
+      if (hasActiveAdjustments(adjustments)) {
+        body.adjustments = adjustments;
+      }
 
       if (textEnabled && textContent.trim()) {
         body.textOverlay = {
@@ -752,11 +792,140 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
             </CardContent>
           </Card>
 
-          {/* ── Step 3: Text Overlay ── */}
+          {/* ── Step 3: Color & Filters ── */}
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
                 <span className="flex items-center justify-center w-5 h-5 rounded-full bg-muted text-muted-foreground text-xs font-bold">3</span>
+                <Palette className="h-4 w-4" /> Color &amp; Filters
+                <Badge variant="secondary" className="text-[10px] ml-1">Optional</Badge>
+              </CardTitle>
+              <CardDescription>Apply a color grade and fine-tune with adjustment sliders</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
+
+              {/* Category tabs */}
+              <div className="flex flex-wrap gap-1.5">
+                {(['all', ...Object.keys(FILTER_CATEGORY_LABELS)] as (FilterCategory | 'all')[]).map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => setFilterCategory(cat)}
+                    className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
+                      filterCategory === cat
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'border-input text-muted-foreground hover:border-primary/40'
+                    }`}
+                  >
+                    {cat === 'all' ? 'All' : FILTER_CATEGORY_LABELS[cat as FilterCategory]}
+                  </button>
+                ))}
+              </div>
+
+              {/* Filter gallery */}
+              <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
+                {VIDEO_FILTERS
+                  .filter(f => filterCategory === 'all' || f.category === filterCategory)
+                  .map(f => {
+                    const isSelected = selectedFilterId === f.id;
+                    return (
+                      <button
+                        key={f.id}
+                        onClick={() => setSelectedFilterId(f.id)}
+                        title={f.name}
+                        className={`flex flex-col items-center gap-1 p-1.5 rounded-lg border transition-all ${
+                          isSelected
+                            ? 'border-primary ring-2 ring-primary/40 bg-primary/5'
+                            : 'border-transparent hover:border-primary/30'
+                        }`}
+                      >
+                        {/* Swatch — gradient approximation of a typical scene with CSS filter */}
+                        <div
+                          className="w-full aspect-square rounded-md overflow-hidden"
+                          style={{
+                            background: 'linear-gradient(135deg, #4a90a4 0%, #6cb86a 40%, #e8a435 100%)',
+                            filter: f.cssPreview || 'none',
+                          }}
+                        />
+                        <span className={`text-[10px] leading-tight text-center w-full truncate ${
+                          isSelected ? 'text-primary font-semibold' : 'text-muted-foreground'
+                        }`}>
+                          {f.name}
+                        </span>
+                      </button>
+                    );
+                  })}
+              </div>
+
+              {/* Adjustment sliders */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold flex items-center gap-1.5">
+                    <SlidersHorizontal className="h-3.5 w-3.5 text-primary" />
+                    Adjustments
+                  </span>
+                  {hasActiveAdjustments(adjustments) && (
+                    <button
+                      onClick={handleResetAdjustments}
+                      className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1"
+                    >
+                      <RotateCcw className="h-3 w-3" /> Reset all
+                    </button>
+                  )}
+                </div>
+
+                {ADJUSTMENT_DEFS.map(def => {
+                  const value = adjustments[def.key] ?? def.default;
+                  const isChanged = value !== def.default;
+                  return (
+                    <div key={def.key} className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-medium">{def.label}</label>
+                        <div className="flex items-center gap-1.5">
+                          <span className={`text-xs tabular-nums w-8 text-right ${
+                            isChanged ? 'text-primary font-semibold' : 'text-muted-foreground'
+                          }`}>
+                            {value > 0 ? `+${value}` : value}
+                          </span>
+                          {isChanged && (
+                            <button
+                              onClick={() => handleSetAdjustment(def.key, def.default)}
+                              className="text-muted-foreground hover:text-foreground shrink-0"
+                              title={`Reset ${def.label}`}
+                            >
+                              <RotateCcw className="h-3 w-3" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <input
+                        type="range"
+                        min={def.min}
+                        max={def.max}
+                        step={def.step}
+                        value={value}
+                        onChange={e => handleSetAdjustment(def.key, parseInt(e.target.value, 10))}
+                        className="w-full h-1.5 appearance-none rounded-full bg-muted accent-primary cursor-pointer"
+                      />
+                      {def.min < 0 && (
+                        <div className="flex justify-between text-[10px] text-muted-foreground/60">
+                          <span>{def.min}</span>
+                          <span>0</span>
+                          <span>+{def.max}</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+            </CardContent>
+          </Card>
+
+          {/* ── Step 4: Text Overlay ── */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <span className="flex items-center justify-center w-5 h-5 rounded-full bg-muted text-muted-foreground text-xs font-bold">4</span>
                 <Type className="h-4 w-4" /> Text overlay
                 <Badge variant="secondary" className="text-[10px] ml-1">Optional</Badge>
               </CardTitle>
@@ -850,11 +1019,11 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
             </CardContent>
           </Card>
 
-          {/* ── Step 4: Aspect Ratio ── */}
+          {/* ── Step 5: Aspect Ratio ── */}
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
-                <span className="flex items-center justify-center w-5 h-5 rounded-full bg-muted text-muted-foreground text-xs font-bold">4</span>
+                <span className="flex items-center justify-center w-5 h-5 rounded-full bg-muted text-muted-foreground text-xs font-bold">5</span>
                 <Crop className="h-4 w-4" /> Aspect ratio
                 <Badge variant="secondary" className="text-[10px] ml-1">Optional</Badge>
               </CardTitle>
@@ -883,11 +1052,11 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
             </CardContent>
           </Card>
 
-          {/* ── Step 5: Process ── */}
+          {/* ── Step 6: Process ── */}
           <Card className={processing ? 'border-primary/40 shadow-sm' : ''}>
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
-                <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs font-bold">5</span>
+                <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs font-bold">6</span>
                 <Sparkles className="h-4 w-4" /> Process & save
               </CardTitle>
             </CardHeader>
@@ -941,7 +1110,11 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => { setResult(null); setError(null); setShowCaptionForm(false); setCaptions(null); }}
+                      onClick={() => {
+                        setResult(null); setError(null);
+                        setShowCaptionForm(false); setCaptions(null);
+                        setSelectedFilterId('original'); setAdjustments({});
+                      }}
                     >
                       <RotateCcw className="h-3.5 w-3.5 mr-1.5" /> Edit another
                     </Button>
@@ -1045,6 +1218,21 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
                           {videoDuration > 0 && <span className="text-muted-foreground"> (keeping {formatTime(trimDuration)} of {formatTime(videoDuration)})</span>}
                         </span>
                       </li>
+                      {selectedFilterId !== 'original' && (() => {
+                        const preset = VIDEO_FILTERS.find(f => f.id === selectedFilterId);
+                        return preset ? (
+                          <li className="flex items-start gap-2">
+                            <Palette className="h-3.5 w-3.5 mt-0.5 text-muted-foreground shrink-0" />
+                            <span>Filter: <strong>{preset.name}</strong></span>
+                          </li>
+                        ) : null;
+                      })()}
+                      {hasActiveAdjustments(adjustments) && (
+                        <li className="flex items-start gap-2">
+                          <SlidersHorizontal className="h-3.5 w-3.5 mt-0.5 text-muted-foreground shrink-0" />
+                          <span className="text-muted-foreground">{adjustmentSummary(adjustments)}</span>
+                        </li>
+                      )}
                       {textEnabled && textContent.trim() && (
                         <li className="flex items-start gap-2">
                           <Type className="h-3.5 w-3.5 mt-0.5 text-muted-foreground shrink-0" />

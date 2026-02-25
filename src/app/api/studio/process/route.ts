@@ -5,6 +5,12 @@ import { join, resolve } from 'path';
 import { mkdir, stat } from 'fs/promises';
 import { existsSync } from 'fs';
 import { randomUUID } from 'crypto';
+import {
+  VIDEO_FILTERS,
+  ADJUSTMENT_DEFS,
+  buildColorFiltersChain,
+  type AdjustmentValues,
+} from '@/lib/studio-filters';
 
 // Allow up to 5 minutes for video processing
 export const maxDuration = 300;
@@ -15,6 +21,8 @@ interface ProcessBody {
   mediaId: string;
   botId: string;
   trim?: { start: number; end: number };
+  filterId?: string;
+  adjustments?: AdjustmentValues;
   textOverlay?: { text: string; position: 'top' | 'center' | 'bottom'; color: string; fontSize: number };
   aspectRatio?: string;
 }
@@ -32,10 +40,42 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { mediaId, botId, trim, textOverlay, aspectRatio } = body;
+  const { mediaId, botId, trim, filterId, adjustments, textOverlay, aspectRatio } = body;
 
   if (!mediaId || !botId) {
     return NextResponse.json({ error: 'mediaId and botId are required' }, { status: 400 });
+  }
+
+  // ── Security: validate filterId against whitelist ──────────────────────────
+  // Filter strings come only from our pre-defined constants, never from user input.
+  if (filterId !== undefined) {
+    const validFilter = VIDEO_FILTERS.find(f => f.id === filterId);
+    if (!validFilter) {
+      return NextResponse.json({ error: 'Invalid filter ID' }, { status: 400 });
+    }
+  }
+
+  // ── Security: validate adjustments (keys + numeric ranges) ────────────────
+  if (adjustments !== undefined) {
+    if (typeof adjustments !== 'object' || adjustments === null) {
+      return NextResponse.json({ error: 'Invalid adjustments format' }, { status: 400 });
+    }
+    const validKeys = new Set(ADJUSTMENT_DEFS.map(d => d.key));
+    for (const [key, value] of Object.entries(adjustments)) {
+      if (!validKeys.has(key)) {
+        return NextResponse.json({ error: `Unknown adjustment: ${key}` }, { status: 400 });
+      }
+      if (typeof value !== 'number' || !isFinite(value)) {
+        return NextResponse.json({ error: `Invalid value for adjustment: ${key}` }, { status: 400 });
+      }
+      const def = ADJUSTMENT_DEFS.find(d => d.key === key);
+      if (def && (value < def.min || value > def.max)) {
+        return NextResponse.json(
+          { error: `Adjustment out of range: ${key} must be ${def.min}..${def.max}` },
+          { status: 400 }
+        );
+      }
+    }
   }
 
   // Verify bot ownership
@@ -93,19 +133,36 @@ export async function POST(request: NextRequest) {
         cmd = cmd.setStartTime(trim.start).setDuration(duration);
       }
 
-      // Build video filter chain
+      // ── Build video filter chain ───────────────────────────────────────
+      //
+      // Correct order for video filters:
+      //   1. Geometric (crop/scale/pad for aspect ratio)  ← spatial first
+      //   2. Color grading (preset + adjustments)          ← color second
+      //   3. drawtext (text overlay always last)           ← text on top
+      //
       const videoFilters: string[] = [];
 
-      // Aspect ratio crop (center-crop to target ratio)
+      // ── 1. Aspect ratio (geometric) ──────────────────────────────────
       if (aspectRatio === '9:16') {
-        videoFilters.push('crop=ih*9/16:ih,scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2');
+        videoFilters.push(
+          'crop=ih*9/16:ih,scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2'
+        );
       } else if (aspectRatio === '1:1') {
         videoFilters.push("crop='min(iw,ih)':'min(iw,ih)',scale=1080:1080");
       } else if (aspectRatio === '16:9') {
-        videoFilters.push("crop=iw:'iw*9/16',scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2");
+        videoFilters.push(
+          "crop=iw:'iw*9/16',scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2"
+        );
       }
 
-      // Text overlay using drawtext filter
+      // ── 2. Color grading (preset + adjustments) ───────────────────────
+      const colorFilters = buildColorFiltersChain(
+        filterId ?? 'original',
+        adjustments ?? {}
+      );
+      videoFilters.push(...colorFilters);
+
+      // ── 3. Text overlay (drawtext — always applied last) ─────────────
       if (textOverlay && textOverlay.text && textOverlay.text.trim()) {
         // Escape special drawtext characters
         const safeText = textOverlay.text
@@ -160,6 +217,11 @@ export async function POST(request: NextRequest) {
     const baseName = media.filename.replace(/\.[^.]+$/, '');
     const suffix: string[] = [];
     if (trim) suffix.push('trimmed');
+    if (filterId && filterId !== 'original') {
+      const preset = VIDEO_FILTERS.find(f => f.id === filterId);
+      if (preset) suffix.push(preset.name.toLowerCase().replace(/\s+/g, '_'));
+    }
+    if (adjustments && Object.values(adjustments).some(v => v !== 0)) suffix.push('adjusted');
     if (textOverlay?.text) suffix.push('captioned');
     if (aspectRatio && aspectRatio !== 'original') suffix.push(aspectRatio.replace(':', 'x'));
     const newFilename = `${baseName}_${suffix.join('_') || 'edited'}.mp4`;
