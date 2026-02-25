@@ -203,6 +203,7 @@ export const VIDEO_MUSIC_OPTIONS = [
 // ============ BOT NAVIGATION TABS ============
 export const BOT_NAV_TABS = [
   { key: 'overview', label: 'Overview', path: '' },
+  { key: 'autopilot', label: 'Autopilot', path: '/autopilot' },
   { key: 'post', label: 'Post Scheduler', path: '/post' },
   { key: 'activity', label: 'Activity', path: '/activity' },
   { key: 'platforms', label: 'Platforms', path: '/platforms' },
