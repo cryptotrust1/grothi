@@ -288,6 +288,7 @@ export async function allocateSubscriptionCredits(
   allowRollover: boolean,
   maxRolloverCredits: number,
   periodEnd: Date,
+  stripeInvoiceId?: string,
 ): Promise<void> {
   await db.$transaction(async (tx) => {
     // 1. Handle rollover from previous period
@@ -417,7 +418,7 @@ export async function allocateSubscriptionCredits(
       update: { balance: totalBalance },
     });
 
-    // 4. Log subscription credit allocation
+    // 4. Log subscription credit allocation (stripePaymentId used as idempotency key)
     if (monthlyCredits > 0) {
       await tx.creditTransaction.create({
         data: {
@@ -426,6 +427,7 @@ export async function allocateSubscriptionCredits(
           amount: monthlyCredits,
           balance: totalBalance,
           description: `Monthly subscription: +${monthlyCredits} credits`,
+          stripePaymentId: stripeInvoiceId,
         },
       });
     }

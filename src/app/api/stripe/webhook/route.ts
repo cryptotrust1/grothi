@@ -240,6 +240,18 @@ async function handleInvoicePaid(invoice: Record<string, unknown>) {
   const subscriptionId = invoice.subscription as string;
   if (!subscriptionId) return;
 
+  // Idempotency: skip if we already processed this invoice
+  const invoiceId = invoice.id as string;
+  if (invoiceId) {
+    const existing = await db.creditTransaction.findFirst({
+      where: { stripePaymentId: `inv_${invoiceId}` },
+    });
+    if (existing) {
+      console.log(`[Stripe] Duplicate invoice.paid for ${invoiceId}, skipping`);
+      return;
+    }
+  }
+
   const sub = await db.subscription.findFirst({
     where: { stripeSubscriptionId: subscriptionId },
     include: {
@@ -272,7 +284,7 @@ async function handleInvoicePaid(invoice: Record<string, unknown>) {
     },
   });
 
-  // Allocate monthly credits
+  // Allocate monthly credits and record idempotency key
   if (sub.plan.credits > 0) {
     await allocateSubscriptionCredits(
       sub.userId,
@@ -281,6 +293,7 @@ async function handleInvoicePaid(invoice: Record<string, unknown>) {
       sub.plan.allowRollover,
       sub.plan.maxRolloverCredits,
       periodEnd,
+      invoiceId ? `inv_${invoiceId}` : undefined,
     );
     console.log(`[Stripe] Allocated ${sub.plan.credits} credits for user ${sub.userId} (${sub.plan.name} plan)`);
   }

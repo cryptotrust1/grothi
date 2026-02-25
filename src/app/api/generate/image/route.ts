@@ -5,6 +5,7 @@ import { deductCredits } from '@/lib/credits';
 import { getModelById, getDefaultImageModel, buildModelInput, IMAGE_MODELS } from '@/lib/ai-models';
 import { PLATFORM_IMAGE_DIMENSIONS } from '@/lib/replicate';
 import { BOT_STORAGE_LIMIT_BYTES, BOT_STORAGE_LIMIT_MB } from '@/lib/constants';
+import { aiGenerationLimiter } from '@/lib/rate-limit';
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, resolve } from 'path';
@@ -20,6 +21,15 @@ export async function POST(request: NextRequest) {
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // Rate limit per user (60 AI requests/hour — prevents credit-draining abuse)
+  const rateCheck = aiGenerationLimiter.check(`image:${user.id}`);
+  if (!rateCheck.allowed) {
+    return NextResponse.json(
+      { error: `Too many AI requests. Try again in ${Math.ceil(rateCheck.retryAfterMs / 1000)} seconds.` },
+      { status: 429 }
+    );
   }
 
   try {

@@ -139,6 +139,12 @@ export const aiGenerationLimiter = createRateLimiter({
   windowMs: 60 * 60 * 1000, // 1 hour
 });
 
+/** Stripe checkout: max 10 sessions per hour per user ID. Prevents checkout session spam. */
+export const checkoutLimiter = createRateLimiter({
+  maxRequests: 10,
+  windowMs: 60 * 60 * 1000, // 1 hour
+});
+
 // ── IP extraction helper ──────────────────────────────────────
 
 /**
