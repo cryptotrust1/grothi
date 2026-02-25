@@ -826,10 +826,18 @@ model PostEngagement {
 
   bot Bot @relation(fields: [botId], references: [id], onDelete: Cascade)
 
+  // Core RL indexes
   @@index([botId, platform])
   @@index([botId, contentType])
   @@index([botId, platform, timeSlot])
-  @@index([postedAt])
+  
+  // Performance-critical indexes for engagement collection
+  @@index([botId, platform, collectedAt])     // For finding unprocessed engagements
+  @@index([botId, platform, engagementScore]) // For RL normalization queries
+  @@index([collectedAt])                       // For cleanup and batch processing
+  @@index([postedAt])                          // For recent engagement queries
+  @@index([createdAt])                         // For time-based analytics
+  @@index([externalPostId])                    // For platform API lookups
 }
 
 model RLArmState {

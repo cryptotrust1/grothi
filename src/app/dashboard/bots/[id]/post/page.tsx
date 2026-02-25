@@ -4,6 +4,7 @@ import { notFound, redirect } from 'next/navigation';
 import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { getActionCost, hasEnoughCredits } from '@/lib/credits';
+import { getCachedPostCounts } from '@/lib/counts-cache';
 import { getContentRecommendation, fingerprintContent } from '@/lib/rl-engine';
 import { PLATFORM_NAMES, PLATFORM_REQUIREMENTS, POST_STATUS_COLORS } from '@/lib/constants';
 import { BotNav } from '@/components/dashboard/bot-nav';
@@ -91,22 +92,23 @@ export default async function ManualPostPage({
     },
   });
 
+  // Get cached counts (single query with groupBy instead of 4 count queries)
+  const postCounts = await getCachedPostCounts(bot.id, 'MANUAL');
+  const draftsCount = postCounts.DRAFT;
+  const scheduledCount = postCounts.SCHEDULED;
+  const publishedCount = postCounts.PUBLISHED;
+  const failedCount = postCounts.FAILED;
+
   // All posts with filters for the post manager section
-  const [allPosts, draftsCount, scheduledCount, publishedCount, failedCount] = await Promise.all([
-    db.scheduledPost.findMany({
-      where: postWhere as any,
-      orderBy: [{ scheduledAt: 'desc' }, { createdAt: 'desc' }],
-      include: {
-        media: { select: { id: true, filename: true, type: true } },
-        product: { select: { id: true, name: true } },
-      },
-      take: 200,
-    }),
-    db.scheduledPost.count({ where: { botId: bot.id, status: 'DRAFT' } }),
-    db.scheduledPost.count({ where: { botId: bot.id, status: 'SCHEDULED' } }),
-    db.scheduledPost.count({ where: { botId: bot.id, status: 'PUBLISHED' } }),
-    db.scheduledPost.count({ where: { botId: bot.id, status: 'FAILED' } }),
-  ]);
+  const allPosts = await db.scheduledPost.findMany({
+    where: postWhere as any,
+    orderBy: [{ scheduledAt: 'desc' }, { createdAt: 'desc' }],
+    include: {
+      media: { select: { id: true, filename: true, type: true } },
+      product: { select: { id: true, name: true } },
+    },
+    take: 200,
+  });
 
   // Products for the post form selector (fetch ALL media for product media picker)
   const products = await db.product.findMany({
