@@ -25,6 +25,7 @@ import {
   type AdjustmentValues,
 } from '@/lib/studio-filters';
 import { StudioTimeline } from '@/components/dashboard/studio-timeline';
+import { PhotoEditorPanel } from '@/components/dashboard/photo-editor';
 import {
   type TimelineState,
   type TimelineClip,
@@ -45,10 +46,14 @@ interface VideoMedia {
   createdAt: Date;
 }
 
+export type StudioMode = 'video' | 'photo';
+
 interface StudioEditorProps {
   videos: VideoMedia[];
+  images?: VideoMedia[];
   botId: string;
   botPageId: string;
+  initialMode?: StudioMode;
 }
 
 interface SubtitleEntry {
@@ -113,7 +118,8 @@ const GEN_PLATFORMS = [
 
 const FADE_OPTIONS = [0, 0.5, 1, 1.5, 2, 3];
 
-export function StudioEditor({ videos: initialVideos, botId, botPageId }: StudioEditorProps) {
+export function StudioEditor({ videos: initialVideos, images: initialImages, botId, botPageId, initialMode = 'video' }: StudioEditorProps) {
+  const [studioMode, setStudioMode] = useState<StudioMode>(initialMode);
   const [videos, setVideos] = useState<VideoMedia[]>(initialVideos);
 
   // ── AI Generate section ──
@@ -774,17 +780,65 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
 
   // ═══════════ RENDER ═══════════
 
+  // ── Mode toggle ──
+  const modeToggle = (
+    <div className="flex items-center bg-muted rounded-lg p-0.5 gap-0.5">
+      <button
+        onClick={() => setStudioMode('video')}
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+          studioMode === 'video'
+            ? 'bg-background text-primary shadow-sm'
+            : 'text-muted-foreground hover:text-foreground'
+        }`}
+      >
+        <Film className="h-3.5 w-3.5" /> Video
+      </button>
+      <button
+        onClick={() => setStudioMode('photo')}
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+          studioMode === 'photo'
+            ? 'bg-background text-primary shadow-sm'
+            : 'text-muted-foreground hover:text-foreground'
+        }`}
+      >
+        <Image className="h-3.5 w-3.5" /> Photo
+      </button>
+    </div>
+  );
+
+  // ── Photo mode: render the photo editor ──
+  if (studioMode === 'photo') {
+    return (
+      <div className="flex flex-col" style={{ height: 'calc(100vh - 10rem)' }}>
+        <div className="flex items-center justify-between gap-3 pb-3 border-b flex-shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            {modeToggle}
+          </div>
+        </div>
+        <div className="flex-1 min-h-0 mt-3">
+          <PhotoEditorPanel images={initialImages ?? []} botId={botId} botPageId={botPageId} />
+        </div>
+      </div>
+    );
+  }
+
+  // ── Video mode: empty state ──
   if (videos.length === 0 && !showGenPanel) {
     return (
-      <div className="text-center py-16">
-        <Film className="h-16 w-16 mx-auto text-muted-foreground/30 mb-4" />
-        <p className="text-lg font-medium">No videos yet</p>
-        <p className="text-sm text-muted-foreground mt-2 mb-6">
-          Upload a video in your{' '}
-          <Link href={`/dashboard/bots/${botPageId}/media`} className="text-primary underline">Media library</Link>
-          {' '}or generate one with AI to start editing.
-        </p>
-        <Button onClick={() => setShowGenPanel(true)} className="gap-2"><Wand2 className="h-4 w-4" /> Generate Video with AI</Button>
+      <div className="flex flex-col" style={{ height: 'calc(100vh - 10rem)' }}>
+        <div className="flex items-center gap-3 pb-3 border-b flex-shrink-0">
+          {modeToggle}
+        </div>
+        <div className="text-center py-16">
+          <Film className="h-16 w-16 mx-auto text-muted-foreground/30 mb-4" />
+          <p className="text-lg font-medium">No videos yet</p>
+          <p className="text-sm text-muted-foreground mt-2 mb-6">
+            Upload a video in your{' '}
+            <Link href={`/dashboard/bots/${botPageId}/media`} className="text-primary underline">Media library</Link>
+            {' '}or generate one with AI to start editing.
+          </p>
+          <Button onClick={() => setShowGenPanel(true)} className="gap-2"><Wand2 className="h-4 w-4" /> Generate Video with AI</Button>
+        </div>
       </div>
     );
   }
@@ -794,7 +848,7 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
       {/* ══════════════ HEADER BAR ══════════════ */}
       <div className="flex items-center justify-between gap-3 pb-3 border-b flex-shrink-0">
         <div className="flex items-center gap-3 min-w-0">
-          <MonitorPlay className="h-5 w-5 text-primary shrink-0" />
+          {modeToggle}
           <span className="text-sm font-semibold truncate">{selectedVideo ? selectedVideo.filename : 'Select a video'}</span>
           {selectedVideo && selectedVideo.width && selectedVideo.height && (
             <Badge variant="outline" className="text-[10px] shrink-0">{selectedVideo.width}×{selectedVideo.height}</Badge>
