@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { deductCredits, getActionCost } from '@/lib/credits';
+import { deductCredits, getActionCost, addCredits } from '@/lib/credits';
 import { generateText } from '@/lib/ai-providers';
 
 const PLATFORM_GUIDELINES: Record<string, { maxLength: number; style: string }> = {
@@ -34,8 +34,16 @@ export async function POST(request: NextRequest) {
     videoDescription,
   } = body;
 
-  if (!mediaId || !botId) {
-    return NextResponse.json({ error: 'mediaId and botId are required' }, { status: 400 });
+  if (!mediaId || !botId || typeof mediaId !== 'string' || typeof botId !== 'string') {
+    return NextResponse.json({ error: 'mediaId and botId are required strings' }, { status: 400 });
+  }
+
+  if (!Array.isArray(platforms)) {
+    return NextResponse.json({ error: 'platforms must be an array' }, { status: 400 });
+  }
+
+  if (platforms.length > 10) {
+    return NextResponse.json({ error: 'Too many platforms (max 10)' }, { status: 400 });
   }
 
   const bot = await db.bot.findFirst({ where: { id: botId, userId: user.id } });
@@ -66,12 +74,15 @@ export async function POST(request: NextRequest) {
     .join('\n');
 
   // Use provided description, AI generation prompt, or filename as context
-  const videoContext =
-    videoDescription?.trim() ||
-    media.aiDescription ||
+  // Truncate user-supplied context to prevent prompt inflation
+  const rawContext =
+    videoDescription?.trim()?.slice(0, 500) ||
+    media.aiDescription?.slice(0, 500) ||
     media.filename.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ');
+  const videoContext = rawContext;
 
-  const systemPrompt = `You are an expert social media marketing copywriter for "${bot.brandName}".
+  const brandName = (bot.brandName || 'Brand').slice(0, 100);
+  const systemPrompt = `You are an expert social media marketing copywriter for "${brandName}".
 Brand instructions: ${bot.instructions?.slice(0, 400) || 'None'}
 Keywords: ${keywords}
 Goal: ${bot.goal}
@@ -124,6 +135,12 @@ Return ONLY valid JSON, no markdown code blocks.`;
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('[studio/caption] error:', message);
+    // Refund credits since AI call failed and user got nothing
+    try {
+      await addCredits(user.id, cost, 'REFUND', `Refund: caption generation failed`);
+    } catch (refundErr) {
+      console.error('[studio/caption] refund failed:', refundErr instanceof Error ? refundErr.message : refundErr);
+    }
     return NextResponse.json(
       { error: `Caption generation failed: ${message}` },
       { status: 500 }

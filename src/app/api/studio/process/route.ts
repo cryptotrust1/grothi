@@ -42,8 +42,8 @@ export async function POST(request: NextRequest) {
 
   const { mediaId, botId, trim, filterId, adjustments, textOverlay, aspectRatio } = body;
 
-  if (!mediaId || !botId) {
-    return NextResponse.json({ error: 'mediaId and botId are required' }, { status: 400 });
+  if (!mediaId || !botId || typeof mediaId !== 'string' || typeof botId !== 'string') {
+    return NextResponse.json({ error: 'mediaId and botId are required strings' }, { status: 400 });
   }
 
   // ── Security: validate filterId against whitelist ──────────────────────────
@@ -98,7 +98,8 @@ export async function POST(request: NextRequest) {
   }
 
   const inputPath = resolve(join(UPLOAD_DIR, media.filePath));
-  if (!inputPath.startsWith(resolve(UPLOAD_DIR)) || !existsSync(inputPath)) {
+  const uploadPrefix = resolve(UPLOAD_DIR) + '/';
+  if (!inputPath.startsWith(uploadPrefix) || !existsSync(inputPath)) {
     return NextResponse.json({ error: 'Video file not found on disk' }, { status: 404 });
   }
 
@@ -106,7 +107,8 @@ export async function POST(request: NextRequest) {
   if (trim) {
     if (
       typeof trim.start !== 'number' || typeof trim.end !== 'number' ||
-      trim.start < 0 || trim.end <= trim.start
+      !isFinite(trim.start) || !isFinite(trim.end) ||
+      trim.start < 0 || trim.end <= trim.start || trim.end > 86400
     ) {
       return NextResponse.json({ error: 'Invalid trim parameters' }, { status: 400 });
     }
@@ -114,7 +116,7 @@ export async function POST(request: NextRequest) {
 
   // Prepare output path
   const botDir = resolve(join(UPLOAD_DIR, botId));
-  if (!botDir.startsWith(resolve(UPLOAD_DIR))) {
+  if (!botDir.startsWith(uploadPrefix)) {
     return NextResponse.json({ error: 'Invalid bot ID' }, { status: 400 });
   }
   if (!existsSync(botDir)) {
@@ -168,9 +170,12 @@ export async function POST(request: NextRequest) {
 
       // ── 3. Text overlay (drawtext — always applied last) ─────────────
       if (textOverlay && textOverlay.text && textOverlay.text.trim()) {
-        // Escape special drawtext characters
-        const safeText = textOverlay.text
-          .trim()
+        // Security: limit text length and strip control characters
+        const rawText = textOverlay.text.trim().slice(0, 200);
+        // Escape special drawtext characters + strip newlines/control chars
+        const safeText = rawText
+          .replace(/[\r\n\t]/g, ' ')       // strip newlines, tabs
+          .replace(/[\x00-\x1F\x7F]/g, '') // strip all control characters
           .replace(/\\/g, '\\\\')
           .replace(/'/g, "\\'")
           .replace(/:/g, '\\:')
@@ -272,8 +277,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Strip file paths from error messages to avoid leaking server internals
+    const safeMsg = message.replace(/\/[^\s:]+/g, '[path]');
     return NextResponse.json(
-      { error: `Processing failed: ${message}` },
+      { error: `Processing failed: ${safeMsg}` },
       { status: 500 }
     );
   }

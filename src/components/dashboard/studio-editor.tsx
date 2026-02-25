@@ -139,12 +139,18 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
   const [thumbResult, setThumbResult] = useState<{ mediaId: string; url: string; filename: string } | null>(null);
   const [thumbError, setThumbError] = useState<string | null>(null);
 
+  // Video loading & frame capture for filter previews
+  const [videoLoading, setVideoLoading] = useState(false);
+  const [videoLoadError, setVideoLoadError] = useState<string | null>(null);
+  const [videoFrameUrl, setVideoFrameUrl] = useState<string | null>(null);
+
   // Inspector tab
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('trim');
 
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const handleVideoSelect = useCallback((videoId: string) => {
+    if (processing) return; // prevent state corruption during processing
     setSelectedVideoId(videoId);
     setTrimStart(0);
     setTrimEnd(0);
@@ -161,6 +167,26 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
     setThumbResult(null);
     setThumbError(null);
     setShowGenPanel(false);
+    setVideoLoading(true);
+    setVideoLoadError(null);
+    setVideoFrameUrl(null);
+  }, [processing]);
+
+  const captureVideoFrame = useCallback(() => {
+    if (!videoRef.current) return;
+    const video = videoRef.current;
+    if (video.videoWidth === 0 || video.videoHeight === 0) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = 160;
+    canvas.height = Math.round(160 * (video.videoHeight / video.videoWidth));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    try {
+      setVideoFrameUrl(canvas.toDataURL('image/jpeg', 0.7));
+    } catch {
+      // SecurityError if cross-origin — fall back to gradient
+    }
   }, []);
 
   const handleVideoLoaded = useCallback(() => {
@@ -170,7 +196,16 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
         setVideoDuration(dur);
         setTrimEnd(dur);
       }
+      setVideoLoading(false);
+      setVideoLoadError(null);
+      // Capture frame for filter swatches after a short delay to ensure frame is decoded
+      setTimeout(() => captureVideoFrame(), 200);
     }
+  }, [captureVideoFrame]);
+
+  const handleVideoError = useCallback(() => {
+    setVideoLoading(false);
+    setVideoLoadError('Failed to load video. The file may be corrupted or in an unsupported format.');
   }, []);
 
   const handleTimeUpdate = useCallback(() => {
@@ -236,10 +271,18 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
     setCaptionError(null);
     setThumbResult(null);
     setThumbError(null);
+    setVideoLoading(true);
+    setVideoLoadError(null);
+    setVideoFrameUrl(null);
   }, []);
 
   const handleGenerate = useCallback(async () => {
     if (!genPrompt.trim()) return;
+    // Clear any existing poll to prevent race condition with parallel polls
+    if (genPollRef.current) {
+      clearInterval(genPollRef.current);
+      genPollRef.current = null;
+    }
     setGenerating(true);
     setGenError(null);
     setGenProgress('Starting video generation...');
@@ -432,9 +475,28 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
     }
   };
 
+  // Keyboard shortcut: Space = play/pause
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && selectedVideoId && !result) {
+        const tag = (e.target as HTMLElement)?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        e.preventDefault();
+        togglePlay();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedVideoId, result, togglePlay]);
+
   const trimDuration = trimEnd - trimStart;
   const selectedVideo = videos.find(v => v.id === selectedVideoId);
   const textPreviewY = textPosition === 'top' ? 'top-3' : textPosition === 'center' ? 'top-1/2 -translate-y-1/2' : 'bottom-3';
+
+  // Base image for filter swatches — video frame if available, else a scene-like gradient
+  const filterSwatchBg = videoFrameUrl
+    ? `url(${videoFrameUrl})`
+    : 'linear-gradient(to bottom right, #5B86C5 0%, #A7C7E7 18%, #D4956B 32%, #8FBC5A 48%, #D4A76A 62%, #7B5B3A 78%, #2D2D2D 100%)';
 
   // Build edit summary items for the status bar
   const editSummary: string[] = [];
@@ -538,10 +600,10 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
       </div>
 
       {/* ══════════════ MAIN 3-COLUMN LAYOUT ══════════════ */}
-      <div className="flex flex-1 min-h-0 gap-0 mt-3">
+      <div className="flex flex-col md:flex-row flex-1 min-h-0 gap-0 mt-3">
 
         {/* ── LEFT: Media Pool ── */}
-        <div className="w-48 lg:w-56 shrink-0 flex flex-col border rounded-l-lg bg-card overflow-hidden">
+        <div className="w-full md:w-48 lg:w-56 shrink-0 flex flex-col border rounded-t-lg md:rounded-t-none md:rounded-l-lg bg-card overflow-hidden max-h-48 md:max-h-none">
           <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/40">
             <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
               <Layers className="h-3.5 w-3.5" /> Media Pool
@@ -654,9 +716,10 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
                     <button
                       key={v.id}
                       onClick={() => handleVideoSelect(v.id)}
+                      disabled={processing}
                       className={`w-full rounded-md border overflow-hidden text-left transition-all outline-none focus-visible:ring-2 focus-visible:ring-primary ${
                         isSelected ? 'border-primary ring-1 ring-primary/30 shadow-sm' : 'border-muted hover:border-primary/40'
-                      }`}
+                      } ${processing ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
                       <div className="aspect-video bg-black relative flex items-center justify-center overflow-hidden">
                         {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
@@ -712,6 +775,17 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
                 ) : (
                   /* Show source video with text overlay preview */
                   <>
+                    {videoLoading && (
+                      <div className="absolute inset-0 flex items-center justify-center z-10">
+                        <Loader2 className="h-8 w-8 text-white/60 animate-spin" />
+                      </div>
+                    )}
+                    {videoLoadError && (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center z-10 text-red-400 px-6">
+                        <Film className="h-10 w-10 mb-2 opacity-50" />
+                        <p className="text-sm text-center">{videoLoadError}</p>
+                      </div>
+                    )}
                     {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
                     <video
                       ref={videoRef}
@@ -721,6 +795,7 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
                       onLoadedMetadata={handleVideoLoaded}
                       onTimeUpdate={handleTimeUpdate}
                       onEnded={() => setIsPlaying(false)}
+                      onError={handleVideoError}
                       playsInline
                       preload="metadata"
                     />
@@ -798,7 +873,7 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
         </div>
 
         {/* ── RIGHT: Inspector Panel ── */}
-        <div className="w-72 lg:w-80 shrink-0 flex flex-col border rounded-r-lg bg-card overflow-hidden">
+        <div className="w-full md:w-72 lg:w-80 shrink-0 flex flex-col border rounded-b-lg md:rounded-b-none md:rounded-r-lg bg-card overflow-hidden max-h-72 md:max-h-none">
           {/* Inspector tabs */}
           <div className="flex border-b bg-muted/40 shrink-0">
             {INSPECTOR_TABS.map(tab => {
@@ -945,9 +1020,9 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
                           }`}
                         >
                           <div
-                            className="w-full aspect-square rounded overflow-hidden"
+                            className="w-full aspect-square rounded overflow-hidden bg-cover bg-center"
                             style={{
-                              background: 'linear-gradient(135deg, #4a90a4 0%, #6cb86a 40%, #e8a435 100%)',
+                              backgroundImage: filterSwatchBg,
                               filter: f.cssPreview || 'none',
                             }}
                           />
@@ -1235,8 +1310,9 @@ export function StudioEditor({ videos: initialVideos, botId, botPageId }: Studio
       {/* ══════════════ BOTTOM STATUS BAR ══════════════ */}
       <div className="flex items-center gap-3 px-3 py-2 border rounded-b-lg bg-muted/30 mt-0 shrink-0">
         {error && (
-          <span className="text-[11px] text-destructive flex items-center gap-1">
+          <span className="text-[11px] text-destructive flex items-center gap-1.5">
             {error}
+            <button onClick={() => setError(null)} className="text-destructive/60 hover:text-destructive shrink-0">×</button>
           </span>
         )}
         {processing && (
