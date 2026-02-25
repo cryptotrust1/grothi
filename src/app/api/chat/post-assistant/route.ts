@@ -8,6 +8,9 @@ export const maxDuration = 120;
 
 // Max conversation length to prevent excessive token usage
 const MAX_MESSAGES = 40;
+// Max characters per message content (prevents resource exhaustion / DoS via
+// oversized payloads — 20k chars ≈ 5k tokens, well above any real use case)
+const MAX_MESSAGE_CONTENT_LENGTH = 20_000;
 // Max image size in bytes (5MB)
 const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
 // Upstream API timeout (55 seconds — Nginx default is 60s)
@@ -427,6 +430,15 @@ export async function POST(request: NextRequest) {
     const lastMessage = messages[messages.length - 1];
     if (!lastMessage || lastMessage.role !== 'user') {
       return NextResponse.json({ error: 'Last message must be from user.' }, { status: 400 });
+    }
+
+    // Validate per-message content length to prevent resource exhaustion (CWE-770)
+    for (const msg of messages) {
+      if (typeof msg.content === 'string' && msg.content.length > MAX_MESSAGE_CONTENT_LENGTH) {
+        return NextResponse.json({
+          error: `Message too long (${msg.content.length.toLocaleString()} characters). Maximum is ${MAX_MESSAGE_CONTENT_LENGTH.toLocaleString()} characters per message.`,
+        }, { status: 400 });
+      }
     }
 
     // Validate image sizes

@@ -409,13 +409,33 @@ async function processEvents(events: NormalizedEvent[]) {
 export async function POST(request: NextRequest) {
   const provider = request.nextUrl.searchParams.get('provider') || 'generic';
 
-  // Webhook secret validation (optional but recommended)
+  // SECURITY — Fail-closed authentication (CWE-287).
+  // Without a secret, an unauthenticated POST with forged bounce/complaint
+  // events would allow any attacker to mass-suppress email contacts.
+  // The endpoint is DISABLED when EMAIL_WEBHOOK_SECRET is not configured.
   const webhookSecret = process.env.EMAIL_WEBHOOK_SECRET;
-  if (webhookSecret) {
-    const authHeader = request.headers.get('authorization') || request.headers.get('x-webhook-secret') || '';
-    if (authHeader !== `Bearer ${webhookSecret}` && authHeader !== webhookSecret) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+  if (!webhookSecret) {
+    console.error('[WEBHOOK] EMAIL_WEBHOOK_SECRET env var is not set — webhook endpoint disabled. Configure it to receive email events.');
+    return NextResponse.json({ error: 'Webhook endpoint not configured. Set EMAIL_WEBHOOK_SECRET.' }, { status: 503 });
+  }
+
+  const authHeader = request.headers.get('authorization') || request.headers.get('x-webhook-secret') || '';
+  const providedToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
+
+  // Timing-safe comparison — prevents timing-based secret enumeration
+  let authorized = false;
+  try {
+    const { timingSafeEqual } = await import('crypto');
+    const exp = Buffer.from(webhookSecret, 'utf8');
+    const got = Buffer.from(providedToken.padEnd(webhookSecret.length, '\0'), 'utf8').slice(0, webhookSecret.length);
+    authorized = exp.length === Buffer.from(providedToken, 'utf8').length
+      && timingSafeEqual(exp, got);
+  } catch {
+    authorized = false;
+  }
+
+  if (!authorized) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   let body: unknown;
