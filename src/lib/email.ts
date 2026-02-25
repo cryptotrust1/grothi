@@ -202,8 +202,41 @@ export function prepareCampaignHtml(options: {
 
 /**
  * Wrap links in email HTML for click tracking.
- * Replaces href URLs with tracking redirect URLs.
+ * Each click URL is HMAC-signed so the /track/click endpoint cannot be
+ * used as an open redirector for phishing attacks.
  */
+
+/**
+ * Generate a short HMAC-SHA256 signature for a click-tracking URL.
+ * Key: NEXTAUTH_SECRET (required env var — no extra secret needed).
+ * Input: `${sendId}:${url}` ties signature to both the send and the destination.
+ */
+export function generateClickSignature(sendId: string, url: string): string {
+  const secret = process.env.NEXTAUTH_SECRET ?? '';
+  return crypto
+    .createHmac('sha256', secret)
+    .update(`${sendId}:${url}`)
+    .digest('hex')
+    .slice(0, 16); // 16 hex chars = 64-bit — sufficient for server-side HMAC
+}
+
+/**
+ * Verify a click-tracking URL signature.
+ * Uses timingSafeEqual to prevent timing oracle attacks.
+ */
+export function verifyClickSignature(sendId: string, url: string, sig: string): boolean {
+  if (!sig || sig.length !== 16) return false;
+  const expected = generateClickSignature(sendId, url);
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(sig.padEnd(16, '0'), 'hex'),
+      Buffer.from(expected, 'hex'),
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function wrapLinksForTracking(
   html: string,
   sendId: string,
@@ -214,7 +247,8 @@ export function wrapLinksForTracking(
     (match, url) => {
       // Don't wrap unsubscribe links
       if (url.includes('/unsubscribe')) return match;
-      const trackUrl = `${baseUrl}/api/email/track/click?sid=${encodeURIComponent(sendId)}&url=${encodeURIComponent(url)}`;
+      const sig = generateClickSignature(sendId, url);
+      const trackUrl = `${baseUrl}/api/email/track/click?sid=${encodeURIComponent(sendId)}&url=${encodeURIComponent(url)}&sig=${sig}`;
       return `href="${trackUrl}"`;
     },
   );
