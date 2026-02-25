@@ -2,7 +2,6 @@ import { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { BotNav } from '@/components/dashboard/bot-nav';
 import { StudioEditor } from '@/components/dashboard/studio-editor';
 
 export const metadata: Metadata = {
@@ -48,7 +47,6 @@ export default async function BotStudioPage({
         <p className="text-sm text-muted-foreground mt-1">
           Edit your videos — trim, add text overlays, and resize for any platform. Edited videos are saved to your Media library.
         </p>
-        <BotNav botId={id} activeTab="studio" />
       </div>
 
       <StudioEditor videos={videos} botId={bot.id} botPageId={id} />

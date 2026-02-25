@@ -9,7 +9,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { BotNav } from '@/components/dashboard/bot-nav';
 import {
   ArrowLeft, Send, Mail, Users, MousePointer, AlertTriangle,
   Eye, BarChart3, Clock, Ban, TestTube,
@@ -397,8 +396,6 @@ export default async function CampaignDetailPage({
           <p className="text-muted-foreground text-sm">{campaign.subject}</p>
         </div>
       </div>
-
-      <BotNav botId={bot.id} activeTab="email" />
 
       {sp.error && (
         <div className="bg-red-50 text-red-800 border border-red-200 rounded-lg p-3 text-sm">{sp.error}</div>

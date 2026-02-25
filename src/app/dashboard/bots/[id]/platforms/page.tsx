@@ -9,7 +9,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Globe, Info, ExternalLink } from 'lucide-react';
-import { BotNav } from '@/components/dashboard/bot-nav';
 import { HelpTip } from '@/components/ui/help-tip';
 import { AlertMessage } from '@/components/ui/alert-message';
 import { SubmitButton } from '@/components/dashboard/platform-form-client';
@@ -405,7 +404,6 @@ export default async function BotPlatformsPage({ params, searchParams }: {
       <div>
         <h1 className="text-2xl font-bold">{bot.name} - Platforms</h1>
         <p className="text-sm text-muted-foreground mt-1">Connect to 17 social networks. Each platform includes algorithm optimization tips.</p>
-        <BotNav botId={id} activeTab="platforms" />
       </div>
 
       {/* Info banner */}

@@ -8,7 +8,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { HelpTip } from '@/components/ui/help-tip';
 import { Progress } from '@/components/ui/progress';
-import { BotNav } from '@/components/dashboard/bot-nav';
 import { ArmDistributionChart, EngagementScoreTrend } from '@/components/dashboard/ai-insights-charts';
 import { LearningControls, ResetAllLearningButton } from '@/components/dashboard/ai-learning-controls';
 import {
@@ -367,7 +366,6 @@ export default async function AIInsightsPage({ params }: { params: Promise<{ id:
       <div>
         <h1 className="text-2xl font-bold">{bot.name} - AI Insights</h1>
         <p className="text-muted-foreground">See what your bot has learned and manage its learning process.</p>
-        <BotNav botId={id} activeTab="ai-insights" />
       </div>
 
       {/* ═══════════ LEARNING JOURNEY (always visible) ═══════════ */}

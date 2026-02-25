@@ -6,7 +6,6 @@ import { db } from '@/lib/db';
 import { encrypt } from '@/lib/encryption';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { BotNav } from '@/components/dashboard/bot-nav';
 
 export const metadata: Metadata = {
   title: 'Select Facebook Page',
@@ -112,7 +111,6 @@ export default async function FacebookSelectPage({
         <p className="text-sm text-muted-foreground mt-1">
           You manage multiple Facebook Pages. Select the one you want to connect to this bot.
         </p>
-        <BotNav botId={botId} activeTab="platforms" />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

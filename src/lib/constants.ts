@@ -201,22 +201,30 @@ export const VIDEO_MUSIC_OPTIONS = [
 ] as const;
 
 // ============ BOT NAVIGATION TABS ============
+// icon values map to lucide-react icon names used in sidebar.tsx
 export const BOT_NAV_TABS = [
-  { key: 'overview', label: 'Overview', path: '' },
-  { key: 'autopilot', label: 'Autopilot', path: '/autopilot' },
-  { key: 'post', label: 'Post Scheduler', path: '/post' },
-  { key: 'activity', label: 'Activity', path: '/activity' },
-  { key: 'platforms', label: 'Platforms', path: '/platforms' },
-  { key: 'email', label: 'Email Marketing', path: '/email' },
-  { key: 'strategy', label: 'Content Strategy', path: '/strategy' },
-  { key: 'media', label: 'Media', path: '/media' },
-  { key: 'studio', label: 'Studio', path: '/studio' },
-  { key: 'products', label: 'Products', path: '/products' },
-  { key: 'creative-style', label: 'Creative Style', path: '/creative-style' },
-  { key: 'analytics', label: 'Analytics', path: '/analytics' },
-  { key: 'ai-insights', label: 'AI Insights', path: '/ai-insights' },
-  { key: 'settings', label: 'Settings', path: '/settings' },
+  { key: 'overview', label: 'Overview', path: '', icon: 'LayoutDashboard', group: 'manage' },
+  { key: 'autopilot', label: 'Autopilot', path: '/autopilot', icon: 'Zap', group: 'manage' },
+  { key: 'post', label: 'Post Scheduler', path: '/post', icon: 'CalendarDays', group: 'manage' },
+  { key: 'strategy', label: 'Content Strategy', path: '/strategy', icon: 'Target', group: 'manage' },
+  { key: 'platforms', label: 'Platforms', path: '/platforms', icon: 'Globe', group: 'channels' },
+  { key: 'email', label: 'Email Marketing', path: '/email', icon: 'Mail', group: 'channels' },
+  { key: 'media', label: 'Media', path: '/media', icon: 'ImageIcon', group: 'create' },
+  { key: 'studio', label: 'Studio', path: '/studio', icon: 'Film', group: 'create' },
+  { key: 'products', label: 'Products', path: '/products', icon: 'ShoppingBag', group: 'create' },
+  { key: 'creative-style', label: 'Creative Style', path: '/creative-style', icon: 'Palette', group: 'create' },
+  { key: 'activity', label: 'Activity', path: '/activity', icon: 'Activity', group: 'insights' },
+  { key: 'analytics', label: 'Analytics', path: '/analytics', icon: 'BarChart3', group: 'insights' },
+  { key: 'ai-insights', label: 'AI Insights', path: '/ai-insights', icon: 'Sparkles', group: 'insights' },
+  { key: 'settings', label: 'Settings', path: '/settings', icon: 'Settings', group: null },
 ] as const;
+
+export const BOT_NAV_GROUPS: Record<string, string> = {
+  manage: 'Manage',
+  channels: 'Channels',
+  create: 'Create',
+  insights: 'Insights',
+};
 
 // ============ TIMEZONES ============
 export const TIMEZONES = [

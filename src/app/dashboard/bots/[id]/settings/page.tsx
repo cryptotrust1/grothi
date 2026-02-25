@@ -10,7 +10,6 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Rss, Clock, Brain, Trash2, Target, Key, BarChart3, Link2 } from 'lucide-react';
-import { BotNav } from '@/components/dashboard/bot-nav';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { HelpTip } from '@/components/ui/help-tip';
 import { AlertMessage } from '@/components/ui/alert-message';
@@ -146,7 +145,6 @@ export default async function BotSettingsPage({
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">{bot.name} - Settings</h1>
-        <BotNav botId={id} activeTab="settings" />
       </div>
 
       {sp.success && <AlertMessage type="success" message={sp.success} />}

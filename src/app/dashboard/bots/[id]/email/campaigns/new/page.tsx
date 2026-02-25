@@ -7,7 +7,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { BotNav } from '@/components/dashboard/bot-nav';
 import { ArrowLeft, Send, FileText, Sparkles } from 'lucide-react';
 import { emailCampaignSchema } from '@/lib/validations';
 import { EMAIL_TEMPLATES, TEMPLATE_CATEGORIES, applyTemplateVars } from '@/lib/email-templates';
@@ -268,8 +267,6 @@ export default async function NewCampaignPage({
         </Link>
         <h1 className="text-2xl font-bold">New Email Campaign</h1>
       </div>
-
-      <BotNav botId={bot.id} activeTab="email" />
 
       {sp.error && (
         <div className="bg-red-50 text-red-800 border border-red-200 rounded-lg p-3 text-sm">

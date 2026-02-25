@@ -7,7 +7,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight, Filter } from 'lucide-react';
-import { BotNav } from '@/components/dashboard/bot-nav';
 import { PLATFORM_NAMES, ALL_PLATFORMS, ACTION_TYPES } from '@/lib/constants';
 
 export const metadata: Metadata = { title: 'Bot Activity', robots: { index: false } };
@@ -75,7 +74,6 @@ export default async function BotActivityPage({
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">{bot.name} - Activity</h1>
-        <BotNav botId={bot.id} activeTab="activity" />
       </div>
 
       {/* Filters */}

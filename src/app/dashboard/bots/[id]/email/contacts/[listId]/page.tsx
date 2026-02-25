@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { BotNav } from '@/components/dashboard/bot-nav';
 import {
   Users, Plus, Upload, Trash2, ArrowLeft, Mail,
 } from 'lucide-react';
@@ -280,8 +279,6 @@ export default async function ContactListPage({
           <p className="text-muted-foreground text-sm">{totalCount} contacts</p>
         </div>
       </div>
-
-      <BotNav botId={bot.id} activeTab="email" />
 
       {/* Status messages */}
       {sp.error && (

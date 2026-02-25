@@ -12,7 +12,6 @@ import { MediaUploadForm } from '@/components/dashboard/media-upload-form';
 import { MediaGenerateForm } from '@/components/dashboard/media-generate-form';
 import { MediaCardActions } from '@/components/dashboard/media-card-actions';
 import { MediaVideoThumbnail } from '@/components/dashboard/media-video-thumbnail';
-import { BotNav } from '@/components/dashboard/bot-nav';
 import { AlertMessage } from '@/components/ui/alert-message';
 
 export const metadata: Metadata = { title: 'Media Library', robots: { index: false } };
@@ -89,7 +88,6 @@ export default async function BotMediaPage({
       <div>
         <h1 className="text-2xl font-bold">{bot.name} - Media Library</h1>
         <p className="text-sm text-muted-foreground mt-1">Upload images and videos. AI generates platform-optimized captions automatically.</p>
-        <BotNav botId={id} activeTab="media" />
       </div>
 
       {sp.success && <AlertMessage type="success" message={sp.success} />}

@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { BotNav } from '@/components/dashboard/bot-nav';
 import {
   ArrowLeft, Plus, Zap, Mail, Clock, Trash2,
   Play, Pause, UserPlus, RefreshCw, ListOrdered,
@@ -242,8 +241,6 @@ export default async function AutomationsPage({
         </Link>
         <h1 className="text-2xl font-bold">Email Automations</h1>
       </div>
-
-      <BotNav botId={bot.id} activeTab="email" />
 
       {sp.error && (
         <div className="bg-red-50 text-red-800 border border-red-200 rounded-lg p-3 text-sm">{sp.error}</div>
