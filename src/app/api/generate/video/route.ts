@@ -9,6 +9,7 @@ import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, resolve } from 'path';
 import { randomUUID } from 'crypto';
+import { generateFilePath } from '@/lib/media-validation';
 
 export const maxDuration = 300; // 5 minutes for video generation
 
@@ -137,6 +138,7 @@ export async function POST(request: NextRequest) {
     });
 
     // Store in DB so generation survives page refresh
+    // filePath is null until generation completes (prevents EISDIR errors)
     const media = await db.media.create({
       data: {
         botId,
@@ -144,7 +146,7 @@ export async function POST(request: NextRequest) {
         filename: `ai-${model.id}-${targetPlatform}.mp4`,
         mimeType: 'video/mp4',
         fileSize: 0,
-        filePath: '',
+        filePath: null,
         aiDescription: fullPrompt,
         replicatePredictionId: prediction.id,
         generationStatus: 'PENDING',
@@ -459,6 +461,8 @@ async function finalizeVideo(
   const filename = `${uuid}.mp4`;
   const filePath = join(botDir, filename);
   await writeFile(filePath, videoBuffer);
+  
+  const dbFilePath = generateFilePath(botId, uuid, 'mp4');
 
   let media;
   if (existingMediaId) {
@@ -466,7 +470,7 @@ async function finalizeVideo(
       where: { id: existingMediaId },
       data: {
         fileSize: videoBuffer.length,
-        filePath: `${botId}/${filename}`,
+        filePath: dbFilePath,
         generationStatus: 'SUCCEEDED',
       },
     });
@@ -478,7 +482,7 @@ async function finalizeVideo(
         filename: `ai-generated-${platform}.mp4`,
         mimeType: 'video/mp4',
         fileSize: videoBuffer.length,
-        filePath: `${botId}/${filename}`,
+        filePath: dbFilePath,
         aiDescription: fullPrompt,
         generationStatus: 'SUCCEEDED',
       },

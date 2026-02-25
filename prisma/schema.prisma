@@ -628,7 +628,7 @@ model Media {
   filename String
   mimeType String
   fileSize Int
-  filePath String
+  filePath String?  // Null for pending generations, set when SUCCEEDED
   width    Int?
   height   Int?
   duration Float?
@@ -643,7 +643,7 @@ model Media {
 
   // AI generation tracking (for async predictions like video)
   replicatePredictionId String?   @unique
-  generationStatus      String?   // PENDING, PROCESSING, SUCCEEDED, FAILED, CANCELLED
+  generationStatus      GenerationStatus?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -661,6 +661,14 @@ enum MediaType {
   IMAGE
   VIDEO
   GIF
+}
+
+enum GenerationStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  CANCELLED
 }
 
 // ============ PRODUCTS ============
