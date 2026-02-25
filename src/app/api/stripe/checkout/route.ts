@@ -2,11 +2,23 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { getStripe, PRICING_PLANS } from '@/lib/stripe';
 import { db } from '@/lib/db';
+import { checkoutLimiter } from '@/lib/rate-limit';
 
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.redirect(new URL('/auth/signin', req.url));
+  }
+
+  // Rate limit: max 10 checkout sessions per hour per user
+  const rateCheck = checkoutLimiter.check(user.id);
+  if (!rateCheck.allowed) {
+    return NextResponse.redirect(
+      new URL(
+        `/dashboard/credits/buy?error=${encodeURIComponent('Too many payment attempts. Please wait before trying again.')}`,
+        req.url
+      )
+    );
   }
 
   const formData = await req.formData();
