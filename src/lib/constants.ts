@@ -122,6 +122,84 @@ export const GOAL_LABELS: Record<string, string> = {
   COMMUNITY: 'Build Community',
 };
 
+// ============ GOAL OPTIONS (for forms) ============
+export const GOAL_OPTIONS = [
+  { value: 'TRAFFIC', label: 'Drive Traffic', desc: 'Maximize visits to your website' },
+  { value: 'SALES', label: 'Increase Sales', desc: 'Promote products and drive conversions' },
+  { value: 'ENGAGEMENT', label: 'Boost Engagement', desc: 'Grow likes, comments, shares' },
+  { value: 'BRAND_AWARENESS', label: 'Brand Awareness', desc: 'Increase brand visibility and reach' },
+  { value: 'LEADS', label: 'Generate Leads', desc: 'Collect signups and contact info' },
+  { value: 'COMMUNITY', label: 'Build Community', desc: 'Grow and nurture your audience' },
+] as const;
+
+// ============ SAFETY LEVEL OPTIONS (for forms) ============
+export const SAFETY_LEVEL_OPTIONS = [
+  { value: 'CONSERVATIVE', label: 'Conservative - Safe', desc: 'Max 2 posts/day, maximum safety' },
+  { value: 'MODERATE', label: 'Moderate - Balanced', desc: '3-5 posts/day, balanced approach' },
+  { value: 'AGGRESSIVE', label: 'Aggressive - Max reach', desc: 'Up to 10 posts/day, more engagement' },
+] as const;
+
+// ============ CREATIVE STYLE OPTIONS ============
+export const VISUAL_STYLES = [
+  { value: 'minimalist', label: 'Minimalist', desc: 'Clean, simple, lots of whitespace' },
+  { value: 'bold', label: 'Bold & Vibrant', desc: 'Bright colors, strong contrast, eye-catching' },
+  { value: 'corporate', label: 'Corporate', desc: 'Professional, polished, business-focused' },
+  { value: 'playful', label: 'Playful', desc: 'Fun, colorful, casual vibe' },
+  { value: 'elegant', label: 'Elegant', desc: 'Luxury feel, sophisticated, refined' },
+  { value: 'tech', label: 'Tech/Modern', desc: 'Futuristic, gradients, tech-forward' },
+  { value: 'organic', label: 'Organic/Natural', desc: 'Earth tones, natural textures, warm' },
+  { value: 'retro', label: 'Retro/Vintage', desc: 'Nostalgic, classic aesthetics' },
+] as const;
+
+export const IMAGE_TYPES = [
+  { value: 'photos', label: 'Photography', desc: 'Real photos, stock imagery' },
+  { value: 'illustrations', label: 'Illustrations', desc: 'Hand-drawn or digital art style' },
+  { value: 'flat_design', label: 'Flat Design', desc: 'Simple shapes, solid colors' },
+  { value: '3d_renders', label: '3D Renders', desc: 'Three-dimensional objects and scenes' },
+  { value: 'infographics', label: 'Infographics', desc: 'Data visualization, charts, diagrams' },
+  { value: 'abstract', label: 'Abstract', desc: 'Shapes, patterns, non-representational' },
+] as const;
+
+export const CREATIVE_TONES = [
+  { value: 'professional', label: 'Professional' },
+  { value: 'casual', label: 'Casual & Friendly' },
+  { value: 'exciting', label: 'Exciting & Dynamic' },
+  { value: 'calming', label: 'Calming & Trustworthy' },
+  { value: 'luxurious', label: 'Luxurious & Premium' },
+  { value: 'educational', label: 'Educational & Informative' },
+  { value: 'humorous', label: 'Humorous & Witty' },
+  { value: 'inspirational', label: 'Inspirational & Motivating' },
+] as const;
+
+export const TEXT_OVERLAY_OPTIONS = [
+  { value: 'always', label: 'Always', desc: 'Include text/headlines on every image' },
+  { value: 'sometimes', label: 'Sometimes', desc: 'Only when it adds value' },
+  { value: 'never', label: 'Never', desc: 'Images only, no text overlay' },
+] as const;
+
+export const LOGO_PLACEMENT_OPTIONS = [
+  { value: 'bottom_right', label: 'Bottom Right' },
+  { value: 'bottom_left', label: 'Bottom Left' },
+  { value: 'top_right', label: 'Top Right' },
+  { value: 'top_left', label: 'Top Left' },
+  { value: 'center', label: 'Center (watermark)' },
+  { value: 'none', label: 'No Logo' },
+] as const;
+
+export const VIDEO_PACING_OPTIONS = [
+  { value: 'fast', label: 'Fast', desc: 'Quick cuts, high energy — TikTok, Reels' },
+  { value: 'medium', label: 'Medium', desc: 'Balanced pacing — most platforms' },
+  { value: 'slow', label: 'Slow', desc: 'Cinematic, thoughtful — YouTube, LinkedIn' },
+] as const;
+
+export const VIDEO_MUSIC_OPTIONS = [
+  { value: 'upbeat', label: 'Upbeat & Energetic' },
+  { value: 'chill', label: 'Chill & Relaxed' },
+  { value: 'corporate', label: 'Corporate & Professional' },
+  { value: 'cinematic', label: 'Cinematic & Epic' },
+  { value: 'none', label: 'No Music' },
+] as const;
+
 // ============ BOT NAVIGATION TABS ============
 export const BOT_NAV_TABS = [
   { key: 'overview', label: 'Overview', path: '' },

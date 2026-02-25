@@ -9,20 +9,15 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Bot, Target, Key, ChevronRight } from 'lucide-react';
 import { HelpTip } from '@/components/ui/help-tip';
+import { AlertMessage } from '@/components/ui/alert-message';
+import { GOAL_OPTIONS, SAFETY_LEVEL_OPTIONS } from '@/lib/constants';
+import { parseKeywords } from '@/lib/utils';
 
 export const metadata: Metadata = {
   title: 'Create Bot',
   robots: { index: false },
 };
 
-const GOALS = [
-  { value: 'TRAFFIC', label: 'Drive Traffic', desc: 'Maximize visits to your website' },
-  { value: 'SALES', label: 'Increase Sales', desc: 'Promote products and drive conversions' },
-  { value: 'ENGAGEMENT', label: 'Boost Engagement', desc: 'Grow likes, comments, shares' },
-  { value: 'BRAND_AWARENESS', label: 'Brand Awareness', desc: 'Increase brand visibility and reach' },
-  { value: 'LEADS', label: 'Generate Leads', desc: 'Collect signups and contact info' },
-  { value: 'COMMUNITY', label: 'Build Community', desc: 'Grow and nurture your audience' },
-];
 
 export default async function NewBotPage({
   searchParams,
@@ -55,12 +50,7 @@ export default async function NewBotPage({
     }
 
     // Parse keywords from comma-separated string
-    const keywordsRaw = (formData.get('keywords') as string) || '';
-    const keywordsArr = keywordsRaw
-      .split(',')
-      .map((k) => k.trim().toLowerCase())
-      .filter((k) => k.length > 0)
-      .slice(0, 50);
+    const keywordsArr = parseKeywords((formData.get('keywords') as string) || '');
 
     const bot = await db.bot.create({
       data: {
@@ -120,9 +110,7 @@ export default async function NewBotPage({
         <form action={handleCreateBot}>
           <CardContent className="space-y-6">
             {params.error && (
-              <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">
-                {params.error}
-              </div>
+              <AlertMessage type="error" message={params.error} />
             )}
 
             <div className="grid gap-4 sm:grid-cols-2">
@@ -148,7 +136,7 @@ export default async function NewBotPage({
                 <Label>Primary Goal * <HelpTip text="This determines how the AI optimizes content. For example, 'Drive Traffic' focuses on link sharing, while 'Boost Engagement' focuses on conversations." /></Label>
               </div>
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {GOALS.map((g) => (
+                {GOAL_OPTIONS.map((g) => (
                   <label key={g.value} className="flex items-start gap-2 rounded-lg border p-3 cursor-pointer hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
                     <input
                       type="radio"
@@ -218,9 +206,7 @@ export default async function NewBotPage({
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 defaultValue="MODERATE"
               >
-                <option value="CONSERVATIVE">Conservative - Max 2 posts/day, maximum safety</option>
-                <option value="MODERATE">Moderate (Recommended) - 3-5 posts/day, balanced</option>
-                <option value="AGGRESSIVE">Aggressive - Up to 10 posts/day, more engagement</option>
+                {SAFETY_LEVEL_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label} — {s.desc}</option>)}
               </select>
             </div>
 

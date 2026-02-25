@@ -17,6 +17,10 @@ import {
 } from 'lucide-react';
 import type { PlatformType } from '@prisma/client';
 
+// Per-platform publish result stored in publishResults JSON field
+type PlatformPublishResult = { success: boolean; externalId?: string; error?: string };
+type PublishResults = Record<string, PlatformPublishResult>;
+
 export const metadata: Metadata = { title: 'New Post', robots: { index: false } };
 
 export default async function ManualPostPage({
@@ -104,16 +108,14 @@ export default async function ManualPostPage({
     db.scheduledPost.count({ where: { botId: bot.id, status: 'FAILED' } }),
   ]);
 
-  // Products for the post form selector
+  // Products for the post form selector (fetch ALL media for product media picker)
   const products = await db.product.findMany({
     where: { botId: bot.id, isActive: true },
     include: {
       productMedia: {
-        where: { isPrimary: true },
-        include: { media: { select: { id: true, filename: true, type: true } } },
-        take: 1,
+        orderBy: { sortOrder: 'asc' },
+        include: { media: { select: { id: true, filename: true, type: true, fileSize: true, mimeType: true } } },
       },
-      _count: { select: { productMedia: true } },
     },
     orderBy: { name: 'asc' },
   });
@@ -173,6 +175,15 @@ export default async function ManualPostPage({
     if (threadsPostType) postTypeMap.threads = threadsPostType;
     const postType = Object.keys(postTypeMap).length > 0 ? JSON.stringify(postTypeMap) : null;
 
+    // Per-platform content/media overrides
+    let platformContent: Record<string, { content?: string; mediaId?: string }> | null = null;
+    const platformContentRaw = formData.get('platformContent') as string;
+    if (platformContentRaw) {
+      try {
+        platformContent = JSON.parse(platformContentRaw);
+      } catch { /* ignore invalid JSON */ }
+    }
+
     // Validate media ownership
     if (mediaId) {
       const media = await db.media.findFirst({ where: { id: mediaId, botId: id } });
@@ -191,10 +202,11 @@ export default async function ManualPostPage({
 
     // ── Platform requirement validation (server-side) ──────
 
-    // Check media requirements
+    // Check media requirements (per-platform override or default)
     const mediaRequiredPlatforms = platformsRaw.filter(p => {
       const req = PLATFORM_REQUIREMENTS[p];
-      return req?.mediaRequired && !mediaId;
+      const pMediaId = platformContent?.[p]?.mediaId ?? mediaId;
+      return req?.mediaRequired && !pMediaId;
     });
 
     if (mediaRequiredPlatforms.length > 0) {
@@ -202,11 +214,12 @@ export default async function ManualPostPage({
       redirect(`/dashboard/bots/${id}/post?error=${encodeURIComponent(`Media required for: ${names}. These platforms do not support text-only posts. Attach an image or video, or deselect these platforms.`)}`);
     }
 
-    // Check character limits
+    // Check character limits (per-platform content or master)
     for (const p of platformsRaw) {
       const req = PLATFORM_REQUIREMENTS[p];
-      if (req && content.length > req.maxCharacters) {
-        redirect(`/dashboard/bots/${id}/post?error=${encodeURIComponent(`Content too long for ${req.name}: ${content.length.toLocaleString()} chars (max ${req.maxCharacters.toLocaleString()})`)}`);
+      const pContent = platformContent?.[p]?.content ?? content;
+      if (req && pContent.length > req.maxCharacters) {
+        redirect(`/dashboard/bots/${id}/post?error=${encodeURIComponent(`Content too long for ${req.name}: ${pContent.length.toLocaleString()} chars (max ${req.maxCharacters.toLocaleString()})`)}`);
       }
     }
 
@@ -327,6 +340,7 @@ export default async function ManualPostPage({
         productId,
         postType: postType || null,
         platforms: platformsRaw,
+        platformContent: platformContent || undefined,
         scheduledAt: finalScheduledAt,
         autoSchedule: false,
         status: finalStatus,
@@ -429,15 +443,26 @@ export default async function ManualPostPage({
     media: post.media ? { id: post.media.id, filename: post.media.filename, type: post.media.type } : null,
   }));
 
-  const serializedProducts = products.map(p => ({
-    id: p.id,
-    name: p.name,
-    brand: p.brand,
-    category: p.category,
-    price: p.price,
-    primaryImage: p.productMedia[0]?.media || null,
-    mediaCount: p._count.productMedia,
-  }));
+  const serializedProducts = products.map(p => {
+    const primaryPm = p.productMedia.find(pm => pm.isPrimary);
+    return {
+      id: p.id,
+      name: p.name,
+      brand: p.brand,
+      category: p.category,
+      price: p.price,
+      primaryImage: primaryPm?.media || p.productMedia[0]?.media || null,
+      mediaCount: p.productMedia.length,
+      media: p.productMedia.map(pm => ({
+        id: pm.media.id,
+        filename: pm.media.filename,
+        type: pm.media.type,
+        fileSize: pm.media.fileSize,
+        mimeType: pm.media.mimeType,
+        isPrimary: pm.isPrimary,
+      })),
+    };
+  });
 
   // ── Calendar data ──────────────────────────────────────────
 
@@ -589,14 +614,47 @@ export default async function ManualPostPage({
                       <div className="space-y-0.5">
                         {dayPosts.slice(0, 3).map((post) => {
                           const platforms = Array.isArray(post.platforms) ? post.platforms as string[] : [];
+                          const results = (post.status === 'PUBLISHED' || post.status === 'FAILED')
+                            ? post.publishResults as PublishResults | null
+                            : null;
+
+                          // Build detailed tooltip
+                          const tipLines: string[] = [
+                            post.content.slice(0, 150),
+                            '',
+                            `Status: ${post.status}`,
+                            `Created: ${new Date(post.createdAt).toLocaleString('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
+                          ];
+                          if (post.scheduledAt) tipLines.push(`Scheduled: ${new Date(post.scheduledAt).toLocaleString('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`);
+                          if (post.publishedAt) tipLines.push(`Posted: ${new Date(post.publishedAt).toLocaleString('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`);
+                          if (results) {
+                            tipLines.push('');
+                            for (const [p, r] of Object.entries(results)) {
+                              tipLines.push(`${r.success ? '✓' : '✗'} ${PLATFORM_NAMES[p] || p}${r.error ? ': ' + r.error : ''}`);
+                            }
+                          }
+
                           return (
                             <div
                               key={post.id}
                               className={`text-[9px] leading-tight px-1 py-0.5 rounded truncate ${POST_STATUS_COLORS[post.status] || 'bg-gray-100'}`}
-                              title={post.content.slice(0, 100)}
+                              title={tipLines.join('\n')}
                             >
                               {post.scheduledAt ? new Date(post.scheduledAt).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' }) : ''}{' '}
-                              {platforms.map(p => (PLATFORM_NAMES[p] || p).slice(0, 2)).join('·')}
+                              {results ? (
+                                platforms.map((p, i) => {
+                                  const abbr = (PLATFORM_NAMES[p] || p).slice(0, 2);
+                                  const r = results[p];
+                                  if (!r) return <span key={p}>{i > 0 ? '·' : ''}{abbr}</span>;
+                                  return (
+                                    <span key={p} className={r.success ? '' : 'line-through opacity-60'}>
+                                      {i > 0 ? '·' : ''}{r.success ? '✓' : '✗'}{abbr}
+                                    </span>
+                                  );
+                                })
+                              ) : (
+                                platforms.map(p => (PLATFORM_NAMES[p] || p).slice(0, 2)).join('·')
+                              )}
                             </div>
                           );
                         })}
@@ -671,19 +729,35 @@ export default async function ManualPostPage({
                         )}
 
                         <div className="flex-1 min-w-0 space-y-2">
-                          {/* Status & platforms */}
-                          <div className="flex items-center gap-2 flex-wrap">
+                          {/* Status & per-platform results */}
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${POST_STATUS_COLORS[post.status]}`}>
                               {post.status}
                             </span>
-                            {platforms.map((p) => (
-                              <Badge key={p} variant="outline" className="text-[10px] h-5">
-                                {PLATFORM_NAMES[p] || p}
-                              </Badge>
-                            ))}
-                            {post.postType && (
-                              <Badge variant="secondary" className="text-[10px] h-5 capitalize">{post.postType}</Badge>
-                            )}
+                            {(() => {
+                              const results = (post.status === 'PUBLISHED' || post.status === 'FAILED')
+                                ? post.publishResults as PublishResults | null
+                                : null;
+                              return platforms.map((p) => {
+                                const name = PLATFORM_NAMES[p] || p;
+                                if (results && results[p]) {
+                                  return results[p].success ? (
+                                    <Badge key={p} variant="outline" className="text-[10px] h-5 border-green-300 text-green-700 bg-green-50">
+                                      ✓ {name}
+                                    </Badge>
+                                  ) : (
+                                    <Badge key={p} variant="outline" className="text-[10px] h-5 border-red-300 text-red-700 bg-red-50">
+                                      ✗ {name}
+                                    </Badge>
+                                  );
+                                }
+                                return (
+                                  <Badge key={p} variant="outline" className="text-[10px] h-5">
+                                    {name}
+                                  </Badge>
+                                );
+                              });
+                            })()}
                             {post.autoSchedule && (
                               <Badge variant="secondary" className="text-[10px] h-5">Auto</Badge>
                             )}
@@ -697,27 +771,56 @@ export default async function ManualPostPage({
                           {/* Content preview */}
                           <p className="text-sm line-clamp-2">{post.content}</p>
 
-                          {/* Time */}
-                          <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
+                          {/* Times */}
+                          <div className="flex items-center gap-3 text-[11px] text-muted-foreground flex-wrap">
+                            <span>
+                              Created {new Date(post.createdAt).toLocaleString('en', {
+                                month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+                              })}
+                            </span>
                             {post.scheduledAt && (
                               <span className="flex items-center gap-1">
                                 <Clock className="h-3 w-3" />
-                                {new Date(post.scheduledAt).toLocaleString('en', {
+                                Scheduled {new Date(post.scheduledAt).toLocaleString('en', {
                                   month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
                                 })}
                               </span>
                             )}
                             {post.publishedAt && (
                               <span className="text-green-600">
-                                Published {new Date(post.publishedAt).toLocaleString('en', {
+                                Posted {new Date(post.publishedAt).toLocaleString('en', {
                                   month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
                                 })}
                               </span>
                             )}
-                            {post.error && (
-                              <span className="text-destructive text-[11px]">{post.error}</span>
-                            )}
                           </div>
+
+                          {/* Per-platform error details */}
+                          {(() => {
+                            const results = (post.status === 'PUBLISHED' || post.status === 'FAILED')
+                              ? post.publishResults as PublishResults | null
+                              : null;
+                            if (results) {
+                              const failed = Object.entries(results).filter(([, r]) => !r.success && r.error);
+                              if (failed.length > 0) {
+                                return (
+                                  <div className="space-y-0.5 mt-1">
+                                    {failed.map(([p, r]) => (
+                                      <p key={p} className="text-[11px] text-red-600">
+                                        ✗ {PLATFORM_NAMES[p] || p}: {r.error}
+                                      </p>
+                                    ))}
+                                  </div>
+                                );
+                              }
+                              return null;
+                            }
+                            // Fallback: show generic error for older posts without publishResults
+                            if (post.error) {
+                              return <p className="text-[11px] text-destructive mt-1">{post.error}</p>;
+                            }
+                            return null;
+                          })()}
                         </div>
 
                         {/* Actions */}

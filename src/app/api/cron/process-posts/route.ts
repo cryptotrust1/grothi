@@ -16,6 +16,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { validateCronSecret } from '@/lib/api-helpers';
 import { db } from '@/lib/db';
 import { deductCredits, getActionCost, hasEnoughCredits, addCredits } from '@/lib/credits';
 import {
@@ -47,6 +48,7 @@ import {
   type ThreadsPostResult,
 } from '@/lib/threads';
 import { processEngagementFeedback } from '@/lib/rl-engine';
+import { PLATFORM_NAMES } from '@/lib/constants';
 import type { PlatformType, PlatformConnection } from '@prisma/client';
 import path from 'path';
 import { existsSync, mkdirSync } from 'fs';
@@ -64,8 +66,6 @@ const UPLOAD_DIR = path.join(process.cwd(), 'data', 'uploads');
  * The /media/ location in nginx-grothi.conf serves from data/uploads/ with gzip off.
  */
 const MEDIA_DIRECT_BASE = process.env.MEDIA_DIRECT_BASE;
-
-const CRON_SECRET = process.env.CRON_SECRET;
 
 /** Max posts to process per invocation (prevents long-running requests). */
 const BATCH_SIZE = 10;
@@ -140,12 +140,8 @@ async function convertToJpegForInstagram(
 
 export async function POST(request: NextRequest) {
   // Verify cron secret
-  const authHeader = request.headers.get('authorization');
-  const cronSecret = authHeader?.replace('Bearer ', '');
-
-  if (!CRON_SECRET || cronSecret !== CRON_SECRET) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const cronError = validateCronSecret(request.headers.get('authorization'));
+  if (cronError) return cronError;
 
   const now = new Date();
 
@@ -161,7 +157,7 @@ export async function POST(request: NextRequest) {
       },
       data: {
         status: 'FAILED',
-        error: 'Publishing timed out (stuck in PUBLISHING state for >5 minutes). The post may have been partially published. Check your Instagram/platform account and retry if needed.',
+        error: 'Publishing timed out — the server took longer than 5 minutes and was interrupted. Some platforms may have published successfully. Check your social media accounts before retrying to avoid duplicate posts.',
       },
     });
     if (stuckPosts.count > 0) {
@@ -232,17 +228,28 @@ export async function POST(request: NextRequest) {
         where: { id: post.id },
         data: {
           status: 'FAILED',
-          error: `Bot is ${post.bot.status}. Activate the bot to publish posts.`,
+          error: `Bot "${post.bot.name}" is currently ${post.bot.status.toLowerCase()}. Go to Bot Settings and set the status to Active before publishing.`,
         },
       });
       results.push({ postId: post.id, status: 'FAILED', platforms: {} });
       continue;
     }
 
-    const platforms = (Array.isArray(post.platforms) ? post.platforms : []) as string[];
+    const allPlatforms = (Array.isArray(post.platforms) ? post.platforms : []) as string[];
+
+    // On retry, skip platforms that already succeeded to avoid duplicate posts.
+    // publishResults stores the outcome from the previous attempt.
+    const existingResults = post.publishResults as Record<string, { success: boolean; externalId?: string; error?: string }> | null;
+    const platforms = existingResults
+      ? allPlatforms.filter(p => !existingResults[p]?.success)
+      : allPlatforms;
+
     const platformResults: Record<string, { success: boolean; externalId?: string; error?: string }> = {};
     let allSucceeded = true;
-    let anySucceeded = false;
+    // If some platforms already succeeded in a previous attempt, count them
+    let anySucceeded = existingResults
+      ? Object.values(existingResults).some(r => r.success)
+      : false;
 
     for (const platform of platforms) {
       try {
@@ -252,22 +259,46 @@ export async function POST(request: NextRequest) {
         const deducted = await deductCredits(post.bot.userId, cost, `Post to ${platform}`, post.botId);
         
         if (!deducted) {
+          const platformName = PLATFORM_NAMES[platform] || platform;
           platformResults[platform] = {
             success: false,
-            error: 'Insufficient credits. Buy more credits to continue posting.',
+            error: `Not enough credits to post to ${platformName} (${cost} credits required). Purchase more credits in Dashboard → Credits → Buy.`,
           };
           allSucceeded = false;
           continue;
         }
 
+        // Resolve per-platform content/media overrides
+        const overrides = (post.platformContent as Record<string, { content?: string; mediaId?: string }> | null)?.[platform];
+        const platformSpecificContent = overrides?.content || post.content;
+
+        // If this platform has a media override, resolve it
+        let effectiveMediaPath = post.media?.filePath || null;
+        let effectiveMediaType = (post.media?.type as 'IMAGE' | 'VIDEO' | 'GIF' | null) || null;
+        let effectiveMediaMime = post.media?.mimeType || null;
+        let effectiveMediaId = post.media?.id || null;
+
+        if (overrides?.mediaId && overrides.mediaId !== post.media?.id) {
+          const overrideMedia = await db.media.findFirst({
+            where: { id: overrides.mediaId, botId: post.botId },
+            select: { id: true, filePath: true, type: true, mimeType: true },
+          });
+          if (overrideMedia) {
+            effectiveMediaPath = overrideMedia.filePath;
+            effectiveMediaType = overrideMedia.type as 'IMAGE' | 'VIDEO' | 'GIF';
+            effectiveMediaMime = overrideMedia.mimeType;
+            effectiveMediaId = overrideMedia.id;
+          }
+        }
+
         const result = await publishToPlatform(
           platform as PlatformType,
           post.botId,
-          post.content,
-          post.media?.filePath || null,
-          (post.media?.type as 'IMAGE' | 'VIDEO' | 'GIF' | null) || null,
-          post.media?.mimeType || null,
-          post.media?.id || null,
+          platformSpecificContent,
+          effectiveMediaPath,
+          effectiveMediaType,
+          effectiveMediaMime,
+          effectiveMediaId,
           (post.postType as 'feed' | 'reel' | 'story' | 'carousel' | null) || null,
           (post.mediaIds as string[] | null) || null
         );
@@ -289,7 +320,7 @@ export async function POST(request: NextRequest) {
             botId: post.botId,
             platform: platform as PlatformType,
             action: 'POST',
-            content: post.content.slice(0, 500),
+            content: platformSpecificContent.slice(0, 500),
             postId: result.externalId || null,
             contentType: post.contentType || 'custom',
             success: result.success,
@@ -357,8 +388,12 @@ export async function POST(request: NextRequest) {
       } catch (error) {
         // Catch unexpected errors per platform so other platforms still get processed
         const msg = error instanceof Error ? error.message : 'Unknown error';
+        const platformName = PLATFORM_NAMES[platform] || platform;
         console.error(`[process-posts] Platform ${platform} failed for post ${post.id}:`, msg);
-        platformResults[platform] = { success: false, error: msg.slice(0, 500) };
+        platformResults[platform] = {
+          success: false,
+          error: `${platformName} publishing failed unexpectedly: ${msg.slice(0, 400)}. If this keeps happening, try reconnecting ${platformName} in Platforms settings.`,
+        };
         allSucceeded = false;
       }
     }
@@ -370,15 +405,20 @@ export async function POST(request: NextRequest) {
         ? 'PUBLISHED' // Partial success still counts as published
         : 'FAILED';
 
+    // Merge new results with existing results (preserves prior successes on retry)
+    const mergedResults = existingResults
+      ? { ...existingResults, ...platformResults }
+      : platformResults;
+
     await db.scheduledPost.update({
       where: { id: post.id },
       data: {
         status: finalStatus,
         publishedAt: anySucceeded ? now : null,
-        publishResults: platformResults,
+        publishResults: mergedResults,
         error: allSucceeded
           ? null
-          : Object.entries(platformResults)
+          : Object.entries(mergedResults)
               .filter(([, r]) => !r.success)
               .map(([p, r]) => `${p}: ${r.error}`)
               .join('; '),
@@ -406,7 +446,7 @@ export async function POST(request: NextRequest) {
     results.push({
       postId: post.id,
       status: finalStatus,
-      platforms: platformResults,
+      platforms: mergedResults,
     });
   }
 
@@ -465,7 +505,12 @@ async function publishToPlatform(
   });
 
   if (!conn || conn.status !== 'CONNECTED') {
-    return { success: false, error: `${platform} not connected` };
+    const platformName = PLATFORM_NAMES[platform] || platform;
+    const statusDetail = conn ? `(status: ${conn.status.toLowerCase()})` : '(no account linked)';
+    return {
+      success: false,
+      error: `${platformName} is not connected ${statusDetail}. Go to Platforms settings and connect your ${platformName} account before posting.`,
+    };
   }
 
   // Parse per-platform post types from the JSON field
@@ -488,7 +533,7 @@ async function publishToPlatform(
     default:
       return {
         success: false,
-        error: `Platform ${platform} publishing not yet implemented`,
+        error: `${PLATFORM_NAMES[platform] || platform} publishing is not yet available. Currently supported platforms: Facebook, Instagram, and Threads. More platforms are coming soon.`,
       };
   }
 }
@@ -513,7 +558,7 @@ async function publishToFacebook(
 
       // Prevent path traversal — ensure resolved path is within UPLOAD_DIR
       if (!absPath.startsWith(path.resolve(UPLOAD_DIR))) {
-        return { success: false, error: 'Invalid media path' };
+        return { success: false, error: 'Media file path is invalid or outside the allowed directory. The file may have been moved or deleted. Try uploading the media again.' };
       }
 
       if (mediaType === 'VIDEO') {
@@ -551,7 +596,7 @@ async function publishToFacebook(
         where: { id: conn.id },
         data: {
           status: 'ERROR',
-          lastError: 'Token expired. Please reconnect Facebook.',
+          lastError: 'Facebook access token has expired. Please reconnect Facebook.',
         },
       });
     }
@@ -559,7 +604,7 @@ async function publishToFacebook(
     return { success: false, error: result.error };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error';
-    return { success: false, error: msg };
+    return { success: false, error: `Facebook publishing failed: ${msg}. If this keeps happening, try reconnecting Facebook in Platforms settings.` };
   }
 }
 
@@ -622,7 +667,7 @@ async function publishToInstagram(
         await markConnectionError(conn.id, `Token invalid: ${tokenInfo.error || 'unknown reason'}. Please reconnect Instagram.`);
         return {
           success: false,
-          error: 'Instagram token is invalid. Please reconnect Instagram in Platform settings.',
+          error: 'Instagram access token is invalid or expired. Go to Platforms → Instagram and reconnect your account to get a new token.',
         };
       }
 
@@ -643,7 +688,7 @@ async function publishToInstagram(
     if (!mediaPath) {
       return {
         success: false,
-        error: 'Instagram requires an image or video. Text-only posts are not supported.',
+        error: 'Instagram requires an image or video — text-only posts are not supported by Instagram API. Attach a JPEG/PNG image or MP4 video in the post form, or deselect Instagram from the target platforms.',
       };
     }
 
@@ -735,7 +780,7 @@ async function publishToInstagram(
         const storyPath = isVideo ? mediaPath : igMediaPath;
         const publicUrl = await resolveMediaUrl(storyPath, mediaId);
         if (!publicUrl) {
-          return { success: false, error: 'Could not resolve media URL for Story.' };
+          return { success: false, error: 'Instagram Story failed: could not generate a public URL for the media file. The file may have been deleted or the server configuration is incorrect. Try re-uploading the media.' };
         }
         console.log(`[process-posts] Instagram: posting Story (${isVideo ? 'video' : 'image'})`);
         result = await igPostStory(creds, publicUrl, isVideo);
@@ -746,7 +791,7 @@ async function publishToInstagram(
         // Resolve all media items for the carousel, converting each to JPEG if needed
         const carouselMediaIds = mediaIds || [];
         if (carouselMediaIds.length < 2) {
-          return { success: false, error: 'Carousel requires at least 2 media items.' };
+          return { success: false, error: 'Instagram Carousel requires at least 2 media items (max 10). You only selected 1 item. Add more images/videos or switch to Feed Post type.' };
         }
 
         const allMedia = await db.media.findMany({
@@ -764,7 +809,7 @@ async function publishToInstagram(
           }
           const url = await resolveMediaUrl(carouselFilePath, m.id);
           if (!url) {
-            return { success: false, error: `Could not resolve URL for media item ${m.id}.` };
+            return { success: false, error: `Instagram Carousel failed: could not generate a public URL for one of the media files. The file may have been deleted. Try re-uploading media in the Media library.` };
           }
           imageUrls.push(url);
         }
@@ -778,7 +823,7 @@ async function publishToInstagram(
         // Videos use original path (no JPEG conversion for video)
         const publicUrl = await resolveMediaUrl(mediaPath, mediaId);
         if (!publicUrl) {
-          return { success: false, error: 'Could not resolve video URL for Reel.' };
+          return { success: false, error: 'Instagram Reel failed: could not generate a public URL for the video file. The file may have been deleted or the server configuration is incorrect. Try re-uploading the video.' };
         }
         console.log(`[process-posts] Instagram: posting Reel`);
         result = await igPostReel(creds, content, publicUrl);
@@ -789,7 +834,7 @@ async function publishToInstagram(
         // 'feed' - single image post (use converted JPEG)
         const publicUrl = await resolveMediaUrl(igMediaPath, mediaId);
         if (!publicUrl) {
-          return { success: false, error: 'Could not resolve media URL for feed post.' };
+          return { success: false, error: 'Instagram Feed Post failed: could not generate a public URL for the image. The file may have been deleted. Try re-uploading the image in the Media library.' };
         }
         console.log(`[process-posts] Instagram: posting Feed Image`);
         result = await igPostImage(creds, content, publicUrl);
@@ -801,13 +846,13 @@ async function publishToInstagram(
       return { success: true, externalId: result.mediaId };
     }
     if (isInstagramTokenError(result.error)) {
-      await markConnectionError(conn.id, 'Token expired. Please reconnect Instagram.');
+      await markConnectionError(conn.id, 'Instagram access token has expired. Go to Platforms → Instagram and reconnect your account.');
     }
     return { success: false, error: result.error };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error';
     console.error('[process-posts] Instagram publishing error:', msg);
-    return { success: false, error: msg };
+    return { success: false, error: `Instagram publishing failed: ${msg}. If this keeps happening, try reconnecting Instagram in Platforms settings.` };
   }
 }
 
@@ -903,7 +948,7 @@ async function publishToThreads(
         // Carousel post: 2-20 media items
         const carouselMediaIds = mediaIds || [];
         if (carouselMediaIds.length < 2) {
-          return { success: false, error: 'Threads carousel requires at least 2 media items.' };
+          return { success: false, error: 'Threads Carousel requires at least 2 media items (max 20). You only selected 1 item. Add more images/videos or switch to a single Image/Video post type.' };
         }
 
         const allMedia = await db.media.findMany({
@@ -924,7 +969,7 @@ async function publishToThreads(
           if (MEDIA_DIRECT_BASE) {
             const absPath = path.resolve(path.join(UPLOAD_DIR, itemPath));
             if (!existsSync(absPath)) {
-              return { success: false, error: `Carousel item file not found: ${itemPath}` };
+              return { success: false, error: `Threads Carousel failed: media file not found on server. The file may have been deleted. Try re-uploading media in the Media library.` };
             }
             itemUrl = `${MEDIA_DIRECT_BASE}/${itemPath}`;
           } else {
@@ -942,11 +987,11 @@ async function publishToThreads(
 
       case 'video': {
         if (!mediaPath) {
-          return { success: false, error: 'Threads video post requires a video file.' };
+          return { success: false, error: 'Threads Video Post requires a video file attached. Attach an MP4 video in the post form, or change the post type to Text.' };
         }
         const videoUrl = await resolveThreadsMediaUrl(mediaPath, null);
         if (!videoUrl) {
-          return { success: false, error: 'Could not resolve video URL for Threads.' };
+          return { success: false, error: 'Threads Video Post failed: could not generate a public URL for the video file. The file may have been deleted. Try re-uploading the video.' };
         }
         console.log('[process-posts] Threads: posting Video');
         result = await threadsPostWithVideo(creds, content, videoUrl);
@@ -955,7 +1000,7 @@ async function publishToThreads(
 
       case 'image': {
         if (!mediaPath) {
-          return { success: false, error: 'Threads image post requires an image file.' };
+          return { success: false, error: 'Threads Image Post requires an image file attached. Attach a JPEG/PNG image in the post form, or change the post type to Text.' };
         }
         // Convert non-JPEG images for compatibility
         let threadsMediaPath = mediaPath;
@@ -970,7 +1015,7 @@ async function publishToThreads(
 
         const imageUrl = await resolveThreadsMediaUrl(threadsMediaPath, null);
         if (!imageUrl) {
-          return { success: false, error: 'Could not resolve image URL for Threads.' };
+          return { success: false, error: 'Threads Image Post failed: could not generate a public URL for the image. The file may have been deleted. Try re-uploading the image in the Media library.' };
         }
         console.log('[process-posts] Threads: posting Image');
         result = await threadsPostWithImage(creds, content, imageUrl);
@@ -1011,13 +1056,13 @@ async function publishToThreads(
 
     // Check for token errors
     if (isThreadsTokenError(result.error)) {
-      await markConnectionError(conn.id, 'Token expired. Please reconnect Threads.');
+      await markConnectionError(conn.id, 'Threads access token has expired. Go to Platforms → Threads and reconnect your account.');
     }
 
     return { success: false, error: result.error };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error';
-    return { success: false, error: msg };
+    return { success: false, error: `Threads publishing failed: ${msg}. If this keeps happening, try reconnecting Threads in Platforms settings.` };
   }
 }
 

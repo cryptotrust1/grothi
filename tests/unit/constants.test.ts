@@ -3,6 +3,15 @@ import {
   BOT_STATUS_CONFIG,
   POST_STATUS_COLORS,
   GOAL_LABELS,
+  GOAL_OPTIONS,
+  SAFETY_LEVEL_OPTIONS,
+  VISUAL_STYLES,
+  IMAGE_TYPES,
+  CREATIVE_TONES,
+  TEXT_OVERLAY_OPTIONS,
+  LOGO_PLACEMENT_OPTIONS,
+  VIDEO_PACING_OPTIONS,
+  VIDEO_MUSIC_OPTIONS,
   BOT_NAV_TABS,
   TIMEZONES,
   SCHEDULE_PRESETS,
@@ -76,6 +85,63 @@ describe('Constants', () => {
         expect(GOAL_LABELS[goal]).toBeDefined();
         expect(typeof GOAL_LABELS[goal]).toBe('string');
       }
+    });
+  });
+
+  describe('GOAL_OPTIONS', () => {
+    it('has 6 options matching GOAL_LABELS', () => {
+      expect(GOAL_OPTIONS).toHaveLength(6);
+      for (const option of GOAL_OPTIONS) {
+        expect(option.value).toBeDefined();
+        expect(option.label).toBeDefined();
+        expect(option.desc).toBeDefined();
+        expect(GOAL_LABELS[option.value]).toBe(option.label);
+      }
+    });
+  });
+
+  describe('SAFETY_LEVEL_OPTIONS', () => {
+    it('has 3 safety levels', () => {
+      expect(SAFETY_LEVEL_OPTIONS).toHaveLength(3);
+      const values = SAFETY_LEVEL_OPTIONS.map(s => s.value);
+      expect(values).toContain('CONSERVATIVE');
+      expect(values).toContain('MODERATE');
+      expect(values).toContain('AGGRESSIVE');
+    });
+  });
+
+  describe('Creative style constants', () => {
+    it('VISUAL_STYLES has 8 options', () => {
+      expect(VISUAL_STYLES).toHaveLength(8);
+      for (const s of VISUAL_STYLES) {
+        expect(s.value).toBeDefined();
+        expect(s.label).toBeDefined();
+        expect(s.desc).toBeDefined();
+      }
+    });
+
+    it('IMAGE_TYPES has 6 options', () => {
+      expect(IMAGE_TYPES).toHaveLength(6);
+    });
+
+    it('CREATIVE_TONES has 8 options', () => {
+      expect(CREATIVE_TONES).toHaveLength(8);
+    });
+
+    it('TEXT_OVERLAY_OPTIONS has 3 options', () => {
+      expect(TEXT_OVERLAY_OPTIONS).toHaveLength(3);
+    });
+
+    it('LOGO_PLACEMENT_OPTIONS has 6 options', () => {
+      expect(LOGO_PLACEMENT_OPTIONS).toHaveLength(6);
+    });
+
+    it('VIDEO_PACING_OPTIONS has 3 options', () => {
+      expect(VIDEO_PACING_OPTIONS).toHaveLength(3);
+    });
+
+    it('VIDEO_MUSIC_OPTIONS has 5 options', () => {
+      expect(VIDEO_MUSIC_OPTIONS).toHaveLength(5);
     });
   });
 

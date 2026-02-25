@@ -13,6 +13,7 @@ import { MediaGenerateForm } from '@/components/dashboard/media-generate-form';
 import { MediaCardActions } from '@/components/dashboard/media-card-actions';
 import { MediaVideoThumbnail } from '@/components/dashboard/media-video-thumbnail';
 import { BotNav } from '@/components/dashboard/bot-nav';
+import { AlertMessage } from '@/components/ui/alert-message';
 
 export const metadata: Metadata = { title: 'Media Library', robots: { index: false } };
 
@@ -91,8 +92,8 @@ export default async function BotMediaPage({
         <BotNav botId={id} activeTab="media" />
       </div>
 
-      {sp.success && <div className="rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-800">{sp.success}</div>}
-      {sp.error && <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">{sp.error}</div>}
+      {sp.success && <AlertMessage type="success" message={sp.success} />}
+      {sp.error && <AlertMessage type="error" message={sp.error} />}
 
       {/* Storage Usage */}
       <Card>

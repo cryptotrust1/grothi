@@ -111,7 +111,7 @@ export async function getThreadsCredentials(
   } catch {
     await db.platformConnection.update({
       where: { id: conn.id },
-      data: { status: 'ERROR', lastError: 'Failed to decrypt credentials' },
+      data: { status: 'ERROR', lastError: 'Failed to decrypt Threads credentials — the encryption key may have changed. Disconnect and reconnect Threads in Platforms settings.' },
     });
     return null;
   }
@@ -137,7 +137,7 @@ async function threadsFetch(
     if (res.status === 429) {
       await new Promise((r) => setTimeout(r, 30_000));
       const data = await res.json().catch(() => ({
-        error: { message: 'Rate limit exceeded. Please wait a few minutes.', type: 'OAuthException', code: 429 },
+        error: { message: 'Threads rate limit exceeded (HTTP 429) — too many requests. Your post will be retried automatically. No action needed.', type: 'OAuthException', code: 429 },
       }));
       return { data };
     }
@@ -147,7 +147,7 @@ async function threadsFetch(
   } catch (e) {
     clearTimeout(timer);
     if (e instanceof Error && e.name === 'AbortError') {
-      throw new Error('Threads API request timed out (30s). Try again later.');
+      throw new Error('Threads API request timed out after 30 seconds. Threads servers may be slow or temporarily unreachable. Your post will be retried automatically.');
     }
     throw e;
   }
@@ -163,13 +163,20 @@ function isApiError(data: unknown): data is ThreadsApiError {
 function friendlyThreadsError(data: ThreadsApiError): string {
   const err = (data as ThreadsApiError).error;
   const code = err.code;
+  const sub = err.error_subcode;
 
-  if (code === 190) return 'Threads token expired. Please reconnect Threads in Platforms.';
-  if (code === 10 || code === 200) return 'Missing Threads permissions. Please reconnect with full permissions.';
-  if (code === 4 || code === 32) return 'Threads rate limit reached. Posts will resume automatically.';
-  if (code === 2) return 'Threads is temporarily unavailable. The post will be retried.';
+  if (code === 190) {
+    if (sub === 460) return 'Threads token expired — your password was changed. Go to Platforms → Threads and reconnect your account.';
+    if (sub === 463) return 'Threads token expired — it has passed its expiration date. Go to Platforms → Threads and reconnect your account.';
+    return 'Threads access token expired or was revoked. Go to Platforms → Threads and reconnect your account.';
+  }
+  if (code === 10 || code === 200) return 'Missing Threads permissions — your account does not have the required posting permissions. Go to Platforms → Threads, disconnect, and reconnect with full permissions (threads_basic, threads_content_publish).';
+  if (code === 4 || code === 32) return 'Threads rate limit reached — too many API requests in a short time. Your post will be retried automatically. No action needed.';
+  if (code === 2) return 'Threads servers are temporarily unavailable (API error code 2). Your post will be retried automatically. If this persists for more than 1 hour, check Meta Platform Status.';
+  if (code === 100) return `Threads rejected this request — invalid parameter or missing field: ${err.message}. Check that your post content and media meet Threads requirements.`;
+  if (sub === 2207051) return 'Duplicate post detected — Threads rejected this because identical content was already posted. Change the text or media and try again.';
 
-  return `Threads error: ${err.message}`;
+  return `Threads error (code ${code}): ${err.message}`;
 }
 
 /**
@@ -295,7 +302,7 @@ async function waitForContainer(
     const { data } = await threadsFetch(url.toString());
 
     if (isApiError(data)) {
-      return { status: 'ERROR', error: (data as ThreadsApiError).error.message };
+      return { status: 'ERROR', error: `Threads container status check failed: ${(data as ThreadsApiError).error.message}` };
     }
 
     const d = data as Record<string, unknown>;
@@ -306,13 +313,19 @@ async function waitForContainer(
     }
 
     if (status === 'ERROR' || status === 'EXPIRED') {
-      return { status, error: (d.error_message as string) || 'Container processing failed' };
+      const errMsg = (d.error_message as string) || '';
+      return {
+        status,
+        error: status === 'EXPIRED'
+          ? 'Threads container expired — the media was not published within the time limit. Try posting again.'
+          : `Threads failed to process the media: ${errMsg || 'unknown error'}. The file format may be unsupported or the media may be corrupted. Try re-uploading.`,
+      };
     }
 
     await new Promise((r) => setTimeout(r, CONTAINER_POLL_INTERVAL));
   }
 
-  return { status: 'ERROR', error: 'Container processing timed out' };
+  return { status: 'ERROR', error: 'Threads took too long to process the media (timed out). The file may be too large or Threads servers are slow. Try again with a smaller file or wait a few minutes.' };
 }
 
 // ── Publishing: Text Post ──────────────────────────────────────
@@ -330,11 +343,11 @@ export async function postText(
   text: string
 ): Promise<ThreadsPostResult> {
   if (!text || text.length === 0) {
-    return { success: false, error: 'Text cannot be empty' };
+    return { success: false, error: 'Threads post content cannot be empty. Write at least a few words of text.' };
   }
 
   if (text.length > 500) {
-    return { success: false, error: 'Threads posts are limited to 500 characters' };
+    return { success: false, error: 'Threads has a 500 character limit. Your post is too long — shorten the text or remove some hashtags to fit within 500 characters.' };
   }
 
   try {
@@ -359,13 +372,13 @@ export async function postText(
 
     const containerId = containerData.id;
     if (!containerId) {
-      return { success: false, error: 'No container ID returned from Threads' };
+      return { success: false, error: 'Threads did not return a container ID — the media file may be in an unsupported format. Threads accepts JPEG/PNG images (max 8MB) and MP4 videos (max 500MB, max 5min).' };
     }
 
     // Step 2: Wait for container
     const containerStatus = await waitForContainer(containerId, creds.accessToken);
     if (containerStatus.status !== 'FINISHED') {
-      return { success: false, error: containerStatus.error || 'Container processing failed' };
+      return { success: false, error: containerStatus.error || 'Threads failed to process this post. Try again in a few minutes.' };
     }
 
     // Step 3: Publish
@@ -388,7 +401,7 @@ export async function postText(
     return { success: true, postId: publishData.id };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Network error';
-    return { success: false, error: msg };
+    return { success: false, error: `Threads publishing failed: ${msg}` };
   }
 }
 
@@ -408,7 +421,7 @@ export async function postWithImage(
   imageUrl: string
 ): Promise<ThreadsPostResult> {
   if (text.length > 500) {
-    return { success: false, error: 'Threads posts are limited to 500 characters' };
+    return { success: false, error: 'Threads has a 500 character limit. Your post is too long — shorten the text or remove some hashtags to fit within 500 characters.' };
   }
 
   try {
@@ -433,13 +446,13 @@ export async function postWithImage(
 
     const containerId = containerData.id;
     if (!containerId) {
-      return { success: false, error: 'No container ID returned from Threads' };
+      return { success: false, error: 'Threads did not return a container ID — the media file may be in an unsupported format. Threads accepts JPEG/PNG images (max 8MB) and MP4 videos (max 500MB, max 5min).' };
     }
 
     // Step 2: Wait for container
     const containerStatus = await waitForContainer(containerId, creds.accessToken);
     if (containerStatus.status !== 'FINISHED') {
-      return { success: false, error: containerStatus.error || 'Container processing failed' };
+      return { success: false, error: containerStatus.error || 'Threads failed to process this post. Try again in a few minutes.' };
     }
 
     // Step 3: Publish
@@ -462,7 +475,7 @@ export async function postWithImage(
     return { success: true, postId: publishData.id };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Network error';
-    return { success: false, error: msg };
+    return { success: false, error: `Threads publishing failed: ${msg}` };
   }
 }
 
@@ -477,7 +490,7 @@ export async function postWithVideo(
   videoUrl: string
 ): Promise<ThreadsPostResult> {
   if (text.length > 500) {
-    return { success: false, error: 'Threads posts are limited to 500 characters' };
+    return { success: false, error: 'Threads has a 500 character limit. Your post is too long — shorten the text or remove some hashtags to fit within 500 characters.' };
   }
 
   try {
@@ -501,12 +514,12 @@ export async function postWithVideo(
 
     const containerId = containerData.id;
     if (!containerId) {
-      return { success: false, error: 'No container ID returned from Threads' };
+      return { success: false, error: 'Threads did not return a container ID — the media file may be in an unsupported format. Threads accepts JPEG/PNG images (max 8MB) and MP4 videos (max 500MB, max 5min).' };
     }
 
     const containerStatus = await waitForContainer(containerId, creds.accessToken);
     if (containerStatus.status !== 'FINISHED') {
-      return { success: false, error: containerStatus.error || 'Video processing failed' };
+      return { success: false, error: containerStatus.error || 'Threads failed to process the video. The video format may be unsupported. Use MP4 (H.264+AAC), max 500MB, max 5 minutes.' };
     }
 
     const publishUrl = `${THREADS_BASE}/me/threads_publish`;
@@ -528,7 +541,7 @@ export async function postWithVideo(
     return { success: true, postId: publishData.id };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Network error';
-    return { success: false, error: msg };
+    return { success: false, error: `Threads publishing failed: ${msg}` };
   }
 }
 
@@ -550,11 +563,11 @@ export async function postCarousel(
   imageUrls: string[]
 ): Promise<ThreadsPostResult> {
   if (imageUrls.length < 2 || imageUrls.length > 20) {
-    return { success: false, error: 'Threads carousel requires 2-20 items' };
+    return { success: false, error: 'Threads Carousel requires 2-20 media items. Adjust the number of images/videos and try again.' };
   }
 
   if (text.length > 500) {
-    return { success: false, error: 'Threads posts are limited to 500 characters' };
+    return { success: false, error: 'Threads has a 500 character limit. Your post is too long — shorten the text or remove some hashtags to fit within 500 characters.' };
   }
 
   try {
@@ -577,12 +590,12 @@ export async function postCarousel(
 
       if (isApiError(containerData)) {
         console.error('[threads] Carousel item creation failed:', JSON.stringify(containerData.error));
-        return { success: false, error: `Carousel item failed: ${containerData.error.message}` };
+        return { success: false, error: `Threads carousel item failed: ${containerData.error.message}. Check that all media items are JPEG/PNG images or MP4 videos within size limits.` };
       }
 
       const containerId = (containerData as Record<string, unknown>).id as string;
       if (!containerId) {
-        return { success: false, error: 'Threads did not return container ID for carousel item' };
+        return { success: false, error: 'Threads failed to create a container for one of the carousel items. The image/video format may be unsupported. Threads requires JPEG/PNG images or MP4 videos.' };
       }
       childContainerIds.push(containerId);
     }
@@ -591,7 +604,7 @@ export async function postCarousel(
     for (const childId of childContainerIds) {
       const status = await waitForContainer(childId, creds.accessToken);
       if (status.status !== 'FINISHED') {
-        return { success: false, error: `Carousel item processing failed: ${status.error}` };
+        return { success: false, error: `Threads carousel item processing failed: ${status.error}` };
       }
     }
 
@@ -617,11 +630,11 @@ export async function postCarousel(
     // Step 4: Wait for carousel container
     const carouselId = (carouselData as Record<string, unknown>).id as string;
     if (!carouselId) {
-      return { success: false, error: 'Threads did not return carousel container ID' };
+      return { success: false, error: 'Threads failed to create the carousel container. This usually means one or more carousel items have incompatible formats. Ensure all items are JPEG/PNG images or MP4 videos.' };
     }
     const carouselStatus = await waitForContainer(carouselId, creds.accessToken);
     if (carouselStatus.status !== 'FINISHED') {
-      return { success: false, error: carouselStatus.error || 'Carousel processing failed' };
+      return { success: false, error: carouselStatus.error || 'Threads failed to process the carousel. One or more items may have incompatible formats. Use JPEG/PNG images or MP4 videos.' };
     }
 
     // Step 5: Publish
@@ -644,7 +657,7 @@ export async function postCarousel(
     return { success: true, postId: publishData.id };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Network error';
-    return { success: false, error: msg };
+    return { success: false, error: `Threads publishing failed: ${msg}` };
   }
 }
 

@@ -122,7 +122,7 @@ export async function getInstagramCredentials(
   } catch {
     await db.platformConnection.update({
       where: { id: conn.id },
-      data: { status: 'ERROR', lastError: 'Failed to decrypt credentials' },
+      data: { status: 'ERROR', lastError: 'Failed to decrypt Instagram credentials — the encryption key may have changed. Disconnect and reconnect Instagram in Platforms settings.' },
     });
     return null;
   }
@@ -175,7 +175,7 @@ async function graphFetch(
         await new Promise((r) => setTimeout(r, 30_000));
       }
       const data = await res.json().catch(() => ({
-        error: { message: 'Rate limit exceeded. Please wait a few minutes.', type: 'OAuthException', code: 429 },
+        error: { message: 'Instagram rate limit exceeded (HTTP 429) — too many requests. Your post will be retried automatically. No action needed.', type: 'OAuthException', code: 429 },
       }));
       return { data, rateLimits };
     }
@@ -192,7 +192,7 @@ async function graphFetch(
       });
       data = {
         error: {
-          message: `Instagram returned non-JSON response (HTTP ${res.status}). May indicate API maintenance or WAF block.`,
+          message: `Instagram returned an unexpected response (HTTP ${res.status}, non-JSON). Instagram API may be under maintenance or a firewall is blocking the request. Try again in a few minutes.`,
           type: 'ParseError',
           code: 2,
         },
@@ -224,7 +224,7 @@ async function graphFetch(
   } catch (e) {
     clearTimeout(timer);
     if (e instanceof Error && e.name === 'AbortError') {
-      throw new Error('Instagram API request timed out (30s). Try again later.');
+      throw new Error('Instagram API request timed out after 30 seconds. Instagram servers may be slow or temporarily unreachable. Your post will be retried automatically.');
     }
     throw e;
   }
@@ -252,24 +252,31 @@ function friendlyIgError(data: GraphApiError): string {
   }));
 
   // Token errors
-  if (code === 190) return 'Instagram token expired. Please reconnect Instagram in Platforms.';
+  if (code === 190) {
+    if (sub === 460) return 'Instagram token expired — your Instagram password was changed. Go to Platforms → Instagram and reconnect your account.';
+    if (sub === 463) return 'Instagram token expired — it has passed its expiration date. Go to Platforms → Instagram and reconnect your account.';
+    if (sub === 467) return 'Instagram token expired — it was invalidated by the user. Go to Platforms → Instagram and reconnect your account.';
+    return 'Instagram access token expired or was revoked. Go to Platforms → Instagram and reconnect your account.';
+  }
   // Permission errors
-  if (code === 10 || code === 200) return 'Missing Instagram permissions. Please reconnect with full permissions.';
+  if (code === 10 || code === 200) return 'Missing Instagram permissions — your account does not have the required posting permissions. Go to Platforms → Instagram, disconnect, and reconnect with full permissions (instagram_business_content_publish).';
   // Rate limit
-  if (code === 4 || code === 32) return 'Instagram rate limit reached. Posts will resume automatically.';
-  // Media errors
-  if (code === 36003) return 'Instagram could not download the image. Make sure the image is publicly accessible.';
+  if (code === 4 || code === 32) return 'Instagram rate limit reached — too many API requests in a short time. Your post will be retried automatically. No action needed.';
+  // Media download error
+  if (code === 36003) return 'Instagram could not download the image from our server. This is usually a temporary network issue between Meta and our server. Try again in a few minutes. If this persists, check that Cloudflare/Nginx is not blocking Meta\'s image fetcher.';
+  // Container errors
+  if (code === 9004) return 'Instagram rejected the media file — the format is not supported. Instagram requires JPEG images (sRGB color space, no transparency). Try uploading a standard JPEG image.';
   // Generic API service error (code 2)
-  // Persistent code 2 (not just temporary) usually means:
-  // - App is in Development mode and instagram_business_content_publish is not approved
-  // - Instagram account owner is not Admin/Developer on the Meta app
-  // - App review is pending
-  if (code === 2) return `Instagram API error (code 2): ${err.message}. If this persists, check Meta Developer Dashboard: App permissions and ensure instagram_business_content_publish is approved. If app is in Development mode, the IG account owner must be an App Admin/Developer.`;
+  if (code === 2) return `Instagram API error (code 2): ${err.message}. If this persists, check Meta Developer Dashboard: ensure instagram_business_content_publish permission is approved. If the app is in Development mode, the IG account owner must be an App Admin/Developer.`;
   // Duplicate post
-  if (sub === 2207051) return 'Duplicate post detected. Instagram rejected identical content.';
+  if (sub === 2207051) return 'Duplicate post detected — Instagram rejected this because identical content was already posted. Change the text or image and try again.';
+  // Unsupported post type
+  if (code === 100 && sub === 2207024) return 'Instagram rejected this post — the media type is not compatible with the selected post type. For Reels, use MP4 video (9:16). For Feed posts, use JPEG/PNG images.';
+  // Business account required
+  if (code === 100 && sub === 33) return 'Instagram requires a Business or Creator account. Go to Instagram app → Settings → Account → Switch to Professional Account.';
 
-  // Fallback: include the raw message but prefix with context
-  return `Instagram error: ${err.message}`;
+  // Fallback: include the raw message with code for easier debugging
+  return `Instagram error (code ${code}): ${err.message}`;
 }
 
 /**
@@ -430,7 +437,7 @@ async function verifyMediaUrlAccessible(url: string): Promise<{ ok: boolean; err
     if (!res.ok) {
       return {
         ok: false,
-        error: `Media URL returned HTTP ${res.status}. Instagram cannot download the image. Check Cloudflare/Nginx config.`,
+        error: `Media file is not accessible (HTTP ${res.status}). Instagram needs to download the image from our server but got an error. This is usually a server configuration issue — check Cloudflare/Nginx settings for the /media/ path.`,
       };
     }
 
@@ -438,7 +445,7 @@ async function verifyMediaUrlAccessible(url: string): Promise<{ ok: boolean; err
     if (!contentType.startsWith('image/') && !contentType.startsWith('video/')) {
       return {
         ok: false,
-        error: `Media URL returned content-type "${contentType}" instead of image/video. Cloudflare may be returning a challenge page.`,
+        error: `Media file returned wrong content-type "${contentType}" instead of image/video. Cloudflare or Nginx may be returning an HTML page (challenge, error, or redirect) instead of the actual media file. Check server configuration.`,
       };
     }
 
@@ -467,9 +474,9 @@ async function verifyMediaUrlAccessible(url: string): Promise<{ ok: boolean; err
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error';
     if (msg.includes('AbortError') || msg.includes('aborted')) {
-      return { ok: false, error: 'Media URL timed out (15s). Server may be unreachable from itself.' };
+      return { ok: false, error: 'Media file accessibility check timed out after 15 seconds. The server may not be able to reach itself (loopback issue). Check Nginx configuration and DNS settings.' };
     }
-    return { ok: false, error: `Media URL not accessible: ${msg}` };
+    return { ok: false, error: `Media file is not accessible from the server: ${msg}. Instagram needs to download the media from a public URL. Check that the domain resolves correctly and Nginx is serving the /media/ path.` };
   } finally {
     clearTimeout(timer);
   }
@@ -514,14 +521,20 @@ async function waitForContainer(
     }
 
     if (status === 'ERROR' || status === 'EXPIRED') {
-      return { status, error: (d.status as string) || 'Container processing failed' };
+      const errMsg = (d.error_message as string) || (d.status as string) || '';
+      return {
+        status,
+        error: status === 'EXPIRED'
+          ? 'Instagram container expired — the media was not published within the time limit. Try posting again.'
+          : `Instagram failed to process the media: ${errMsg || 'unknown error'}. The file format may be unsupported or the image may be corrupted. Try re-uploading the media.`,
+      };
     }
 
     // Wait before polling again
     await new Promise((r) => setTimeout(r, CONTAINER_POLL_INTERVAL));
   }
 
-  return { status: 'ERROR', error: 'Container processing timed out' };
+  return { status: 'ERROR', error: 'Instagram took too long to process the media (timed out). The file may be too large or Instagram servers are slow. Try again with a smaller file or wait a few minutes.' };
 }
 
 // ── Publishing: Single Image ───────────────────────────────────
@@ -585,7 +598,7 @@ export async function postImage(
       const containerId = containerData.id;
       if (!containerId) {
         console.error('[instagram] postImage: no container ID in response:', JSON.stringify(containerData));
-        return { success: false, error: 'No container ID returned from Instagram' };
+        return { success: false, error: 'Instagram did not return a container ID — the media file may be in an unsupported format. Instagram requires JPEG images (no transparency, sRGB color space) or MP4 videos (H.264+AAC). Try re-uploading as JPEG.' };
       }
 
       console.log(`[instagram] postImage: step 2/3 — container created (id=${containerId}), polling status...`);
@@ -626,11 +639,11 @@ export async function postImage(
         console.warn(`[instagram] postImage error, will retry: ${msg}`);
         continue;
       }
-      return { success: false, error: msg };
+      return { success: false, error: `Instagram image publishing failed: ${msg}` };
     }
   }
 
-  return { success: false, error: 'Instagram publishing failed after retries' };
+  return { success: false, error: 'Instagram image publishing failed after 4 retry attempts. This is usually caused by a temporary Instagram API issue or an unsupported image format. Try re-uploading as a standard JPEG and retry.' };
 }
 
 // ── Publishing: Carousel (Multiple Images) ────────────────────
@@ -651,7 +664,7 @@ export async function postCarousel(
   imageUrls: string[]
 ): Promise<InstagramPostResult> {
   if (imageUrls.length < 2 || imageUrls.length > 10) {
-    return { success: false, error: 'Carousel requires 2-10 images' };
+    return { success: false, error: 'Instagram Carousel requires 2-10 media items. You provided fewer than 2 or more than 10. Adjust the number of images/videos and try again.' };
   }
 
   // Pre-validate: check URL accessibility (diagnostic only, not a hard failure)
@@ -697,7 +710,7 @@ export async function postCarousel(
 
         const containerId = (containerData as Record<string, unknown>).id as string;
         if (!containerId) {
-          return { success: false, error: 'Instagram did not return container ID for carousel item' };
+          return { success: false, error: 'Instagram failed to create a container for one of the carousel items. The image format may be unsupported. Instagram requires JPEG images for carousel items.' };
         }
         childContainerIds.push(containerId);
       }
@@ -739,7 +752,7 @@ export async function postCarousel(
       // Step 4: Wait for carousel container
       const carouselId = (carouselData as Record<string, unknown>).id as string;
       if (!carouselId) {
-        return { success: false, error: 'Instagram did not return carousel container ID' };
+        return { success: false, error: 'Instagram failed to create the carousel container. This usually means one or more carousel items have incompatible formats. Ensure all items are JPEG images or MP4 videos.' };
       }
       const carouselStatus = await waitForContainer(carouselId, creds.accessToken);
       if (carouselStatus.status !== 'FINISHED') {
@@ -773,11 +786,11 @@ export async function postCarousel(
         console.warn(`[instagram] postCarousel error, will retry: ${msg}`);
         continue;
       }
-      return { success: false, error: msg };
+      return { success: false, error: `Instagram carousel publishing failed: ${msg}` };
     }
   }
 
-  return { success: false, error: 'Instagram carousel publishing failed after retries' };
+  return { success: false, error: 'Instagram carousel publishing failed after 4 retry attempts. This is usually caused by a temporary API issue or incompatible media formats. Ensure all carousel items are JPEG images or MP4 videos and retry.' };
 }
 
 // ── Publishing: Reel (Video) ──────────────────────────────────
@@ -856,7 +869,7 @@ export async function postReel(
       const containerId = containerData.id;
       if (!containerId) {
         console.error('[instagram] postReel: no container ID in response:', JSON.stringify(containerData));
-        return { success: false, error: 'No container ID returned from Instagram' };
+        return { success: false, error: 'Instagram did not return a container ID — the media file may be in an unsupported format. Instagram requires JPEG images (no transparency, sRGB color space) or MP4 videos (H.264+AAC). Try re-uploading as JPEG.' };
       }
 
       console.log(`[instagram] postReel: step 2/3 — container created (id=${containerId}), polling status...`);
@@ -897,11 +910,11 @@ export async function postReel(
         console.warn(`[instagram] postReel error, will retry: ${msg}`);
         continue;
       }
-      return { success: false, error: msg };
+      return { success: false, error: `Instagram Reel publishing failed: ${msg}` };
     }
   }
 
-  return { success: false, error: 'Instagram reel publishing failed after retries' };
+  return { success: false, error: 'Instagram Reel publishing failed after 4 retry attempts. This is usually caused by a temporary API issue or unsupported video format. Use MP4 (H.264+AAC), vertical 9:16, 3s-15min, under 300MB.' };
 }
 
 // ── Publishing: Story ─────────────────────────────────────────
@@ -965,7 +978,7 @@ export async function postStory(
       const containerId = containerData.id;
       if (!containerId) {
         console.error('[instagram] postStory: no container ID in response:', JSON.stringify(containerData));
-        return { success: false, error: 'No container ID returned from Instagram' };
+        return { success: false, error: 'Instagram did not return a container ID — the media file may be in an unsupported format. Instagram requires JPEG images (no transparency, sRGB color space) or MP4 videos (H.264+AAC). Try re-uploading as JPEG.' };
       }
 
       console.log(`[instagram] postStory: step 2/3 — container created (id=${containerId}), polling status...`);
@@ -1004,11 +1017,11 @@ export async function postStory(
         console.warn(`[instagram] postStory error, will retry: ${msg}`);
         continue;
       }
-      return { success: false, error: msg };
+      return { success: false, error: `Instagram Story publishing failed: ${msg}` };
     }
   }
 
-  return { success: false, error: 'Instagram story publishing failed after retries' };
+  return { success: false, error: 'Instagram Story publishing failed after 4 retry attempts. This is usually caused by a temporary API issue. Stories require JPEG images or MP4 videos (9:16 vertical, max 60s). Try again later.' };
 }
 
 // ── Publishing: Local File Helper ─────────────────────────────
@@ -1049,12 +1062,12 @@ export async function postLocalImage(
   try {
     await fs.access(absPath);
   } catch {
-    return { success: false, error: `File not found: ${filePath}` };
+    return { success: false, error: `Image file not found on server: "${path.basename(filePath)}". The file may have been deleted from the Media library. Upload the image again and retry.` };
   }
 
   return {
     success: false,
-    error: 'Instagram requires a publicly accessible image URL. Please ensure your media is accessible via the /api/media endpoint.',
+    error: 'Instagram requires a publicly accessible image URL, but the media file could not be found or resolved. The file may have been deleted. Try re-uploading the image in the Media library.',
   };
 }
 
@@ -1438,7 +1451,7 @@ export async function runDiagnostics(botId: string): Promise<{
       failedPostAnalysis: [],
       realMediaTest: null,
       mediaInventory: { total: 0, byMimeType: {}, instagramUnsupported: [] },
-      recommendations: ['Failed to decrypt credentials. Reconnect Instagram.'],
+      recommendations: ['Failed to decrypt credentials. Go to Platforms → Instagram and reconnect your account.'],
     };
   }
 

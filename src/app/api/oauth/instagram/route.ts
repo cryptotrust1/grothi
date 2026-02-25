@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
-import { SignJWT } from 'jose';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.NEXTAUTH_SECRET!
-);
+import { createOAuthStateToken } from '@/lib/oauth-helpers';
 
 /**
  * GET /api/oauth/instagram?botId=xxx
@@ -37,11 +33,7 @@ export async function GET(request: NextRequest) {
   const redirectUri = `${baseUrl}/api/oauth/instagram/callback`;
 
   // Signed state token for CSRF protection
-  const state = await new SignJWT({ botId, userId: user.id })
-    .setProtectedHeader({ alg: 'HS256' })
-    .setExpirationTime('10m')
-    .setIssuedAt()
-    .sign(JWT_SECRET);
+  const state = await createOAuthStateToken(botId, user.id);
 
   // Instagram Business Login scopes (api.instagram.com/oauth/authorize):
   // - instagram_business_basic: read profile info and media

@@ -7,8 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
-  Activity, Settings, Globe, BarChart3, Clock, Brain,
-  TrendingUp, Rss, Shield, Zap, CheckCircle2, Circle,
+  Activity, Clock, Brain,
+  TrendingUp, Globe, Zap, CheckCircle2, Circle, Settings,
 } from 'lucide-react';
 import { BotNav } from '@/components/dashboard/bot-nav';
 import { HelpTip } from '@/components/ui/help-tip';
@@ -101,7 +101,7 @@ export default async function BotDetailPage({
     { label: 'Create bot', done: true, href: '' },
     { label: 'Connect at least one platform', done: bot.platformConns.length > 0, href: `/dashboard/bots/${bot.id}/platforms` },
     { label: 'Add keywords for content optimization', done: keywords.length > 0, href: `/dashboard/bots/${bot.id}/settings` },
-    { label: 'Configure image style preferences', done: Boolean(bot.imagePreferences), href: `/dashboard/bots/${bot.id}/image-style` },
+    { label: 'Configure creative style preferences', done: Boolean(bot.creativePreferences || bot.imagePreferences), href: `/dashboard/bots/${bot.id}/creative-style` },
     { label: 'Activate the bot', done: bot.status === 'ACTIVE', href: `/dashboard/bots/${bot.id}/settings` },
   ];
   const completedSteps = setupSteps.filter(s => s.done).length;
@@ -119,25 +119,12 @@ export default async function BotDetailPage({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold">{bot.name}</h1>
-            <Badge variant={sc.variant}>{sc.label}</Badge>
-          </div>
-          <p className="text-muted-foreground">{bot.brandName}</p>
+      <div>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold">{bot.name}</h1>
+          <Badge variant={sc.variant}>{sc.label}</Badge>
         </div>
-        <div className="flex gap-2">
-          <Link href={`/dashboard/bots/${bot.id}/platforms`}>
-            <Button variant="outline" size="sm"><Globe className="mr-2 h-4 w-4" /> Platforms</Button>
-          </Link>
-          <Link href={`/dashboard/bots/${bot.id}/settings`}>
-            <Button variant="outline" size="sm"><Settings className="mr-2 h-4 w-4" /> Settings</Button>
-          </Link>
-          <Link href={`/dashboard/bots/${bot.id}/analytics`}>
-            <Button variant="outline" size="sm"><BarChart3 className="mr-2 h-4 w-4" /> Analytics</Button>
-          </Link>
-        </div>
+        <p className="text-muted-foreground">{bot.brandName}</p>
       </div>
 
       <BotNav botId={bot.id} activeTab="overview" />

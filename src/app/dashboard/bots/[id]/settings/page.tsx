@@ -13,18 +13,11 @@ import { Rss, Clock, Brain, Trash2, Target, Key, BarChart3, Link2 } from 'lucide
 import { BotNav } from '@/components/dashboard/bot-nav';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { HelpTip } from '@/components/ui/help-tip';
-import { SCHEDULE_PRESETS, TIMEZONES, CONTENT_TYPES, TONE_STYLES, HASHTAG_PATTERNS } from '@/lib/constants';
+import { AlertMessage } from '@/components/ui/alert-message';
+import { SCHEDULE_PRESETS, TIMEZONES, CONTENT_TYPES, TONE_STYLES, HASHTAG_PATTERNS, GOAL_OPTIONS, SAFETY_LEVEL_OPTIONS } from '@/lib/constants';
+import { parseKeywords } from '@/lib/utils';
 
 export const metadata: Metadata = { title: 'Bot Settings', robots: { index: false } };
-
-const GOALS = [
-  { value: 'TRAFFIC', label: 'Drive Traffic' },
-  { value: 'SALES', label: 'Increase Sales' },
-  { value: 'ENGAGEMENT', label: 'Boost Engagement' },
-  { value: 'BRAND_AWARENESS', label: 'Brand Awareness' },
-  { value: 'LEADS', label: 'Generate Leads' },
-  { value: 'COMMUNITY', label: 'Build Community' },
-];
 
 export default async function BotSettingsPage({
   params,
@@ -77,16 +70,11 @@ export default async function BotSettingsPage({
 
     const currentReactor = (currentBot.reactorState as Record<string, unknown>) || {};
 
-    const keywordsRaw = (formData.get('keywords') as string) || '';
-    const keywordsArr = keywordsRaw
-      .split(',')
-      .map((k) => k.trim().toLowerCase())
-      .filter((k) => k.length > 0)
-      .slice(0, 50);
+    const keywordsArr = parseKeywords((formData.get('keywords') as string) || '');
 
-    // Validate enum fields server-side
-    const validSafetyLevels = ['CONSERVATIVE', 'MODERATE', 'AGGRESSIVE'];
-    const validGoals = ['TRAFFIC', 'SALES', 'ENGAGEMENT', 'BRAND_AWARENESS', 'LEADS', 'COMMUNITY'];
+    // Validate enum fields server-side using constants
+    const validSafetyLevels = SAFETY_LEVEL_OPTIONS.map(s => s.value) as string[];
+    const validGoals = GOAL_OPTIONS.map(g => g.value) as string[];
 
     const rawSafety = formData.get('safetyLevel') as string;
     const safetyLevel = validSafetyLevels.includes(rawSafety) ? rawSafety : currentBot.safetyLevel;
@@ -161,8 +149,8 @@ export default async function BotSettingsPage({
         <BotNav botId={id} activeTab="settings" />
       </div>
 
-      {sp.success && <div className="rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-800">{sp.success}</div>}
-      {sp.error && <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">{sp.error}</div>}
+      {sp.success && <AlertMessage type="success" message={sp.success} />}
+      {sp.error && <AlertMessage type="error" message={sp.error} />}
 
       {/* Bot Status */}
       <Card>
@@ -237,7 +225,7 @@ export default async function BotSettingsPage({
             <div className="space-y-2">
               <Label>Primary Goal</Label>
               <select name="goal" defaultValue={bot.goal} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                {GOALS.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
+                {GOAL_OPTIONS.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
               </select>
               <p className="text-xs text-muted-foreground">The bot adapts its content strategy based on this goal.</p>
             </div>
@@ -333,9 +321,7 @@ export default async function BotSettingsPage({
                   <HelpTip text="Controls how aggressively the bot engages. Conservative avoids risky content and limits frequency. Moderate balances reach with safety. Aggressive maximizes visibility but may trigger spam filters on some platforms." />
                 </div>
                 <select name="safetyLevel" defaultValue={bot.safetyLevel} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                  <option value="CONSERVATIVE">Conservative - Safe</option>
-                  <option value="MODERATE">Moderate - Balanced</option>
-                  <option value="AGGRESSIVE">Aggressive - Max reach</option>
+                  {SAFETY_LEVEL_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
                 </select>
               </div>
             </div>

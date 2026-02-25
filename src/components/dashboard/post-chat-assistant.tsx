@@ -75,6 +75,37 @@ function parseDataUrl(dataUrl: string): { data: string; mediaType: string } | nu
   return { mediaType: match[1], data: match[2] };
 }
 
+/**
+ * Extract the actual post content from AI response.
+ * Looks for text between [POST] and [/POST] markers.
+ * Falls back to a heuristic strip of common intro/outro, then full text.
+ */
+function extractPostContent(text: string): string {
+  // Try to extract between [POST] and [/POST] markers
+  const markerMatch = text.match(/\[POST\]\s*\n?([\s\S]*?)\n?\s*\[\/POST\]/);
+  if (markerMatch && markerMatch[1].trim()) {
+    return markerMatch[1].trim();
+  }
+
+  // Fallback: try to extract between --- delimiters (common AI pattern)
+  const dashMatch = text.match(/---\s*\n([\s\S]*?)\n\s*---/);
+  if (dashMatch && dashMatch[1].trim().length > 20) {
+    return dashMatch[1].trim();
+  }
+
+  // Final fallback: return full text
+  return text.trim();
+}
+
+/**
+ * Strip [POST] / [/POST] markers from displayed text so user doesn't see them.
+ */
+function stripPostMarkers(text: string): string {
+  return text
+    .replace(/\[POST\]\s*\n?/g, '')
+    .replace(/\n?\s*\[\/POST\]/g, '');
+}
+
 // ── Component ──
 
 export function PostChatAssistant({ botId, platforms, productId, onUseContent, onClose }: PostChatAssistantProps) {
@@ -434,7 +465,9 @@ export function PostChatAssistant({ botId, platforms, productId, onUseContent, o
 
               {/* Message text */}
               {msg.content ? (
-                <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+                <div className="whitespace-pre-wrap break-words">
+                  {msg.role === 'assistant' ? stripPostMarkers(msg.content) : msg.content}
+                </div>
               ) : msg.isStreaming ? (
                 <div className="flex items-center gap-1.5 text-muted-foreground">
                   <Loader2 className="h-3 w-3 animate-spin" />
@@ -452,7 +485,7 @@ export function PostChatAssistant({ botId, platforms, productId, onUseContent, o
                 <div className="mt-2 pt-2 border-t border-gray-100">
                   <button
                     type="button"
-                    onClick={() => onUseContent(msg.content)}
+                    onClick={() => onUseContent(extractPostContent(msg.content))}
                     className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-800 transition-colors"
                   >
                     <CheckCircle2 className="h-3 w-3" />
@@ -558,7 +591,7 @@ export function PostChatAssistant({ botId, platforms, productId, onUseContent, o
         </div>
 
         <div className="flex items-center justify-between mt-1.5">
-          <p className="text-[10px] text-muted-foreground">
+          <p className="text-[13px] text-muted-foreground">
             Shift+Enter for new line. Upload images for AI analysis.
           </p>
           {/* Model selector */}
@@ -566,20 +599,20 @@ export function PostChatAssistant({ botId, platforms, productId, onUseContent, o
             <button
               type="button"
               onClick={() => setShowModelDropdown(!showModelDropdown)}
-              className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-muted"
+              className="flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted font-medium"
               disabled={isSending}
             >
               {AI_MODELS.find(m => m.id === selectedModel)?.label || 'Select model'}
-              <ChevronDown className="h-2.5 w-2.5" />
+              <ChevronDown className="h-3.5 w-3.5" />
             </button>
             {showModelDropdown && (
-              <div className="absolute bottom-full right-0 mb-1 w-52 bg-white rounded-md border shadow-lg z-50 py-1">
+              <div className="absolute bottom-full right-0 mb-1 w-56 bg-white rounded-md border shadow-lg z-50 py-1">
                 {(['anthropic', 'openai', 'google'] as const).map((provider) => {
                   const providerModels = AI_MODELS.filter(m => m.provider === provider);
                   const providerLabel = provider === 'anthropic' ? 'Anthropic' : provider === 'openai' ? 'OpenAI' : 'Google';
                   return (
                     <div key={provider}>
-                      <div className="px-3 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                      <div className="px-3 py-1 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
                         {providerLabel}
                       </div>
                       {providerModels.map((model) => (
@@ -590,7 +623,7 @@ export function PostChatAssistant({ botId, platforms, productId, onUseContent, o
                             setSelectedModel(model.id);
                             setShowModelDropdown(false);
                           }}
-                          className={`w-full text-left px-3 py-1.5 text-xs hover:bg-muted transition-colors ${
+                          className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${
                             selectedModel === model.id ? 'text-purple-700 font-medium bg-purple-50' : 'text-gray-700'
                           }`}
                         >
