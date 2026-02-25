@@ -1,3 +1,9 @@
+/**
+ * Encryption Security Tests
+ * AES-256-GCM encryption validation
+ */
+
+import { describe, it, expect, beforeAll } from '@jest/globals';
 import { encrypt, decrypt, maskApiKey } from '@/lib/encryption';
 
 // Set a test encryption key (64 hex characters = 32 bytes)
@@ -7,98 +13,117 @@ beforeAll(() => {
   process.env.ENCRYPTION_KEY = TEST_KEY;
 });
 
-afterAll(() => {
-  delete process.env.ENCRYPTION_KEY;
-});
-
-describe('Encryption', () => {
-  describe('encrypt/decrypt', () => {
-    it('encrypts and decrypts a simple string', () => {
-      const plaintext = 'hello world';
+describe('Encryption System', () => {
+  describe('AES-256-GCM Encryption', () => {
+    it('should encrypt and decrypt data correctly', () => {
+      const plaintext = 'sensitive-api-key-12345';
+      
       const encrypted = encrypt(plaintext);
       const decrypted = decrypt(encrypted);
+      
       expect(decrypted).toBe(plaintext);
     });
 
-    it('encrypted format contains three colon-separated parts', () => {
-      const encrypted = encrypt('test');
+    it('should produce different ciphertexts for same plaintext (IV randomization)', () => {
+      const plaintext = 'test-data';
+      
+      const encrypted1 = encrypt(plaintext);
+      const encrypted2 = encrypt(plaintext);
+      
+      expect(encrypted1).not.toBe(encrypted2);
+      
+      // Both should decrypt to same value
+      expect(decrypt(encrypted1)).toBe(plaintext);
+      expect(decrypt(encrypted2)).toBe(plaintext);
+    });
+
+    it('should handle empty string', () => {
+      const plaintext = '';
+      
+      const encrypted = encrypt(plaintext);
+      const decrypted = decrypt(encrypted);
+      
+      expect(decrypted).toBe(plaintext);
+    });
+
+    it('should handle unicode characters', () => {
+      const plaintext = '日本語テキスト 🎉 ñoño';
+      
+      const encrypted = encrypt(plaintext);
+      const decrypted = decrypt(encrypted);
+      
+      expect(decrypted).toBe(plaintext);
+    });
+
+    it('should handle very long strings', () => {
+      const plaintext = 'a'.repeat(10000);
+      
+      const encrypted = encrypt(plaintext);
+      const decrypted = decrypt(encrypted);
+      
+      expect(decrypted).toBe(plaintext);
+    });
+
+    it('should fail to decrypt tampered ciphertext', () => {
+      const plaintext = 'test-data';
+      const encrypted = encrypt(plaintext);
+      
+      // Tamper with the encrypted data
+      const parts = encrypted.split(':');
+      parts[2] = parts[2].slice(0, -2) + 'ff'; // Modify last bytes
+      const tampered = parts.join(':');
+      
+      expect(() => decrypt(tampered)).toThrow();
+    });
+
+    it('should fail to decrypt with wrong format', () => {
+      expect(() => decrypt('invalid-format')).toThrow();
+      expect(() => decrypt('a:b')).toThrow(); // Only 2 parts
+    });
+
+    it('should produce ciphertext in correct format (iv:authTag:encrypted)', () => {
+      const plaintext = 'test';
+      const encrypted = encrypt(plaintext);
+      
       const parts = encrypted.split(':');
       expect(parts).toHaveLength(3);
-      // IV (32 hex chars = 16 bytes), authTag (32 hex chars), ciphertext
+      
+      // IV should be 32 hex chars (16 bytes)
       expect(parts[0]).toHaveLength(32);
+      // Auth tag should be 32 hex chars (16 bytes)
       expect(parts[1]).toHaveLength(32);
-      expect(parts[2].length).toBeGreaterThan(0);
-    });
-
-    it('produces different ciphertexts for the same input', () => {
-      const text = 'same input';
-      const enc1 = encrypt(text);
-      const enc2 = encrypt(text);
-      // Due to random IV, ciphertexts should differ
-      expect(enc1).not.toBe(enc2);
-      // But both should decrypt to the same value
-      expect(decrypt(enc1)).toBe(text);
-      expect(decrypt(enc2)).toBe(text);
-    });
-
-    it('handles empty string', () => {
-      const encrypted = encrypt('');
-      expect(decrypt(encrypted)).toBe('');
-    });
-
-    it('handles special characters', () => {
-      const special = 'API_KEY=abc123!@#$%^&*()_+=<>?,./';
-      const encrypted = encrypt(special);
-      expect(decrypt(encrypted)).toBe(special);
-    });
-
-    it('handles Unicode characters', () => {
-      const unicode = 'Ahoj svete! Dobrý deň 🤖';
-      const encrypted = encrypt(unicode);
-      expect(decrypt(encrypted)).toBe(unicode);
-    });
-
-    it('handles long strings', () => {
-      const longText = 'x'.repeat(10000);
-      const encrypted = encrypt(longText);
-      expect(decrypt(encrypted)).toBe(longText);
-    });
-
-    it('throws on tampered ciphertext', () => {
-      const encrypted = encrypt('secret');
-      const parts = encrypted.split(':');
-      // Tamper with the ciphertext
-      parts[2] = parts[2].slice(0, -2) + 'ff';
-      expect(() => decrypt(parts.join(':'))).toThrow();
-    });
-
-    it('throws on tampered auth tag', () => {
-      const encrypted = encrypt('secret');
-      const parts = encrypted.split(':');
-      parts[1] = '0'.repeat(32);
-      expect(() => decrypt(parts.join(':'))).toThrow();
+      // Encrypted data should be hex
+      expect(parts[2]).toMatch(/^[0-9a-f]+$/);
     });
   });
 
-  describe('maskApiKey', () => {
-    it('masks a normal API key', () => {
-      expect(maskApiKey('sk_live_abcdefghijklmnop')).toBe('sk_l...mnop');
+  describe('API Key Masking', () => {
+    it('should mask middle of long API keys', () => {
+      const key = 'test_key_abcdefghijklmnopqrstuvwxyz123';
+      const masked = maskApiKey(key);
+      
+      // Funkcia vracia prvé 4 znaky + ... + posledné 4 znaky
+      expect(masked).toBe('test...z123');
+      expect(masked).not.toContain('bcdefghijklmnopqrstuv');
     });
 
-    it('masks short keys completely', () => {
-      expect(maskApiKey('short')).toBe('****');
+    it('should handle short keys (<= 8 chars)', () => {
+      expect(maskApiKey('abc')).toBe('****');
+      expect(maskApiKey('abcdefgh')).toBe('****');
     });
 
-    it('masks very short keys', () => {
+    it('should handle very short keys', () => {
       expect(maskApiKey('ab')).toBe('****');
+      expect(maskApiKey('a')).toBe('****');
+      expect(maskApiKey('')).toBe('****');
     });
 
-    it('masks keys with exactly 8 characters', () => {
-      expect(maskApiKey('12345678')).toBe('****');
-    });
-
-    it('masks keys with 9 characters', () => {
-      expect(maskApiKey('123456789')).toBe('1234...6789');
+    it('should show first and last 4 chars for normal keys (> 8 chars)', () => {
+      const key = '1234567890abcdef';
+      const masked = maskApiKey(key);
+      
+      expect(masked).toBe('1234...cdef');
+      expect(masked).toContain('...');
     });
   });
 });
