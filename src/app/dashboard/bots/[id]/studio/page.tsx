@@ -40,16 +40,5 @@ export default async function BotStudioPage({
     },
   });
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">{bot.name} — Studio</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Edit your videos — trim, add text overlays, and resize for any platform. Edited videos are saved to your Media library.
-        </p>
-      </div>
-
-      <StudioEditor videos={videos} botId={bot.id} botPageId={id} />
-    </div>
-  );
+  return <StudioEditor videos={videos} botId={bot.id} botPageId={id} />;
 }
