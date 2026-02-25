@@ -18,7 +18,13 @@ import {
   Calendar, BarChart3, Target, Shield,
 } from 'lucide-react';
 import { PLATFORM_NAMES, POST_STATUS_COLORS } from '@/lib/constants';
-import { PLATFORM_ALGORITHM, getRecommendedPlan } from '@/lib/platform-algorithm';
+import {
+  PLATFORM_ALGORITHM,
+  getRecommendedPlan,
+  getGrowthTactics,
+  getEngagementVelocityTip,
+  getBestContentFormat,
+} from '@/lib/platform-algorithm';
 
 export const metadata: Metadata = { title: 'Autopilot', robots: { index: false } };
 
@@ -77,10 +83,13 @@ export default async function AutopilotPage({
     },
   });
 
-  // Platform algorithm recommendations
+  // Platform algorithm recommendations — v2 with full data
   const platformRecommendations = connectedPlatforms.map(p => {
     const algo = PLATFORM_ALGORITHM[p];
     const rec = getRecommendedPlan(p);
+    const bestFormat = getBestContentFormat(p);
+    const growthTactics = getGrowthTactics(p);
+    const velocityTip = getEngagementVelocityTip(p);
     return {
       platform: p,
       name: PLATFORM_NAMES[p] || p,
@@ -88,6 +97,16 @@ export default async function AutopilotPage({
       primaryMetric: algo?.primaryMetric || 'engagement',
       tip: algo?.contentTips[0] || '',
       frequency: algo?.frequency,
+      bestFormat: bestFormat?.format || null,
+      bestFormatReach: bestFormat?.reachMultiplier || 1,
+      topSignals: algo?.engagementSignals
+        ?.sort((a, b) => b.weight - a.weight)
+        .slice(0, 3) || [],
+      growthTactics: growthTactics.slice(0, 3),
+      velocityTip,
+      goldenWindow: algo?.engagementVelocity.goldenWindowMinutes || 60,
+      minInterval: algo?.minPostIntervalHours || 4,
+      maxPromo: algo?.maxPromotionalPercent || 20,
     };
   });
 
@@ -438,14 +457,14 @@ export default async function AutopilotPage({
         </CardContent>
       </Card>
 
-      {/* Platform Algorithm Insights */}
+      {/* Platform Algorithm Insights — v2 */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Target className="h-5 w-5" /> Platform Algorithm Insights
+            <Target className="h-5 w-5" /> Platform Algorithm Intelligence
           </CardTitle>
           <CardDescription>
-            Research-backed recommendations for each connected platform (2025-2026 data)
+            Research-backed algorithm data for each connected platform (2025-2026 verified sources)
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -454,20 +473,28 @@ export default async function AutopilotPage({
               Connect platforms to see algorithm-optimized recommendations.
             </p>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {platformRecommendations.map(pr => {
                 const algo = PLATFORM_ALGORITHM[pr.platform];
                 return (
-                  <div key={pr.platform} className="rounded-lg border p-3 space-y-2">
+                  <div key={pr.platform} className="rounded-lg border p-4 space-y-3">
+                    {/* Header */}
                     <div className="flex items-center justify-between">
-                      <span className="font-medium text-sm">{pr.name}</span>
-                      <Badge variant="secondary" className="text-xs">
-                        {algo?.platformCategory || 'general'}
-                      </Badge>
+                      <span className="font-semibold text-sm">{pr.name}</span>
+                      <div className="flex gap-1">
+                        <Badge variant="secondary" className="text-xs">
+                          {algo?.platformCategory || 'general'}
+                        </Badge>
+                        <Badge variant="outline" className="text-xs">
+                          {algo?.hasAlgorithm ? 'algo' : 'chrono'}
+                        </Badge>
+                      </div>
                     </div>
-                    <div className="text-xs text-muted-foreground space-y-1">
+
+                    {/* Posting frequency */}
+                    <div className="text-xs text-muted-foreground space-y-0.5">
                       <div className="flex justify-between">
-                        <span>Optimal posts/day:</span>
+                        <span>Posts/day:</span>
                         <span className="font-medium">{pr.frequency?.postsPerDay.optimal || 1}</span>
                       </div>
                       {pr.frequency?.reelsPerWeek && (
@@ -483,16 +510,65 @@ export default async function AutopilotPage({
                         </div>
                       )}
                       <div className="flex justify-between">
-                        <span>Primary metric:</span>
-                        <span className="font-medium">{pr.primaryMetric.replace(/_/g, ' ')}</span>
+                        <span>Min interval:</span>
+                        <span className="font-medium">{pr.minInterval}h between posts</span>
                       </div>
                       <div className="flex justify-between">
-                        <span>Hashtags:</span>
-                        <span className="font-medium">{algo?.hashtags.recommended || 0}</span>
+                        <span>Max promo:</span>
+                        <span className="font-medium">{pr.maxPromo}%</span>
                       </div>
                     </div>
-                    {pr.tip && (
-                      <p className="text-xs text-blue-600 pt-1 border-t">{pr.tip}</p>
+
+                    <Separator />
+
+                    {/* Best format */}
+                    {pr.bestFormat && (
+                      <div className="text-xs">
+                        <span className="text-muted-foreground">Best format: </span>
+                        <span className="font-medium text-green-700">
+                          {pr.bestFormat} ({pr.bestFormatReach}x reach)
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Top engagement signals */}
+                    {pr.topSignals.length > 0 && (
+                      <div className="text-xs space-y-0.5">
+                        <span className="text-muted-foreground font-medium">Top signals:</span>
+                        {pr.topSignals.map((s, i) => (
+                          <div key={i} className="flex items-center gap-1">
+                            <div className="flex">
+                              {Array.from({ length: Math.min(5, Math.ceil(s.weight / 2)) }).map((_, j) => (
+                                <div
+                                  key={j}
+                                  className={`h-1.5 w-1.5 rounded-full mr-0.5 ${
+                                    s.weight >= 9 ? 'bg-green-500' : s.weight >= 7 ? 'bg-blue-500' : 'bg-gray-400'
+                                  }`}
+                                />
+                              ))}
+                            </div>
+                            <span>{s.signal}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Engagement velocity */}
+                    <div className="text-xs bg-amber-50 rounded p-1.5">
+                      <Clock className="h-3 w-3 inline mr-1 text-amber-600" />
+                      <span className="text-amber-800">
+                        Golden window: first {pr.goldenWindow} min
+                      </span>
+                    </div>
+
+                    {/* Growth tactics */}
+                    {pr.growthTactics.length > 0 && (
+                      <div className="text-xs space-y-0.5 border-t pt-2">
+                        <span className="text-muted-foreground font-medium">Growth tactics:</span>
+                        {pr.growthTactics.map((t, i) => (
+                          <p key={i} className="text-blue-700 leading-tight">• {t}</p>
+                        ))}
+                      </div>
                     )}
                   </div>
                 );

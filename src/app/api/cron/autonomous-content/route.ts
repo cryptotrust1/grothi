@@ -18,7 +18,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateCronSecret } from '@/lib/api-helpers';
 import { db } from '@/lib/db';
 import { deductCredits, getActionCost } from '@/lib/credits';
-import { getContentGenerationContext, PLATFORM_ALGORITHM } from '@/lib/platform-algorithm';
+import {
+  getContentGenerationContext,
+  PLATFORM_ALGORITHM,
+  getSuppressionTriggers,
+  getBestContentFormat,
+} from '@/lib/platform-algorithm';
 import { PLATFORM_NAMES, CONTENT_TYPES } from '@/lib/constants';
 
 /** Max posts to generate content for per invocation */
@@ -224,9 +229,14 @@ async function generateContent(
     ? (params.bot.keywords as string[]).join(', ')
     : '';
 
-  // Build system prompt
+  // Get suppression triggers to explicitly warn the AI
+  const suppressionTriggers = getSuppressionTriggers(params.platform);
+  const bestFormat = getBestContentFormat(params.platform);
+
+  // Build system prompt — v2 with full algorithm knowledge
   const systemParts: string[] = [
-    `You are an expert social media content creator specializing in ${platformName}.`,
+    `You are an expert social media growth strategist and content creator specializing in ${platformName}.`,
+    `Your PRIMARY GOAL is to create content that the ${platformName} algorithm will recommend and distribute widely.`,
     `You create content for the brand "${params.bot.brandName}".`,
     '',
     `=== BRAND INSTRUCTIONS ===`,
@@ -239,9 +249,31 @@ async function generateContent(
   }
 
   systemParts.push(
-    `=== PLATFORM: ${platformName} ===`,
+    `=== PLATFORM ALGORITHM INTELLIGENCE: ${platformName} ===`,
     platformContext,
     '',
+  );
+
+  // Add suppression triggers as explicit warnings
+  if (suppressionTriggers.length > 0) {
+    systemParts.push(
+      `=== CRITICAL: SUPPRESSION TRIGGERS (MUST AVOID) ===`,
+      ...suppressionTriggers.map(t => `- DO NOT: ${t}`),
+      '',
+    );
+  }
+
+  // Add best format recommendation
+  if (bestFormat) {
+    systemParts.push(
+      `=== RECOMMENDED FORMAT ===`,
+      `Best performing format: ${bestFormat.format} (${bestFormat.reachMultiplier}x reach, ${bestFormat.engagementRate}% engagement)`,
+      `Note: ${bestFormat.note}`,
+      '',
+    );
+  }
+
+  systemParts.push(
     `=== REQUIREMENTS ===`,
     `- Content type: ${contentTypeLabel}`,
     `- Tone: ${params.toneStyle}`,
@@ -249,7 +281,12 @@ async function generateContent(
     `- Goal: ${params.bot.goal}`,
     `- Max character limit: ${algo?.caption.maxLength || 2000}`,
     `- Optimal length: ${algo?.caption.optimalLength.min || 50}-${algo?.caption.optimalLength.max || 300} characters`,
+    `- Emoji usage: ${algo?.caption.emojiUsage || 'moderate'}`,
   );
+
+  if (algo?.caption.hookImportant) {
+    systemParts.push(`- CRITICAL: Start with a strong hook that stops the scroll in the first line`);
+  }
 
   if (keywords) {
     systemParts.push(`- Target keywords: ${keywords}`);
@@ -265,8 +302,10 @@ async function generateContent(
     systemParts.push('', `=== ATTACHED MEDIA ===`, `Description: ${params.media.aiDescription}`);
   }
 
-  // User prompt
+  // User prompt — v2 with algorithm optimization directives
   let userPrompt = `Create a single ${contentTypeLabel.toLowerCase()} post for ${platformName}.`;
+  userPrompt += `\n\nYour goal: Create content that the ${platformName} algorithm will prioritize and distribute to non-followers.`;
+  userPrompt += `\nPrimary metric to optimize: ${algo?.primaryMetric || 'engagement'}`;
 
   if (params.product) {
     userPrompt += `\n\nProduct to promote: "${params.product.name}"`;
@@ -288,12 +327,30 @@ async function generateContent(
   userPrompt += `\n- Output ONLY the post text. No explanations, no "Here's a post:", no quotes.`;
   userPrompt += `\n- Stay within ${algo?.caption.optimalLength.min || 50}-${algo?.caption.optimalLength.max || 300} characters if possible`;
   userPrompt += `\n- Use ${params.toneStyle} tone`;
-  userPrompt += `\n- Include ${algo?.hashtags.recommended || 3} relevant hashtags (${params.hashtagPattern} style)`;
+  userPrompt += `\n- Include exactly ${algo?.hashtags.recommended || 3} relevant hashtags (${params.hashtagPattern} style)`;
+  if (algo?.hashtags.strategy === 'none') {
+    userPrompt += `\n- DO NOT include any hashtags (${platformName} does not use them)`;
+  }
   if (algo?.caption.hookImportant) {
-    userPrompt += `\n- Start with a strong hook that grabs attention`;
+    userPrompt += `\n- CRITICAL: Start with a strong hook in the very first line that stops the scroll`;
   }
   if (algo?.caption.ctaRecommended && params.bot.goal !== 'COMMUNITY') {
     userPrompt += `\n- Include a natural call-to-action`;
+  }
+  if (algo?.caption.emojiUsage === 'none') {
+    userPrompt += `\n- Do NOT use emojis`;
+  } else if (algo?.caption.emojiUsage === 'heavy') {
+    userPrompt += `\n- Use emojis liberally throughout`;
+  }
+  // Algorithm-specific directives
+  if (algo?.primaryMetric === 'dwell_time') {
+    userPrompt += `\n- Format with short paragraphs and line breaks to maximize reading time`;
+  }
+  if (algo?.primaryMetric === 'replies_and_engagement') {
+    userPrompt += `\n- End with a question or controversial opinion to drive replies`;
+  }
+  if (algo?.primaryMetric === 'saves_and_clicks') {
+    userPrompt += `\n- Include actionable tips that people will want to save for later`;
   }
 
   try {

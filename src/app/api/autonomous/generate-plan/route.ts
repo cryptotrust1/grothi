@@ -19,7 +19,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { PLATFORM_ALGORITHM, getContentGenerationContext, getRecommendedPlan } from '@/lib/platform-algorithm';
+import {
+  PLATFORM_ALGORITHM,
+  getContentGenerationContext,
+  getRecommendedPlan,
+  getMinPostInterval,
+  wouldExceedPromoLimit,
+  getBestContentFormat,
+} from '@/lib/platform-algorithm';
 import { PLATFORM_NAMES, CONTENT_TYPES } from '@/lib/constants';
 import type { PlatformType, PostSource } from '@prisma/client';
 
@@ -40,6 +47,7 @@ interface PlanSlot {
   productId: string | null;
   mediaId: string | null;
   postType: string | null;
+  contentFormat: string | null;  // e.g. 'Reels (15-60s)', 'Carousel', 'Thread'
 }
 
 export async function POST(request: NextRequest) {
@@ -205,19 +213,33 @@ export async function POST(request: NextRequest) {
           postSlots.push({ type: types[i], hour: postingHours[i % postingHours.length] });
         }
 
+        // Track promo count per platform for limit enforcement
+        const platformPromoCount = slots.filter(s => s.platform === platform && s.productId).length;
+        const platformTotalCount = slots.filter(s => s.platform === platform).length;
+
+        // Get minimum post interval for this platform
+        const minInterval = getMinPostInterval(platform);
+        let lastPostHour = -minInterval;  // Allow first post at any time
+
         for (const slot of postSlots) {
           if (slots.length >= MAX_PLAN_POSTS) break;
+
+          // Enforce minimum post interval to avoid cannibalization
+          if (slot.hour - lastPostHour < minInterval && lastPostHour >= 0) {
+            continue;  // Skip this slot — too close to previous post
+          }
 
           const scheduledAt = new Date(date);
           scheduledAt.setHours(slot.hour, Math.floor(Math.random() * 30), 0, 0);
 
-          // Select content type
+          // Select content type — use RL insights if available
           const platformBestTypes = algo.bestContentTypes.filter(t =>
             contentTypes.includes(t)
           );
-          const contentType = platformBestTypes.length > 0
-            ? platformBestTypes[Math.floor(Math.random() * platformBestTypes.length)]
-            : contentTypes[Math.floor(Math.random() * contentTypes.length)];
+          const contentType = rlInsights.bestContentType[platform]
+            || (platformBestTypes.length > 0
+              ? platformBestTypes[Math.floor(Math.random() * platformBestTypes.length)]
+              : contentTypes[Math.floor(Math.random() * contentTypes.length)]);
 
           // Select tone - use RL insights if available, otherwise rotate
           const platformTones = plan?.toneOverride
@@ -239,14 +261,16 @@ export async function POST(request: NextRequest) {
             mediaId = imageMedia[Math.floor(Math.random() * imageMedia.length)].id;
           } else if ((slot.type === 'video' || slot.type === 'story') && videoMedia.length > 0) {
             mediaId = videoMedia[Math.floor(Math.random() * videoMedia.length)].id;
-          } else if (slot.type === 'image' && imageMedia.length === 0) {
-            // No images available — will need AI generation
-            mediaId = null;
           }
 
-          // Product rotation for promotional content
+          // Product rotation for promotional content — enforce platform promo limit
           let productId: string | null = null;
-          if (bot.autopilotProductRotation && products.length > 0 && contentType === 'promotional') {
+          if (
+            bot.autopilotProductRotation &&
+            products.length > 0 &&
+            contentType === 'promotional' &&
+            !wouldExceedPromoLimit(platform, platformTotalCount, platformPromoCount)
+          ) {
             productId = products[productIndex % products.length].id;
             productIndex++;
           }
@@ -259,6 +283,12 @@ export async function POST(request: NextRequest) {
             else postType = 'feed';
           }
 
+          // Select best content format based on platform rankings
+          const bestFormat = getBestContentFormat(platform);
+          const contentFormat = bestFormat?.format || null;
+
+          lastPostHour = slot.hour;
+
           slots.push({
             platform,
             scheduledAt,
@@ -268,6 +298,7 @@ export async function POST(request: NextRequest) {
             productId,
             mediaId,
             postType,
+            contentFormat,
           });
         }
       }
@@ -292,7 +323,8 @@ export async function POST(request: NextRequest) {
         // by the autonomous planner cron job
         const platformName = PLATFORM_NAMES[slot.platform] || slot.platform;
         const contentTypeLabel = CONTENT_TYPES.find(ct => ct.value === slot.contentType)?.label || slot.contentType;
-        const placeholderContent = `[AUTOPILOT] ${contentTypeLabel} for ${platformName} — AI content generation pending`;
+        const formatNote = slot.contentFormat ? ` [Format: ${slot.contentFormat}]` : '';
+        const placeholderContent = `[AUTOPILOT] ${contentTypeLabel} for ${platformName}${formatNote} — AI content generation pending`;
 
         return db.scheduledPost.create({
           data: {

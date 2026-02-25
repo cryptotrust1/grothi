@@ -3,14 +3,18 @@ import {
   getRecommendedPlan,
   getOptimalHoursForPlatform,
   getContentGenerationContext,
+  getBestContentFormat,
+  getMinPostInterval,
+  wouldExceedPromoLimit,
+  getEngagementVelocityTip,
+  getGrowthTactics,
+  getSuppressionTriggers,
 } from '@/lib/platform-algorithm';
 import { ALL_PLATFORMS } from '@/lib/constants';
 
 describe('Platform Algorithm Knowledge Base', () => {
   describe('PLATFORM_ALGORITHM', () => {
     it('has configuration for all 17 platforms', () => {
-      // All platforms from constants should have an algorithm config
-      // (except WHATSAPP/SNAPCHAT if not in our 17 — check actual count)
       const configuredPlatforms = Object.keys(PLATFORM_ALGORITHM);
       expect(configuredPlatforms.length).toBeGreaterThanOrEqual(15);
     });
@@ -95,7 +99,74 @@ describe('Platform Algorithm Knowledge Base', () => {
       }
     });
 
-    // Platform-specific algorithm validations
+    // ── v2: New field validations ──────────────────────────────
+
+    it('has valid engagement velocity for each platform', () => {
+      for (const [platform, config] of Object.entries(PLATFORM_ALGORITHM)) {
+        expect(config.engagementVelocity).toBeDefined();
+        expect(config.engagementVelocity.goldenWindowMinutes).toBeGreaterThan(0);
+        expect(config.engagementVelocity.assessmentWindowMinutes).toBeGreaterThanOrEqual(
+          config.engagementVelocity.goldenWindowMinutes
+        );
+        expect(config.engagementVelocity.tip.length).toBeGreaterThan(0);
+      }
+    });
+
+    it('has at least 3 engagement signals for each platform', () => {
+      for (const [platform, config] of Object.entries(PLATFORM_ALGORITHM)) {
+        expect(config.engagementSignals.length).toBeGreaterThanOrEqual(3);
+        for (const signal of config.engagementSignals) {
+          expect(signal.signal.length).toBeGreaterThan(0);
+          expect(signal.weight).toBeGreaterThanOrEqual(1);
+          expect(signal.weight).toBeLessThanOrEqual(10);
+          expect(signal.note.length).toBeGreaterThan(0);
+        }
+      }
+    });
+
+    it('has at least 2 content format rankings for each platform', () => {
+      for (const [platform, config] of Object.entries(PLATFORM_ALGORITHM)) {
+        expect(config.contentFormatRanking.length).toBeGreaterThanOrEqual(2);
+        for (const format of config.contentFormatRanking) {
+          expect(format.format.length).toBeGreaterThan(0);
+          expect(format.reachMultiplier).toBeGreaterThan(0);
+          expect(format.engagementRate).toBeGreaterThan(0);
+          expect(format.note.length).toBeGreaterThan(0);
+        }
+      }
+    });
+
+    it('has at least 3 growth tactics for each platform', () => {
+      for (const [platform, config] of Object.entries(PLATFORM_ALGORITHM)) {
+        expect(config.growthTactics.length).toBeGreaterThanOrEqual(3);
+        for (const tactic of config.growthTactics) {
+          expect(tactic.length).toBeGreaterThan(10);  // Must be meaningful, not trivial
+        }
+      }
+    });
+
+    it('has at least 2 suppression triggers for each platform', () => {
+      for (const [platform, config] of Object.entries(PLATFORM_ALGORITHM)) {
+        expect(config.suppressionTriggers.length).toBeGreaterThanOrEqual(2);
+      }
+    });
+
+    it('has valid minPostIntervalHours for each platform', () => {
+      for (const [platform, config] of Object.entries(PLATFORM_ALGORITHM)) {
+        expect(config.minPostIntervalHours).toBeGreaterThanOrEqual(1);
+        expect(config.minPostIntervalHours).toBeLessThanOrEqual(48);
+      }
+    });
+
+    it('has valid maxPromotionalPercent for each platform', () => {
+      for (const [platform, config] of Object.entries(PLATFORM_ALGORITHM)) {
+        expect(config.maxPromotionalPercent).toBeGreaterThanOrEqual(5);
+        expect(config.maxPromotionalPercent).toBeLessThanOrEqual(50);
+      }
+    });
+
+    // ── Platform-specific algorithm validations ────────────────
+
     describe('Instagram algorithm compliance', () => {
       const ig = PLATFORM_ALGORITHM.INSTAGRAM;
 
@@ -120,6 +191,25 @@ describe('Platform Algorithm Knowledge Base', () => {
       it('recommends vertical video format', () => {
         expect(ig.video?.format).toBe('vertical_9_16');
       });
+
+      it('has sends/shares as highest-weight signal', () => {
+        const topSignal = ig.engagementSignals.reduce((a, b) => a.weight > b.weight ? a : b);
+        expect(topSignal.signal.toLowerCase()).toContain('send');
+      });
+
+      it('has Reels as highest-reach format', () => {
+        const topFormat = ig.contentFormatRanking.reduce((a, b) =>
+          a.reachMultiplier > b.reachMultiplier ? a : b
+        );
+        expect(topFormat.format.toLowerCase()).toContain('reel');
+      });
+
+      it('has TikTok watermark as suppression trigger', () => {
+        const hasTikTokWarning = ig.suppressionTriggers.some(t =>
+          t.toLowerCase().includes('tiktok') || t.toLowerCase().includes('watermark')
+        );
+        expect(hasTikTokWarning).toBe(true);
+      });
     });
 
     describe('TikTok algorithm compliance', () => {
@@ -136,6 +226,15 @@ describe('Platform Algorithm Knowledge Base', () => {
       it('has 2-second hook window', () => {
         expect(tt.video?.hookWindowSec).toBe(2);
       });
+
+      it('has watch completion as highest signal', () => {
+        const topSignal = tt.engagementSignals.reduce((a, b) => a.weight > b.weight ? a : b);
+        expect(topSignal.signal.toLowerCase()).toContain('watch');
+      });
+
+      it('has 15-minute golden window', () => {
+        expect(tt.engagementVelocity.goldenWindowMinutes).toBe(15);
+      });
     });
 
     describe('LinkedIn algorithm compliance', () => {
@@ -151,9 +250,28 @@ describe('Platform Algorithm Knowledge Base', () => {
 
       it('favors weekday posting', () => {
         for (const day of li.bestDays) {
-          expect(day).toBeGreaterThanOrEqual(1); // Mon
-          expect(day).toBeLessThanOrEqual(4);    // Thu
+          expect(day).toBeGreaterThanOrEqual(1);
+          expect(day).toBeLessThanOrEqual(4);
         }
+      });
+
+      it('has dwell time as highest signal', () => {
+        const topSignal = li.engagementSignals.reduce((a, b) => a.weight > b.weight ? a : b);
+        expect(topSignal.signal.toLowerCase()).toContain('dwell');
+      });
+
+      it('has document/carousel as highest-reach format', () => {
+        const topFormat = li.contentFormatRanking.reduce((a, b) =>
+          a.reachMultiplier > b.reachMultiplier ? a : b
+        );
+        expect(topFormat.format.toLowerCase()).toContain('document');
+      });
+
+      it('warns about editing posts within first 10 min', () => {
+        const hasEditWarning = li.suppressionTriggers.some(t =>
+          t.toLowerCase().includes('edit')
+        );
+        expect(hasEditWarning).toBe(true);
       });
     });
 
@@ -168,6 +286,18 @@ describe('Platform Algorithm Knowledge Base', () => {
         const hasLinkWarning = fb.avoid.some(a => a.toLowerCase().includes('link'));
         expect(hasLinkWarning).toBe(true);
       });
+
+      it('has shares as highest signal', () => {
+        const topSignal = fb.engagementSignals.reduce((a, b) => a.weight > b.weight ? a : b);
+        expect(topSignal.signal.toLowerCase()).toContain('share');
+      });
+
+      it('has Reels as highest-reach format', () => {
+        const topFormat = fb.contentFormatRanking.reduce((a, b) =>
+          a.reachMultiplier > b.reachMultiplier ? a : b
+        );
+        expect(topFormat.format.toLowerCase()).toContain('reel');
+      });
     });
 
     describe('Mastodon has no algorithm', () => {
@@ -179,6 +309,35 @@ describe('Platform Algorithm Knowledge Base', () => {
 
       it('uses hashtags as primary discovery', () => {
         expect(mast.hashtags.strategy).not.toBe('none');
+      });
+
+      it('has boosts as highest signal', () => {
+        const topSignal = mast.engagementSignals.reduce((a, b) => a.weight > b.weight ? a : b);
+        expect(topSignal.signal.toLowerCase()).toContain('boost');
+      });
+
+      it('warns about missing alt text', () => {
+        const hasAltWarning = mast.suppressionTriggers.some(t =>
+          t.toLowerCase().includes('alt text')
+        );
+        expect(hasAltWarning).toBe(true);
+      });
+    });
+
+    describe('Reddit algorithm compliance', () => {
+      const reddit = PLATFORM_ALGORITHM.REDDIT;
+
+      it('has upvote velocity as primary metric', () => {
+        expect(reddit.primaryMetric).toBe('upvote_velocity');
+      });
+
+      it('limits promotional content to 10%', () => {
+        expect(reddit.maxPromotionalPercent).toBe(10);
+      });
+
+      it('has upvote velocity as highest signal', () => {
+        const topSignal = reddit.engagementSignals.reduce((a, b) => a.weight > b.weight ? a : b);
+        expect(topSignal.signal.toLowerCase()).toContain('upvote');
       });
     });
   });
@@ -201,8 +360,6 @@ describe('Platform Algorithm Knowledge Base', () => {
 
     it('returns text-heavy plan for LinkedIn', () => {
       const plan = getRecommendedPlan('LINKEDIN');
-      // LinkedIn should have some text posts (40% of 1 post = 0, but rounding may vary)
-      // At minimum, the total should be reasonable
       const total = plan.dailyTexts + plan.dailyImages + plan.dailyVideos;
       expect(total).toBeGreaterThanOrEqual(0);
     });
@@ -247,8 +404,16 @@ describe('Platform Algorithm Knowledge Base', () => {
       const context = getContentGenerationContext('INSTAGRAM');
       expect(context.length).toBeGreaterThan(100);
       expect(context).toContain('Instagram');
-      expect(context).toContain('Content tips:');
-      expect(context).toContain('Avoid:');
+      expect(context).toContain('CONTENT TIPS');
+      expect(context).toContain('AVOID');
+    });
+
+    it('includes v2 engagement signals in context', () => {
+      const context = getContentGenerationContext('INSTAGRAM');
+      expect(context).toContain('ENGAGEMENT SIGNALS');
+      expect(context).toContain('CONTENT FORMATS');
+      expect(context).toContain('GROWTH TACTICS');
+      expect(context).toContain('Engagement velocity');
     });
 
     it('includes platform-specific information', () => {
@@ -264,6 +429,109 @@ describe('Platform Algorithm Knowledge Base', () => {
     it('returns empty string for unknown platform', () => {
       const context = getContentGenerationContext('UNKNOWN');
       expect(context).toBe('');
+    });
+  });
+
+  // ── v2: New helper function tests ──────────────────────────
+
+  describe('getBestContentFormat', () => {
+    it('returns format with highest reach multiplier', () => {
+      const igFormat = getBestContentFormat('INSTAGRAM');
+      expect(igFormat).not.toBeNull();
+      expect(igFormat!.reachMultiplier).toBeGreaterThan(1);
+      expect(igFormat!.format.toLowerCase()).toContain('reel');
+    });
+
+    it('returns null for unknown platform', () => {
+      const format = getBestContentFormat('UNKNOWN');
+      expect(format).toBeNull();
+    });
+
+    it('returns video format for TikTok', () => {
+      const ttFormat = getBestContentFormat('TIKTOK');
+      expect(ttFormat).not.toBeNull();
+      expect(ttFormat!.format.toLowerCase()).toContain('video');
+    });
+
+    it('returns document format for LinkedIn', () => {
+      const liFormat = getBestContentFormat('LINKEDIN');
+      expect(liFormat).not.toBeNull();
+      expect(liFormat!.format.toLowerCase()).toContain('document');
+    });
+  });
+
+  describe('getMinPostInterval', () => {
+    it('returns interval for known platforms', () => {
+      expect(getMinPostInterval('INSTAGRAM')).toBe(4);
+      expect(getMinPostInterval('LINKEDIN')).toBe(8);
+      expect(getMinPostInterval('TWITTER')).toBe(2);
+      expect(getMinPostInterval('YOUTUBE')).toBe(24);
+    });
+
+    it('returns default 4 for unknown platform', () => {
+      expect(getMinPostInterval('UNKNOWN')).toBe(4);
+    });
+  });
+
+  describe('wouldExceedPromoLimit', () => {
+    it('returns false when under limit', () => {
+      // Instagram max promo = 20%, 1 promo out of 10 total = 10%
+      expect(wouldExceedPromoLimit('INSTAGRAM', 10, 1)).toBe(false);
+    });
+
+    it('returns true when exceeding limit', () => {
+      // Reddit max promo = 10%, 2 promo out of 5 total = would be 3/6 = 50%
+      expect(wouldExceedPromoLimit('REDDIT', 5, 2)).toBe(true);
+    });
+
+    it('returns false for unknown platform', () => {
+      expect(wouldExceedPromoLimit('UNKNOWN', 5, 2)).toBe(false);
+    });
+  });
+
+  describe('getEngagementVelocityTip', () => {
+    it('returns tip with golden window for known platforms', () => {
+      const tip = getEngagementVelocityTip('INSTAGRAM');
+      expect(tip).toContain('30');
+      expect(tip.length).toBeGreaterThan(20);
+    });
+
+    it('returns default tip for unknown platform', () => {
+      const tip = getEngagementVelocityTip('UNKNOWN');
+      expect(tip).toContain('Engage');
+    });
+  });
+
+  describe('getGrowthTactics', () => {
+    it('returns tactics for known platforms', () => {
+      const tactics = getGrowthTactics('INSTAGRAM');
+      expect(tactics.length).toBeGreaterThanOrEqual(5);
+      for (const tactic of tactics) {
+        expect(tactic.length).toBeGreaterThan(10);
+      }
+    });
+
+    it('returns empty array for unknown platform', () => {
+      expect(getGrowthTactics('UNKNOWN')).toEqual([]);
+    });
+  });
+
+  describe('getSuppressionTriggers', () => {
+    it('returns triggers for known platforms', () => {
+      const triggers = getSuppressionTriggers('INSTAGRAM');
+      expect(triggers.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it('returns empty array for unknown platform', () => {
+      expect(getSuppressionTriggers('UNKNOWN')).toEqual([]);
+    });
+
+    it('includes platform-specific triggers', () => {
+      const igTriggers = getSuppressionTriggers('INSTAGRAM');
+      const hasWatermarkWarning = igTriggers.some(t =>
+        t.toLowerCase().includes('watermark')
+      );
+      expect(hasWatermarkWarning).toBe(true);
     });
   });
 });
