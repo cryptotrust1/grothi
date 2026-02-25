@@ -5,6 +5,7 @@ import { readFile } from 'fs/promises';
 import { existsSync, statSync } from 'fs';
 import { join, resolve } from 'path';
 import { validateMediaForServing, validateMediaForDeletion } from '@/lib/media-validation';
+import { subtractFromStorageCache, clearStorageCache } from '@/lib/storage-cache';
 
 const UPLOAD_DIR = join(process.cwd(), 'data', 'uploads');
 

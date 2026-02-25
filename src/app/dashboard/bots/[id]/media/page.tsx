@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Image, Film, Upload, Trash2, Sparkles, ChevronLeft, ChevronRight, Wand2, HardDrive } from 'lucide-react';
 import { BOT_STORAGE_LIMIT_BYTES, BOT_STORAGE_LIMIT_MB } from '@/lib/constants';
+import { getCachedStorageUsage } from '@/lib/storage-cache';
 import { MediaUploadForm } from '@/components/dashboard/media-upload-form';
 import { MediaGenerateForm } from '@/components/dashboard/media-generate-form';
 import { MediaCardActions } from '@/components/dashboard/media-card-actions';
@@ -47,7 +48,7 @@ export default async function BotMediaPage({
   };
   if (typeFilter) where.type = typeFilter;
 
-  const [media, totalCount, storageAgg] = await Promise.all([
+  const [media, totalCount, storageUsedBytes] = await Promise.all([
     db.media.findMany({
       where: where as any,
       orderBy: { createdAt: 'desc' },
@@ -55,13 +56,8 @@ export default async function BotMediaPage({
       take: PAGE_SIZE,
     }),
     db.media.count({ where: where as any }),
-    db.media.aggregate({
-      where: { botId: bot.id },
-      _sum: { fileSize: true },
-    }),
+    getCachedStorageUsage(bot.id), // Use cached storage for speed
   ]);
-
-  const storageUsedBytes = storageAgg._sum.fileSize || 0;
   const storageUsedMB = storageUsedBytes / (1024 * 1024);
   const storagePercent = Math.min(100, (storageUsedBytes / BOT_STORAGE_LIMIT_BYTES) * 100);
   const storageFull = storageUsedBytes >= BOT_STORAGE_LIMIT_BYTES;
