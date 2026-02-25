@@ -52,15 +52,17 @@ echo "  Base URL: $BASE_URL"
 
 CRON_MARKER="# GROTHI-CRON-JOBS"
 
-# The four cron jobs:
+# The five cron jobs:
 # 1. Process scheduled posts - every minute
 # 2. Collect engagement metrics - every 15 minutes
 # 3. Detect trends (Hype Radar) - every 10 minutes
-# 4. Daily health check (token refresh, counter reset) - 3 AM
+# 4. Generate AI content for autopilot posts - every 5 minutes
+# 5. Daily health check (token refresh, counter reset) - 3 AM
 CRON_LINES="$CRON_MARKER
 * * * * * curl -sf -X POST ${BASE_URL}/api/cron/process-posts -H \"Authorization: Bearer ${CRON_SECRET}\" -o /dev/null 2>&1
 */15 * * * * curl -sf -X POST ${BASE_URL}/api/cron/collect-engagement -H \"Authorization: Bearer ${CRON_SECRET}\" -o /dev/null 2>&1
 */10 * * * * curl -sf -X POST ${BASE_URL}/api/cron/detect-trends -H \"Authorization: Bearer ${CRON_SECRET}\" -o /dev/null 2>&1
+*/5 * * * * curl -sf -X POST ${BASE_URL}/api/cron/autonomous-content -H \"Authorization: Bearer ${CRON_SECRET}\" -o /dev/null 2>&1
 0 3 * * * curl -sf -X POST ${BASE_URL}/api/cron/health-check -H \"Authorization: Bearer ${CRON_SECRET}\" -o /dev/null 2>&1
 $CRON_MARKER-END"
 
@@ -84,10 +86,11 @@ echo "$NEW_CRON" | crontab -
 echo "  Cron jobs installed successfully!"
 echo ""
 echo "Active cron jobs:"
-echo "  [every 1 min]  POST /api/cron/process-posts     (publish scheduled posts)"
-echo "  [every 15 min] POST /api/cron/collect-engagement (fetch likes/comments/shares)"
-echo "  [every 10 min] POST /api/cron/detect-trends     (hype/viral trend detection)"
-echo "  [daily 3 AM]   POST /api/cron/health-check       (token refresh, counter reset)"
+echo "  [every 1 min]  POST /api/cron/process-posts       (publish scheduled posts)"
+echo "  [every 15 min] POST /api/cron/collect-engagement   (fetch likes/comments/shares)"
+echo "  [every 10 min] POST /api/cron/detect-trends       (hype/viral trend detection)"
+echo "  [every 5 min]  POST /api/cron/autonomous-content  (AI content for autopilot)"
+echo "  [daily 3 AM]   POST /api/cron/health-check         (token refresh, counter reset)"
 echo ""
 echo "Verify with: crontab -l"
 echo ""

@@ -1,5 +1,6 @@
 import { Metadata } from 'next';
 import Link from 'next/link';
+import { cookies } from 'next/headers';
 import { notFound, redirect } from 'next/navigation';
 import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
@@ -749,12 +750,17 @@ function AutopilotGenerateButton({ botId, disabled }: { botId: string; disabled:
     });
     if (!bot) redirect('/dashboard/bots');
 
-    // Call the generate plan API internally
+    // Call the generate plan API internally — forward session cookie for auth
     const baseUrl = process.env.NEXTAUTH_URL || 'https://grothi.com';
     try {
+      const cookieStore = await cookies();
+      const sessionToken = cookieStore.get('session-token')?.value || '';
       const res = await fetch(`${baseUrl}/api/autonomous/generate-plan`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Cookie': `session-token=${sessionToken}`,
+        },
         body: JSON.stringify({ botId, duration: bot.planDuration }),
       });
 
