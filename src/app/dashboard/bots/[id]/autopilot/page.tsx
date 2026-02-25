@@ -4,6 +4,7 @@ import { cookies } from 'next/headers';
 import { notFound, redirect } from 'next/navigation';
 import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { getCachedPostCounts } from '@/lib/counts-cache';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -57,14 +58,13 @@ export default async function AutopilotPage({
     .filter(p => p.status === 'CONNECTED')
     .map(p => p.platform);
 
-  // Count autopilot posts by status
+  // Count autopilot posts by status (cached)
   const now = new Date();
-  const [draftCount, scheduledCount, publishedCount, failedCount] = await Promise.all([
-    db.scheduledPost.count({ where: { botId: id, source: 'AUTOPILOT', status: 'DRAFT' } }),
-    db.scheduledPost.count({ where: { botId: id, source: 'AUTOPILOT', status: 'SCHEDULED' } }),
-    db.scheduledPost.count({ where: { botId: id, source: 'AUTOPILOT', status: 'PUBLISHED' } }),
-    db.scheduledPost.count({ where: { botId: id, source: 'AUTOPILOT', status: 'FAILED' } }),
-  ]);
+  const postCounts = await getCachedPostCounts(id, 'AUTOPILOT');
+  const draftCount = postCounts.DRAFT;
+  const scheduledCount = postCounts.SCHEDULED;
+  const publishedCount = postCounts.PUBLISHED;
+  const failedCount = postCounts.FAILED;
 
   // Get pending review posts (DRAFT autopilot posts)
   const pendingReview = await db.scheduledPost.findMany({

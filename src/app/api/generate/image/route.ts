@@ -10,6 +10,7 @@ import { existsSync } from 'fs';
 import { join, resolve } from 'path';
 import { randomUUID } from 'crypto';
 import { generateFilePath } from '@/lib/media-validation';
+import { getCachedStorageUsage, addToStorageCache } from '@/lib/storage-cache';
 
 export const maxDuration = 120;
 
@@ -43,12 +44,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Bot not found' }, { status: 404 });
     }
 
-    // Check storage limit (200MB per bot)
-    const storageUsed = await db.media.aggregate({
-      where: { botId },
-      _sum: { fileSize: true },
-    });
-    const currentUsageBytes = storageUsed._sum.fileSize || 0;
+    // Check storage limit (200MB per bot) - uses cached value for speed
+    const currentUsageBytes = await getCachedStorageUsage(botId);
     // Estimate ~5MB for a generated image (conservative)
     const estimatedSizeBytes = 5 * 1024 * 1024;
     if (currentUsageBytes + estimatedSizeBytes > BOT_STORAGE_LIMIT_BYTES) {
@@ -239,6 +236,9 @@ export async function POST(request: NextRequest) {
         generationStatus: 'SUCCEEDED',
       },
     });
+
+    // Update storage cache
+    addToStorageCache(botId, imageBuffer.length);
 
     // Log activity
     await db.botActivity.create({

@@ -652,9 +652,14 @@ model Media {
   scheduledPosts ScheduledPost[]
   productMedia   ProductMedia[]
 
-  @@index([botId, createdAt])
-  @@index([botId, generationStatus])
-  @@index([type])
+  // Performance indexes for media queries
+  @@index([botId, createdAt])           // For listing media with pagination
+  @@index([botId, generationStatus])    // For filtering pending/succeeded
+  @@index([type])                       // For filtering IMAGE/VIDEO/GIF
+  @@index([fileSize])                   // For storage aggregation queries
+  @@index([mimeType])                   // For file type filtering
+  @@index([createdAt])                  // For recent media queries
+  @@index([generationStatus, createdAt]) // For cleanup scripts
 }
 
 enum MediaType {
@@ -821,10 +826,18 @@ model PostEngagement {
 
   bot Bot @relation(fields: [botId], references: [id], onDelete: Cascade)
 
+  // Core RL indexes
   @@index([botId, platform])
   @@index([botId, contentType])
   @@index([botId, platform, timeSlot])
-  @@index([postedAt])
+  
+  // Performance-critical indexes for engagement collection
+  @@index([botId, platform, collectedAt])     // For finding unprocessed engagements
+  @@index([botId, platform, engagementScore]) // For RL normalization queries
+  @@index([collectedAt])                       // For cleanup and batch processing
+  @@index([postedAt])                          // For recent engagement queries
+  @@index([createdAt])                         // For time-based analytics
+  @@index([externalPostId])                    // For platform API lookups
 }
 
 model RLArmState {

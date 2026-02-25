@@ -7,6 +7,7 @@ import { existsSync } from 'fs';
 import { join, resolve } from 'path';
 import { randomUUID } from 'crypto';
 import { sanitizeFilename, generateFilePath } from '@/lib/media-validation';
+import { getCachedStorageUsage, addToStorageCache } from '@/lib/storage-cache';
 
 // Allow up to 2 minutes for large video uploads
 export const maxDuration = 120;
@@ -111,12 +112,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Bot not found' }, { status: 404 });
     }
 
-    // Check storage limit (200MB per bot)
-    const storageUsed = await db.media.aggregate({
-      where: { botId },
-      _sum: { fileSize: true },
-    });
-    const currentUsageBytes = storageUsed._sum.fileSize || 0;
+    // Check storage limit (200MB per bot) - uses cached value for speed
+    const currentUsageBytes = await getCachedStorageUsage(botId);
 
     if (currentUsageBytes + file.size > BOT_STORAGE_LIMIT_BYTES) {
       const usedMB = (currentUsageBytes / (1024 * 1024)).toFixed(1);
@@ -229,6 +226,9 @@ export async function POST(request: NextRequest) {
         height,
       },
     });
+
+    // Update storage cache (optimistic update)
+    addToStorageCache(botId, file.size);
 
     return NextResponse.json({
       id: media.id,
