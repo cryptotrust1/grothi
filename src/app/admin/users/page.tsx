@@ -12,33 +12,46 @@ import { Users, Search, Shield, ShieldOff, Trash2, Eye, CreditCard } from 'lucid
 
 export const metadata: Metadata = { title: 'Admin - Users', robots: { index: false } };
 
+const PAGE_SIZE = 50;
+const MAX_BONUS_CREDITS = 100_000;
+
 export default async function AdminUsersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ success?: string; error?: string; q?: string }>;
+  searchParams: Promise<{ success?: string; error?: string; q?: string; page?: string }>;
 }) {
   await requireAdmin();
   const sp = await searchParams;
   const search = sp.q?.trim() || '';
+  const page = Math.max(1, parseInt(sp.page || '1', 10) || 1);
 
-  const users = await db.user.findMany({
-    where: search ? {
-      OR: [
-        { email: { contains: search, mode: 'insensitive' } },
-        { name: { contains: search, mode: 'insensitive' } },
-      ],
-    } : undefined,
-    include: {
-      creditBalance: true,
-      _count: { select: { bots: true } },
-      bots: {
-        select: {
-          platformConns: { select: { platform: true, status: true } },
+  const where = search ? {
+    OR: [
+      { email: { contains: search, mode: 'insensitive' as const } },
+      { name: { contains: search, mode: 'insensitive' as const } },
+    ],
+  } : undefined;
+
+  const [users, totalCount] = await Promise.all([
+    db.user.findMany({
+      where,
+      include: {
+        creditBalance: true,
+        _count: { select: { bots: true } },
+        bots: {
+          select: {
+            platformConns: { select: { platform: true, status: true } },
+          },
         },
       },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
+      orderBy: { createdAt: 'desc' },
+      take: PAGE_SIZE,
+      skip: (page - 1) * PAGE_SIZE,
+    }),
+    db.user.count({ where }),
+  ]);
+
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
   async function handleAddBonus(formData: FormData) {
     'use server';
@@ -47,6 +60,9 @@ export default async function AdminUsersPage({
     const credits = parseInt(formData.get('credits') as string, 10);
     if (!userId || isNaN(credits) || credits <= 0) {
       redirect('/admin/users?error=Invalid credits amount');
+    }
+    if (credits > MAX_BONUS_CREDITS) {
+      redirect(`/admin/users?error=Cannot add more than ${MAX_BONUS_CREDITS.toLocaleString()} credits at once`);
     }
     await addCredits(userId, credits, 'BONUS', `Admin bonus: ${credits} credits`);
     redirect('/admin/users?success=Added ' + credits + ' bonus credits');
@@ -101,7 +117,7 @@ export default async function AdminUsersPage({
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div className="flex items-center gap-3">
           <Users className="h-6 w-6 text-primary" />
-          <h1 className="text-2xl font-bold">Users ({users.length})</h1>
+          <h1 className="text-2xl font-bold">Users ({totalCount.toLocaleString()})</h1>
         </div>
         <form action="/admin/users" method="GET" className="flex gap-2">
           <Input name="q" defaultValue={search} placeholder="Search email or name..." className="w-60 h-9" />
@@ -110,6 +126,10 @@ export default async function AdminUsersPage({
           </Button>
         </form>
       </div>
+      <p className="text-sm text-muted-foreground -mt-2">
+        {totalCount.toLocaleString()} user{totalCount !== 1 ? 's' : ''} total
+        {totalPages > 1 && ` — page ${page} of ${totalPages}`}
+      </p>
 
       {sp.success && (
         <div className="rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-800">{sp.success}</div>
@@ -209,6 +229,23 @@ export default async function AdminUsersPage({
           </div>
         </CardContent>
       </Card>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 pt-2">
+          {page > 1 && (
+            <Link href={`/admin/users?q=${encodeURIComponent(search)}&page=${page - 1}`}>
+              <Button variant="outline" size="sm">← Previous</Button>
+            </Link>
+          )}
+          <span className="text-sm text-muted-foreground">Page {page} / {totalPages}</span>
+          {page < totalPages && (
+            <Link href={`/admin/users?q=${encodeURIComponent(search)}&page=${page + 1}`}>
+              <Button variant="outline" size="sm">Next →</Button>
+            </Link>
+          )}
+        </div>
+      )}
     </div>
   );
 }

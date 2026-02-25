@@ -145,6 +145,16 @@ export const checkoutLimiter = createRateLimiter({
   windowMs: 60 * 60 * 1000, // 1 hour
 });
 
+/**
+ * 2FA actions (setup initiation, code verification, disable).
+ * Max 5 attempts per 15 minutes per user ID.
+ * Prevents brute-force of 6-digit TOTP codes (10^6 combinations).
+ */
+export const twoFactorLimiter = createRateLimiter({
+  maxRequests: 5,
+  windowMs: 15 * 60 * 1000, // 15 minutes
+});
+
 // ── IP extraction helper ──────────────────────────────────────
 
 /**
