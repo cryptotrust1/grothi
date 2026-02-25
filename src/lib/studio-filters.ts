@@ -128,7 +128,7 @@ export const VIDEO_FILTERS: VideoFilter[] = [
       'eq=contrast=1.15:saturation=0.85:brightness=-0.02',
       'colorbalance=rs=-0.05:gs=0:bs=0.08:rh=0.1:gh=0.05:bh=-0.05',
     ],
-    cssPreview: 'contrast(1.15) saturate(0.85) brightness(0.98) hue-rotate(5deg)',
+    cssPreview: 'contrast(1.15) saturate(0.85) brightness(0.98) sepia(0.08) hue-rotate(-5deg)',
   },
   {
     id: 'hollywood', name: 'Hollywood', category: 'cinematic',
@@ -137,7 +137,7 @@ export const VIDEO_FILTERS: VideoFilter[] = [
       'colorbalance=rs=0.1:gs=0.02:bs=-0.1:rh=0.08:gh=0.05:bh=-0.05',
       'vignette=a=0.6283',  // PI/5 ≈ 0.6283 rad
     ],
-    cssPreview: 'contrast(1.3) saturate(1.1) brightness(0.97)',
+    cssPreview: 'contrast(1.35) saturate(1.15) brightness(0.95) sepia(0.12)',
   },
   {
     id: 'nightfall', name: 'Nightfall', category: 'cinematic',
@@ -145,7 +145,7 @@ export const VIDEO_FILTERS: VideoFilter[] = [
       'eq=brightness=-0.08:contrast=1.2:saturation=0.8',
       'colorbalance=rs=-0.1:gs=-0.05:bs=0.15:rm=-0.05:gm=-0.02:bm=0.08',
     ],
-    cssPreview: 'brightness(0.92) contrast(1.2) saturate(0.8) hue-rotate(10deg)',
+    cssPreview: 'brightness(0.82) contrast(1.25) saturate(0.75) hue-rotate(15deg)',
   },
   {
     id: 'sunset', name: 'Sunset', category: 'cinematic',
@@ -153,7 +153,7 @@ export const VIDEO_FILTERS: VideoFilter[] = [
       'eq=contrast=1.1:saturation=1.2:brightness=0.02',
       'colorbalance=rs=0.15:gs=0.05:bs=-0.15:rm=0.08:gm=0:bm=-0.1',
     ],
-    cssPreview: 'contrast(1.1) saturate(1.2) brightness(1.02) sepia(0.25)',
+    cssPreview: 'contrast(1.1) saturate(1.3) brightness(1.02) sepia(0.35) hue-rotate(-10deg)',
   },
   {
     id: 'blockbuster', name: 'Blockbuster', category: 'cinematic',
@@ -163,7 +163,7 @@ export const VIDEO_FILTERS: VideoFilter[] = [
       'eq=contrast=1.2:saturation=0.9',
       'vignette=a=0.7854',  // PI/4 ≈ 0.7854 rad
     ],
-    cssPreview: 'contrast(1.2) saturate(0.9) brightness(0.97)',
+    cssPreview: 'contrast(1.3) saturate(0.9) brightness(0.92) sepia(0.1)',
   },
   {
     id: 'criterion', name: 'Criterion', category: 'cinematic',
@@ -194,7 +194,7 @@ export const VIDEO_FILTERS: VideoFilter[] = [
       "curves=r='0/0.05 0.5/0.55 1/0.95':g='0/0.02 0.5/0.52 1/0.92':b='0/0 0.5/0.47 1/0.85'",
       'eq=saturation=0.9:contrast=1.05',
     ],
-    cssPreview: 'sepia(0.25) contrast(1.05) saturate(0.9) brightness(1.02)',
+    cssPreview: 'sepia(0.3) contrast(1.05) saturate(0.85) brightness(1.03) hue-rotate(-5deg)',
   },
   {
     id: 'fuji', name: 'Fuji', category: 'vintage',
@@ -203,7 +203,7 @@ export const VIDEO_FILTERS: VideoFilter[] = [
       "curves=r='0/0.02 0.5/0.5 1/0.94':g='0/0.02 0.5/0.52 1/0.96':b='0/0.01 0.5/0.48 1/0.88'",
       'eq=saturation=0.95',
     ],
-    cssPreview: 'sepia(0.1) contrast(1.02) saturate(0.95) hue-rotate(8deg)',
+    cssPreview: 'saturate(0.9) contrast(1.02) brightness(1.02) hue-rotate(12deg)',
   },
   {
     id: 'vintage_look', name: 'Vintage', category: 'vintage',
@@ -213,7 +213,7 @@ export const VIDEO_FILTERS: VideoFilter[] = [
       'eq=saturation=0.75:contrast=1.05',
       'noise=c0s=5:c0f=t+u',
     ],
-    cssPreview: 'sepia(0.5) contrast(1.05) saturate(0.75) brightness(0.95)',
+    cssPreview: 'sepia(0.55) contrast(1.08) saturate(0.7) brightness(0.92)',
   },
   {
     id: 'polaroid', name: 'Polaroid', category: 'vintage',
@@ -222,7 +222,7 @@ export const VIDEO_FILTERS: VideoFilter[] = [
       'colorlevels=rimin=0.1:gimin=0.05:bimin=0.05:rimax=0.95:gimax=0.92:bimax=0.88',
       'eq=saturation=0.8:contrast=0.95:brightness=0.03',
     ],
-    cssPreview: 'sepia(0.2) brightness(1.08) saturate(0.85) contrast(0.95)',
+    cssPreview: 'sepia(0.15) brightness(1.12) saturate(0.8) contrast(0.88)',
   },
   {
     id: 'super8', name: 'Super 8', category: 'vintage',
@@ -233,7 +233,7 @@ export const VIDEO_FILTERS: VideoFilter[] = [
       'noise=c0s=15:c0f=t+u',
       'vignette=a=0.5236',  // PI/6 ≈ 0.5236 rad
     ],
-    cssPreview: 'sepia(0.6) contrast(1.1) saturate(0.7) brightness(0.95)',
+    cssPreview: 'sepia(0.65) contrast(1.15) saturate(0.65) brightness(0.88)',
   },
   {
     id: 'daguerreotype', name: 'Daguerreotype', category: 'vintage',
@@ -276,7 +276,7 @@ export const VIDEO_FILTERS: VideoFilter[] = [
       'eq=contrast=1.5:brightness=-0.05',
       'vignette=a=1.0472',  // PI/3 ≈ 1.0472 rad
     ],
-    cssPreview: 'grayscale(1) contrast(1.5) brightness(0.95)',
+    cssPreview: 'grayscale(1) contrast(1.6) brightness(0.85)',
   },
   {
     id: 'faded_bw', name: 'Faded', category: 'mono',
@@ -286,7 +286,7 @@ export const VIDEO_FILTERS: VideoFilter[] = [
       'colorlevels=rimin=0.07:gimin=0.07:bimin=0.07:rimax=0.88:gimax=0.88:bimax=0.88',
       'eq=contrast=0.9',
     ],
-    cssPreview: 'grayscale(1) contrast(0.9) brightness(1.05)',
+    cssPreview: 'grayscale(1) contrast(0.75) brightness(1.15)',
   },
   {
     id: 'silver', name: 'Silver', category: 'mono',
@@ -297,7 +297,7 @@ export const VIDEO_FILTERS: VideoFilter[] = [
       'colorbalance=rs=-0.05:gs=-0.03:bs=0.05',
       'eq=contrast=1.2:brightness=0.03',
     ],
-    cssPreview: 'grayscale(1) contrast(1.2) brightness(1.03)',
+    cssPreview: 'grayscale(1) contrast(1.2) brightness(1.05) sepia(0.08) hue-rotate(180deg)',
   },
   {
     id: 'manga', name: 'Manga', category: 'mono',
@@ -328,7 +328,7 @@ export const VIDEO_FILTERS: VideoFilter[] = [
       'colorbalance=rs=-0.08:gs=-0.02:bs=0.12:rm=-0.05:gm=0:bm=0.08',
       'eq=saturation=1.05',
     ],
-    cssPreview: 'saturate(1.05) hue-rotate(10deg) brightness(0.98)',
+    cssPreview: 'saturate(1.05) hue-rotate(15deg) brightness(0.97)',
   },
   {
     id: 'ice', name: 'Ice', category: 'cool',
@@ -336,7 +336,7 @@ export const VIDEO_FILTERS: VideoFilter[] = [
       'colorbalance=rs=-0.15:gs=-0.05:bs=0.2:rm=-0.1:gm=-0.02:bm=0.15',
       'eq=saturation=0.85:brightness=0.03',
     ],
-    cssPreview: 'saturate(0.85) hue-rotate(20deg) brightness(1.03)',
+    cssPreview: 'saturate(0.8) hue-rotate(30deg) brightness(1.05)',
   },
   {
     id: 'moonlight', name: 'Moonlight', category: 'cool',
@@ -344,7 +344,7 @@ export const VIDEO_FILTERS: VideoFilter[] = [
       'colorbalance=rs=-0.12:gs=-0.03:bs=0.18:rm=-0.07:gm=0:bm=0.1:rh=-0.05:gh=-0.02:bh=0.08',
       'eq=brightness=-0.03:saturation=0.8',
     ],
-    cssPreview: 'saturate(0.8) hue-rotate(15deg) brightness(0.97)',
+    cssPreview: 'saturate(0.7) hue-rotate(25deg) brightness(0.88) contrast(1.1)',
   },
   {
     id: 'arctic', name: 'Arctic', category: 'cool',
@@ -372,7 +372,7 @@ export const VIDEO_FILTERS: VideoFilter[] = [
       'colorbalance=rs=0.1:gs=0.03:bs=-0.1:rm=0.07:gm=0.02:bm=-0.07',
       'eq=saturation=1.1',
     ],
-    cssPreview: 'saturate(1.1) sepia(0.2) brightness(1.02)',
+    cssPreview: 'saturate(1.1) sepia(0.2) brightness(1.03) hue-rotate(-8deg)',
   },
   {
     id: 'golden_hour', name: 'Golden Hour', category: 'warm',
@@ -380,7 +380,7 @@ export const VIDEO_FILTERS: VideoFilter[] = [
       'colorbalance=rs=0.18:gs=0.08:bs=-0.18:rm=0.12:gm=0.05:bm=-0.12:rh=0.05:gh=0.03:bh=-0.05',
       'eq=saturation=1.2:contrast=1.05',
     ],
-    cssPreview: 'saturate(1.2) sepia(0.35) contrast(1.05) brightness(1.03)',
+    cssPreview: 'saturate(1.35) sepia(0.45) contrast(1.08) brightness(1.05) hue-rotate(-12deg)',
   },
   {
     id: 'amber', name: 'Amber', category: 'warm',
@@ -388,7 +388,7 @@ export const VIDEO_FILTERS: VideoFilter[] = [
       'colorbalance=rs=0.14:gs=0.05:bs=-0.16:rm=0.1:gm=0.04:bm=-0.14',
       'eq=saturation=1.15:brightness=0.02',
     ],
-    cssPreview: 'saturate(1.15) sepia(0.3) brightness(1.02)',
+    cssPreview: 'saturate(1.2) sepia(0.38) brightness(1.02) hue-rotate(-15deg)',
   },
   {
     id: 'bonfire', name: 'Bonfire', category: 'warm',
@@ -416,7 +416,7 @@ export const VIDEO_FILTERS: VideoFilter[] = [
     ffmpegFilters: [
       'eq=saturation=1.8:contrast=1.15:brightness=0.02',
     ],
-    cssPreview: 'saturate(1.8) contrast(1.15) brightness(1.02)',
+    cssPreview: 'saturate(1.9) contrast(1.15) brightness(1.03)',
   },
   {
     id: 'hdr_look', name: 'HDR', category: 'vivid',
@@ -424,14 +424,14 @@ export const VIDEO_FILTERS: VideoFilter[] = [
       'eq=saturation=1.5:contrast=1.25:brightness=0.01',
       'unsharp=lx=3:ly=3:la=0.5',
     ],
-    cssPreview: 'saturate(1.5) contrast(1.25) brightness(1.01)',
+    cssPreview: 'saturate(1.6) contrast(1.35) brightness(1.02)',
   },
   {
     id: 'pop', name: 'Pop', category: 'vivid',
     ffmpegFilters: [
       'eq=saturation=2.0:contrast=1.2:brightness=0.03',
     ],
-    cssPreview: 'saturate(2.0) contrast(1.2) brightness(1.03)',
+    cssPreview: 'saturate(2.2) contrast(1.25) brightness(1.05)',
   },
   {
     id: 'neon_pop', name: 'Neon Pop', category: 'vivid',
@@ -450,7 +450,7 @@ export const VIDEO_FILTERS: VideoFilter[] = [
       'colorlevels=rimin=0.06:gimin=0.06:bimin=0.06',
       'eq=saturation=0.85:contrast=0.95',
     ],
-    cssPreview: 'saturate(0.85) contrast(0.95) brightness(1.05)',
+    cssPreview: 'saturate(0.8) contrast(0.88) brightness(1.08)',
   },
   {
     id: 'fade_look', name: 'Fade', category: 'muted',
@@ -459,7 +459,7 @@ export const VIDEO_FILTERS: VideoFilter[] = [
       'colorlevels=rimin=0.08:gimin=0.08:bimin=0.08:rimax=0.92:gimax=0.92:bimax=0.92',
       'eq=saturation=0.8',
     ],
-    cssPreview: 'saturate(0.8) contrast(0.9) brightness(1.08)',
+    cssPreview: 'saturate(0.7) contrast(0.78) brightness(1.15)',
   },
   {
     id: 'pastel', name: 'Pastel', category: 'muted',
@@ -467,7 +467,7 @@ export const VIDEO_FILTERS: VideoFilter[] = [
       'colorlevels=rimin=0.1:gimin=0.08:bimin=0.12:rimax=0.9:gimax=0.9:bimax=0.9',
       'eq=saturation=0.7:brightness=0.04',
     ],
-    cssPreview: 'saturate(0.7) brightness(1.08) contrast(0.9)',
+    cssPreview: 'saturate(0.6) brightness(1.15) contrast(0.82)',
   },
   {
     id: 'dreamy', name: 'Dreamy', category: 'muted',
@@ -487,7 +487,7 @@ export const VIDEO_FILTERS: VideoFilter[] = [
       'eq=contrast=1.4:brightness=-0.05:saturation=1.2',
       'vignette=a=0.7854',  // PI/4
     ],
-    cssPreview: 'contrast(1.4) brightness(0.95) saturate(1.2)',
+    cssPreview: 'contrast(1.5) brightness(0.88) saturate(1.25)',
   },
   {
     id: 'sepia', name: 'Sepia', category: 'drama',
@@ -496,7 +496,7 @@ export const VIDEO_FILTERS: VideoFilter[] = [
       'colorchannelmixer=rr=.393:rg=.769:rb=.189:gr=.349:gg=.686:gb=.168:br=.272:bg=.534:bb=.131',
       'eq=contrast=1.05:brightness=0.02',
     ],
-    cssPreview: 'sepia(1) contrast(1.05) brightness(1.02)',
+    cssPreview: 'sepia(1) contrast(1.08) brightness(1.02)',
   },
   {
     id: 'neon', name: 'Neon', category: 'drama',
@@ -505,7 +505,7 @@ export const VIDEO_FILTERS: VideoFilter[] = [
       'eq=saturation=2.2:contrast=1.25:brightness=-0.03',
       'colorbalance=rs=0.1:gs=-0.1:bs=0.2:rm=0.08:gm=-0.08:bm=0.15',
     ],
-    cssPreview: 'saturate(2.2) contrast(1.25) brightness(0.97)',
+    cssPreview: 'saturate(2.5) contrast(1.3) brightness(0.95) hue-rotate(20deg)',
   },
   {
     id: 'spectral', name: 'Spectral', category: 'drama',

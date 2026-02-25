@@ -25,11 +25,11 @@ export async function POST(request: NextRequest) {
 
   const { mediaId, botId, timestamp = 0 } = body;
 
-  if (!mediaId || !botId) {
-    return NextResponse.json({ error: 'mediaId and botId are required' }, { status: 400 });
+  if (!mediaId || !botId || typeof mediaId !== 'string' || typeof botId !== 'string') {
+    return NextResponse.json({ error: 'mediaId and botId are required strings' }, { status: 400 });
   }
 
-  if (typeof timestamp !== 'number' || timestamp < 0) {
+  if (typeof timestamp !== 'number' || !isFinite(timestamp) || timestamp < 0 || timestamp > 86400) {
     return NextResponse.json({ error: 'Invalid timestamp' }, { status: 400 });
   }
 
@@ -51,12 +51,13 @@ export async function POST(request: NextRequest) {
   }
 
   const inputPath = resolve(join(UPLOAD_DIR, media.filePath));
-  if (!inputPath.startsWith(resolve(UPLOAD_DIR)) || !existsSync(inputPath)) {
+  const uploadPrefix = resolve(UPLOAD_DIR) + '/';
+  if (!inputPath.startsWith(uploadPrefix) || !existsSync(inputPath)) {
     return NextResponse.json({ error: 'Video file not found on disk' }, { status: 404 });
   }
 
   const botDir = resolve(join(UPLOAD_DIR, botId));
-  if (!botDir.startsWith(resolve(UPLOAD_DIR))) {
+  if (!botDir.startsWith(uploadPrefix)) {
     return NextResponse.json({ error: 'Invalid bot ID' }, { status: 400 });
   }
   if (!existsSync(botDir)) {
@@ -82,7 +83,18 @@ export async function POST(request: NextRequest) {
     });
 
     const fileStat = await stat(outputPath);
-    const baseName = media.filename.replace(/\.[^.]+$/, '');
+    if (fileStat.size === 0) {
+      // FFmpeg may produce 0-byte output if timestamp is past EOF
+      if (existsSync(outputPath)) {
+        const { unlink } = await import('fs/promises');
+        await unlink(outputPath).catch(() => {});
+      }
+      return NextResponse.json(
+        { error: 'Could not extract frame at this timestamp — try an earlier position' },
+        { status: 400 }
+      );
+    }
+    const baseName = media.filename.replace(/\.[^.]+$/, '') || 'video';
     const thumbFilename = `${baseName}_thumbnail.jpg`;
 
     const newMedia = await db.media.create({
@@ -116,8 +128,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const safeMsg = message.replace(/\/[^\s:]+/g, '[path]');
     return NextResponse.json(
-      { error: `Thumbnail extraction failed: ${message}` },
+      { error: `Thumbnail extraction failed: ${safeMsg}` },
       { status: 500 }
     );
   }
