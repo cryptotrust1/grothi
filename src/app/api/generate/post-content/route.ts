@@ -41,6 +41,9 @@ export async function POST(request: NextRequest) {
   const botId = body.botId as string | undefined;
   const prompt = (body.prompt as string | undefined)?.trim();
   const platforms = Array.isArray(body.platforms) ? (body.platforms as string[]) : [];
+  // When useBrand is true (AI Suggestion button), include brand context in the prompt.
+  // When false/omitted (direct user input), write exactly what the user asks for.
+  const useBrand = body.useBrand === true;
 
   if (!botId || !prompt) {
     return NextResponse.json(
@@ -108,7 +111,10 @@ export async function POST(request: NextRequest) {
 
   const keywords = Array.isArray(bot.keywords) ? (bot.keywords as string[]).join(', ') : '';
 
-  const systemPrompt = `You are an expert social media marketing copywriter for "${bot.brandName}".
+  let systemPrompt: string;
+  if (useBrand) {
+    // AI Suggestion mode: include full brand context
+    systemPrompt = `You are an expert social media marketing copywriter for "${bot.brandName}".
 Brand instructions: ${bot.instructions?.slice(0, 500) || 'No specific instructions'}
 Keywords: ${keywords || 'None specified'}
 Goal: ${bot.goal || 'engagement'}
@@ -117,6 +123,16 @@ ${bot.targetUrl ? `Website: ${bot.targetUrl}` : ''}
 Write compelling, authentic social media posts. No generic filler. Each post should feel natural for the platform.
 Do NOT use markdown formatting in the post text (no bold, no headers). Write plain text only.
 Use line breaks and emojis where appropriate for the platform.`;
+  } else {
+    // Direct user mode: write exactly what the user asks for, no brand override
+    systemPrompt = `You are a versatile social media copywriter. Write EXACTLY what the user asks for.
+Do NOT inject any brand, company, or product information unless the user explicitly mentions it.
+Follow the user's topic and instructions precisely.
+
+Write compelling, authentic social media posts. No generic filler. Each post should feel natural for the platform.
+Do NOT use markdown formatting in the post text (no bold, no headers). Write plain text only.
+Use line breaks and emojis where appropriate for the platform.`;
+  }
 
   const userPrompt = `Write a social media post about: ${prompt}
 

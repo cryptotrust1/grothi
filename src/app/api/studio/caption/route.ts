@@ -20,7 +20,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  let body: { mediaId?: string; botId?: string; platforms?: string[]; videoDescription?: string };
+  let body: {
+    mediaId?: string;
+    botId?: string;
+    platforms?: string[];
+    videoDescription?: string;
+    mode?: 'caption' | 'subtitle';
+    videoDuration?: number;
+  };
   try {
     body = await request.json();
   } catch {
@@ -32,6 +39,8 @@ export async function POST(request: NextRequest) {
     botId,
     platforms = ['FACEBOOK', 'INSTAGRAM', 'TIKTOK'],
     videoDescription,
+    mode = 'caption',
+    videoDuration,
   } = body;
 
   if (!mediaId || !botId || typeof mediaId !== 'string' || typeof botId !== 'string') {
@@ -59,20 +68,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Media not found' }, { status: 404 });
   }
 
-  const keywords = Array.isArray(bot.keywords) ? (bot.keywords as string[]).join(', ') : '';
-
-  const validPlatforms = platforms.filter(p => PLATFORM_GUIDELINES[p]);
-  if (validPlatforms.length === 0) {
-    return NextResponse.json({ error: 'No valid platforms selected' }, { status: 400 });
-  }
-
-  const platformPrompts = validPlatforms
-    .map(p => {
-      const guide = PLATFORM_GUIDELINES[p];
-      return `${p}: Write a ${guide.style} caption (max ${guide.maxLength} chars)`;
-    })
-    .join('\n');
-
   // Use provided description, AI generation prompt, or filename as context
   // Truncate user-supplied context to prevent prompt inflation
   const rawContext =
@@ -81,8 +76,53 @@ export async function POST(request: NextRequest) {
     media.filename.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ');
   const videoContext = rawContext;
 
-  const brandName = (bot.brandName || 'Brand').slice(0, 100);
-  const systemPrompt = `You are an expert social media marketing copywriter for "${brandName}".
+  let systemPrompt: string;
+  let userPrompt: string;
+
+  if (mode === 'subtitle') {
+    // ── SUBTITLE MODE ──
+    // Generate actual video subtitles/narration text based on the video content.
+    // Does NOT use brand settings — user asked for subtitles, so give subtitles.
+    const durInfo = videoDuration ? ` The video is ${videoDuration.toFixed(1)} seconds long.` : '';
+    systemPrompt = `You are a professional video subtitle writer. Your job is to create natural, readable subtitles that describe or narrate what is happening in a video. Write subtitles that would make sense as burned-in text overlays on the video.`;
+
+    userPrompt = `Generate subtitle segments for this video.
+
+Video: "${videoContext}"${durInfo}
+
+Create 5-10 short subtitle lines that describe or narrate the video content. Each subtitle should be:
+- Short (max 10 words per line)
+- Natural and descriptive of the actual video content
+- NOT marketing or brand text — just subtitles describing what the viewer sees or hears
+
+Format your response EXACTLY as JSON:
+{
+  "subtitles": [
+    "First subtitle line",
+    "Second subtitle line",
+    "Third subtitle line"
+  ]
+}
+
+Return ONLY valid JSON, no markdown code blocks.`;
+  } else {
+    // ── CAPTION MODE ──
+    // Generate social media marketing captions. Uses brand context.
+    const keywords = Array.isArray(bot.keywords) ? (bot.keywords as string[]).join(', ') : '';
+    const validPlatforms = platforms.filter(p => PLATFORM_GUIDELINES[p]);
+    if (validPlatforms.length === 0) {
+      return NextResponse.json({ error: 'No valid platforms selected' }, { status: 400 });
+    }
+
+    const platformPrompts = validPlatforms
+      .map(p => {
+        const guide = PLATFORM_GUIDELINES[p];
+        return `${p}: Write a ${guide.style} caption (max ${guide.maxLength} chars)`;
+      })
+      .join('\n');
+
+    const brandName = (bot.brandName || 'Brand').slice(0, 100);
+    systemPrompt = `You are an expert social media marketing copywriter for "${brandName}".
 Brand instructions: ${bot.instructions?.slice(0, 400) || 'None'}
 Keywords: ${keywords}
 Goal: ${bot.goal}
@@ -90,7 +130,7 @@ ${bot.targetUrl ? `Website: ${bot.targetUrl}` : ''}
 
 Generate compelling, platform-optimized post captions for a marketing video.`;
 
-  const userPrompt = `Generate marketing post captions for this video.
+    userPrompt = `Generate marketing post captions for this video.
 
 Video description: "${videoContext}"
 
@@ -104,6 +144,7 @@ Format your response EXACTLY as JSON:
 }
 
 Return ONLY valid JSON, no markdown code blocks.`;
+  }
 
   const cost = await getActionCost('GENERATE_CONTENT');
   const deducted = await deductCredits(
@@ -129,6 +170,11 @@ Return ONLY valid JSON, no markdown code blocks.`;
 
     const jsonMatch = result.text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error('No JSON found in AI response');
+
+    if (mode === 'subtitle') {
+      const parsed = JSON.parse(jsonMatch[0]) as { subtitles?: string[] };
+      return NextResponse.json({ subtitles: parsed.subtitles || [] });
+    }
 
     const parsed = JSON.parse(jsonMatch[0]) as { captions?: Record<string, string> };
     return NextResponse.json({ captions: parsed.captions || {} });
