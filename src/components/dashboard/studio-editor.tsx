@@ -202,6 +202,8 @@ export function StudioEditor({ videos: initialVideos, images: initialImages, bot
 
   // ── Multi-track timeline ──
   const [timeline, setTimeline] = useState<TimelineState>(createDefaultTimeline);
+  const tracksRef = useRef(timeline.tracks);
+  tracksRef.current = timeline.tracks;
   // Track durations of loaded video elements by mediaId
   const [mediaDurations, setMediaDurations] = useState<Record<string, number>>({});
 
@@ -553,6 +555,11 @@ export function StudioEditor({ videos: initialVideos, images: initialImages, bot
       const totalDuration = computeTotalDuration(tracks);
       return { ...prev, tracks, totalDuration, selectedClipId: newClip.id };
     });
+    // Auto-select video for preview in the viewer
+    setSelectedVideoId(video.id);
+    setVideoLoading(true);
+    setVideoLoadError(null);
+    setVideoFrameUrl(null);
   }, [mediaDurations]);
 
   const handleTimelineChange = useCallback((newTimeline: TimelineState) => {
@@ -561,10 +568,22 @@ export function StudioEditor({ videos: initialVideos, images: initialImages, bot
 
   const handlePlayheadChange = useCallback((time: number) => {
     setTimeline(prev => ({ ...prev, playheadPosition: time }));
-    // Seek the video if current clip is under playhead
-    if (videoRef.current) {
-      videoRef.current.currentTime = time;
-      setCurrentTime(time);
+    // Smart seek: find the clip under the playhead and seek within it
+    const tracks = tracksRef.current;
+    let clipAtPos: TimelineClip | null = null;
+    for (const track of tracks) {
+      if (track.type !== 'video' || track.muted) continue;
+      for (const c of track.clips) {
+        if (time >= c.startTime && time < c.startTime + c.duration) {
+          clipAtPos = c; break;
+        }
+      }
+      if (clipAtPos) break;
+    }
+    if (clipAtPos && videoRef.current) {
+      const seekTime = clipAtPos.mediaOffset + (time - clipAtPos.startTime);
+      videoRef.current.currentTime = seekTime;
+      setCurrentTime(seekTime);
     }
   }, []);
 
@@ -652,6 +671,56 @@ export function StudioEditor({ videos: initialVideos, images: initialImages, bot
     video.addEventListener('timeupdate', onTimeUpdate);
     return () => video.removeEventListener('timeupdate', onTimeUpdate);
   }, [selectedVideoId]);
+
+  // ── Listen for drag-and-drop from media pool to timeline ──
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.mediaId) return;
+      const dur = mediaDurations[detail.mediaId] || detail.duration || 10;
+      setTimeline(prev => {
+        const newTracks = prev.tracks.map(t => ({ ...t, clips: [...t.clips] }));
+        const v1 = newTracks.find(t => t.type === 'video') || newTracks[0];
+        if (!v1) return prev;
+        const startTime = findNextAvailableTime(v1, dur);
+        const newClip: TimelineClip = {
+          id: genId('clip'), mediaId: detail.mediaId, trackId: v1.id,
+          startTime, duration: dur, mediaOffset: 0, mediaDuration: dur,
+          filename: detail.filename || 'clip',
+        };
+        v1.clips.push(newClip);
+        return { ...prev, tracks: newTracks, totalDuration: computeTotalDuration(newTracks), selectedClipId: newClip.id };
+      });
+      setSelectedVideoId(detail.mediaId);
+      setVideoLoading(true);
+      setVideoLoadError(null);
+      setVideoFrameUrl(null);
+    };
+    window.addEventListener('timeline-drop-media', handler);
+    return () => window.removeEventListener('timeline-drop-media', handler);
+  }, [mediaDurations]);
+
+  // ── Smart playhead tracking — auto-load video for clip under playhead ──
+  useEffect(() => {
+    if (isPlaying) return; // Don't switch videos during playback
+    const pos = timeline.playheadPosition;
+    const videoTracks = timeline.tracks.filter(t => t.type === 'video' && !t.muted);
+    let clipAtPlayhead: TimelineClip | null = null;
+    for (const track of videoTracks) {
+      for (const c of track.clips) {
+        if (pos >= c.startTime && pos < c.startTime + c.duration) {
+          clipAtPlayhead = c; break;
+        }
+      }
+      if (clipAtPlayhead) break;
+    }
+    if (clipAtPlayhead && clipAtPlayhead.mediaId !== selectedVideoId) {
+      setSelectedVideoId(clipAtPlayhead.mediaId);
+      setVideoLoading(true);
+      setVideoLoadError(null);
+      setVideoFrameUrl(null);
+    }
+  }, [timeline.playheadPosition, timeline.tracks, isPlaying, selectedVideoId]);
 
   // ── Process & Save ──
   const timelineHasClips = timeline.tracks.some(t => t.clips.length > 0);
@@ -878,12 +947,93 @@ export function StudioEditor({ videos: initialVideos, images: initialImages, bot
         </div>
       </div>
 
-      {/* ══════════════ MAIN 2-COLUMN LAYOUT (Preview + Tools) ══════════════ */}
-      {/* This area gets ~55% of total height; timeline gets the rest */}
-      <div className="flex flex-col md:flex-row min-h-0 gap-0 mt-2" style={{ flex: '1 1 55%' }}>
+      {/* ══════════════ MAIN 3-COLUMN LAYOUT (DaVinci Resolve style) ══════════════ */}
+      {/* Media Pool (left) | Viewer (center) | Inspector (right) */}
+      <div className="flex min-h-0 mt-1" style={{ flex: '1 1 55%' }}>
 
-        {/* ── LEFT: Video Preview (takes most space) ── */}
-        <div className="flex-1 flex flex-col bg-black/95 border rounded-tl-lg min-w-0">
+        {/* ── LEFT: Media Pool (DaVinci Resolve style) ── */}
+        <div className="w-52 shrink-0 flex flex-col bg-[#1a1a2e] border-r border-[#333] overflow-hidden">
+          <div className="flex items-center justify-between px-3 py-1.5 border-b border-[#333] bg-[#1e1e32] shrink-0">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400 flex items-center gap-1.5">
+              <Layers className="h-3.5 w-3.5" /> Media Pool
+            </span>
+            <button onClick={() => setShowGenPanel(v => !v)}
+              className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                showGenPanel ? 'bg-primary text-primary-foreground' : 'text-gray-400 hover:text-white hover:bg-white/10'
+              }`}>
+              <Wand2 className="h-3 w-3" /> AI
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-1.5 space-y-1.5">
+            {showGenPanel ? (
+              <div className="space-y-2 p-1">
+                <div className="space-y-1">
+                  <Label htmlFor="gen-model-lp" className="text-[10px] font-medium text-gray-300">Model</Label>
+                  <select id="gen-model-lp" value={genModelId} onChange={e => setGenModelId(e.target.value)} disabled={generating}
+                    className="flex h-7 w-full rounded border border-[#444] bg-[#252540] px-2 text-[10px] text-gray-200">
+                    {VIDEO_MODELS.map(m => <option key={m.id} value={m.id}>{m.name} — {m.creditCost}cr</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="gen-prompt-lp" className="text-[10px] font-medium text-gray-300">Prompt</Label>
+                  <textarea id="gen-prompt-lp" value={genPrompt} onChange={e => setGenPrompt(e.target.value)}
+                    placeholder="Describe the video…" rows={3} disabled={generating} maxLength={1000}
+                    className="w-full rounded border border-[#444] bg-[#252540] px-2 py-1 text-[10px] text-gray-200 placeholder:text-gray-500 resize-y" />
+                </div>
+                {genError && <p className="text-[10px] text-red-400">{genError}</p>}
+                {generating && genProgress && (
+                  <p className="text-[10px] text-blue-300 flex items-center gap-1">
+                    <Loader2 className="h-3 w-3 animate-spin" />{genProgress}
+                  </p>
+                )}
+                <Button onClick={handleGenerate} disabled={generating || !genPrompt.trim()} className="w-full gap-1 text-[10px] h-7" size="sm">
+                  {generating ? <><Loader2 className="h-3 w-3 animate-spin" />…</> : <><Wand2 className="h-3 w-3" /> Generate</>}
+                </Button>
+              </div>
+            ) : (
+              videos.map((v) => {
+                const isVidSelected = selectedVideoId === v.id;
+                return (
+                  <div key={v.id} draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData('application/json', JSON.stringify({
+                        type: 'media-to-timeline', mediaId: v.id, filename: v.filename, duration: mediaDurations[v.id] || 10,
+                      }));
+                      e.dataTransfer.effectAllowed = 'copy';
+                    }}
+                    className={`rounded border overflow-hidden cursor-grab active:cursor-grabbing ${
+                      isVidSelected ? 'border-blue-500 ring-1 ring-blue-500/40' : 'border-[#333] hover:border-blue-500/40'
+                    } ${processing ? 'opacity-50' : ''}`}>
+                    <button onClick={() => handleVideoSelect(v.id)} disabled={processing} className="w-full text-left">
+                      <div className="aspect-video bg-black relative overflow-hidden">
+                        {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                        <video src={`/api/media/${v.id}#t=0.5`} className="w-full h-full object-contain" preload="metadata" muted playsInline
+                          onLoadedMetadata={(e) => {
+                            const vid = e.currentTarget;
+                            if (vid.duration && isFinite(vid.duration)) handleVideoMetadataForTimeline(v.id, vid.duration);
+                          }} />
+                        {isVidSelected && <div className="absolute inset-0 bg-blue-500/20 flex items-center justify-center"><CheckCircle2 className="h-4 w-4 text-blue-400" /></div>}
+                      </div>
+                    </button>
+                    <div className="flex items-center gap-1 px-1.5 py-1 bg-[#1e1e32]">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[10px] font-medium text-gray-200 truncate">{v.filename}</p>
+                        <p className="text-[9px] text-gray-500">{formatFileSize(v.fileSize)}{mediaDurations[v.id] ? ` · ${Math.round(mediaDurations[v.id])}s` : ''}</p>
+                      </div>
+                      <button onClick={(e) => { e.stopPropagation(); handleAddToTimeline(v); }} disabled={processing}
+                        className="shrink-0 bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 p-0.5 rounded" title="Add to timeline">
+                        <Plus className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* ── CENTER: Video Viewer (DaVinci Timeline Viewer) ── */}
+        <div className="flex-1 flex flex-col bg-black min-w-0">
           {selectedVideoId && selectedVideo ? (
             <>
               {/* Video Player — larger preview area */}
@@ -1003,11 +1153,11 @@ export function StudioEditor({ videos: initialVideos, images: initialImages, bot
           )}
         </div>
 
-        {/* ── RIGHT: Tools Panel (scrollable) ── */}
-        <div className="w-full md:w-72 lg:w-80 shrink-0 flex flex-col border rounded-tr-lg bg-card overflow-hidden max-h-72 md:max-h-none">
-          <div className="flex items-center px-3 py-2.5 border-b bg-muted/40 shrink-0">
+        {/* ── RIGHT: Inspector (DaVinci Resolve style) ── */}
+        <div className="w-72 shrink-0 flex flex-col border-l border-[#333] bg-card overflow-hidden">
+          <div className="flex items-center px-3 py-1.5 border-b bg-muted/40 shrink-0">
             <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-              <SlidersHorizontal className="h-4 w-4" /> Tools
+              <SlidersHorizontal className="h-4 w-4" /> Inspector
             </span>
           </div>
 
@@ -1383,7 +1533,7 @@ export function StudioEditor({ videos: initialVideos, images: initialImages, bot
       {/* ══════════════ MULTI-TRACK TIMELINE (DaVinci Resolve style) ══════════════ */}
       {/* Timeline gets remaining space (~45% of total height) */}
       {!result && (
-        <div className="shrink-0 overflow-hidden" style={{ flex: '0 1 45%', minHeight: '180px', maxHeight: '340px' }}>
+        <div className="shrink-0 overflow-hidden" style={{ flex: '0 1 45%', minHeight: '200px' }}>
           <StudioTimeline
             timeline={timeline}
             isPlaying={isPlaying}
@@ -1397,115 +1547,6 @@ export function StudioEditor({ videos: initialVideos, images: initialImages, bot
           />
         </div>
       )}
-
-      {/* ══════════════ MEDIA POOL (below timeline, collapsible, compact) ══════════════ */}
-      <div className="border-t shrink-0 bg-card" style={{ maxHeight: mediaPoolOpen ? '160px' : '36px' }}>
-        <button onClick={() => setMediaPoolOpen(v => !v)}
-          className="flex items-center justify-between w-full px-4 py-2 text-left hover:bg-muted/50 transition-colors">
-          <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-            <Layers className="h-4 w-4" />
-            Media Pool
-            <span className="text-xs font-normal">({videos.length} items)</span>
-          </span>
-          <div className="flex items-center gap-2">
-            <Button variant={showGenPanel ? 'default' : 'outline'} size="sm" className="h-7 text-xs gap-1.5"
-              onClick={(e) => { e.stopPropagation(); setShowGenPanel(v => !v); if (!mediaPoolOpen) setMediaPoolOpen(true); }}>
-              <Wand2 className="h-3.5 w-3.5" /> {showGenPanel ? 'Back' : 'AI Generate'}
-            </Button>
-            {mediaPoolOpen ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronUp className="h-4 w-4 text-muted-foreground" />}
-          </div>
-        </button>
-
-        {mediaPoolOpen && (
-          <div className="border-t px-3 pb-2 pt-1.5 max-h-[120px] overflow-y-auto">
-            {showGenPanel ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                <div className="space-y-2">
-                  <Label htmlFor="gen-model" className="text-xs font-medium">Model</Label>
-                  <select id="gen-model" value={genModelId} onChange={e => setGenModelId(e.target.value)} disabled={generating}
-                    className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-xs disabled:opacity-50">
-                    {VIDEO_MODELS.map(m => <option key={m.id} value={m.id}>{m.name} — {m.creditCost}cr</option>)}
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="gen-platform" className="text-xs font-medium">Platform</Label>
-                  <select id="gen-platform" value={genPlatform} onChange={e => setGenPlatform(e.target.value)} disabled={generating}
-                    className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-xs disabled:opacity-50">
-                    {GEN_PLATFORMS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-                  </select>
-                </div>
-                <div className="space-y-2 sm:col-span-2 lg:col-span-1">
-                  <Label htmlFor="gen-prompt" className="text-xs font-medium">Prompt</Label>
-                  <textarea id="gen-prompt" value={genPrompt} onChange={e => setGenPrompt(e.target.value)}
-                    placeholder="Describe the video…" rows={2} disabled={generating} maxLength={1000}
-                    className="flex w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs placeholder:text-muted-foreground resize-y disabled:opacity-50" />
-                </div>
-                <div className="flex flex-col justify-end gap-2">
-                  {genError && <div className="rounded bg-destructive/10 border border-destructive/20 p-2 text-xs text-destructive">{genError}</div>}
-                  {generating && genProgress && (
-                    <div className="rounded bg-primary/5 border border-primary/20 p-2 text-xs text-primary flex items-center gap-1.5">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" /><span className="break-words">{genProgress}</span>
-                    </div>
-                  )}
-                  <Button onClick={handleGenerate} disabled={generating || !genPrompt.trim()} className="w-full gap-1.5 text-xs" size="sm">
-                    {generating ? <><Loader2 className="h-4 w-4 animate-spin" />Generating…</> : <><Wand2 className="h-4 w-4" /> Generate ({VIDEO_MODELS.find(m => m.id === genModelId)?.creditCost ?? '?'}cr)</>}
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex gap-1.5 overflow-x-auto pb-1">
-                {videos.map((v) => {
-                  const isSelected = selectedVideoId === v.id;
-                  return (
-                    <div key={v.id}
-                      draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData('application/json', JSON.stringify({
-                          type: 'media-to-timeline',
-                          mediaId: v.id,
-                          filename: v.filename,
-                          duration: mediaDurations[v.id] || 10,
-                        }));
-                        e.dataTransfer.effectAllowed = 'copy';
-                      }}
-                      className={`rounded-md border-2 overflow-hidden transition-all flex-shrink-0 w-28 cursor-grab active:cursor-grabbing ${
-                        isSelected ? 'border-primary ring-1 ring-primary/40 shadow-md' : 'border-transparent hover:border-primary/30'
-                      } ${processing ? 'opacity-50' : ''}`}>
-                      <button onClick={() => handleVideoSelect(v.id)} disabled={processing}
-                        className="w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-primary">
-                        <div className="aspect-video bg-black relative flex items-center justify-center overflow-hidden">
-                          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                          <video src={`/api/media/${v.id}#t=0.5`} className="w-full h-full object-contain" preload="metadata" muted playsInline
-                            onLoadedMetadata={(e) => {
-                              const vid = e.currentTarget;
-                              if (vid.duration && isFinite(vid.duration)) {
-                                handleVideoMetadataForTimeline(v.id, vid.duration);
-                              }
-                            }} />
-                          {isSelected && <div className="absolute inset-0 bg-primary/20 flex items-center justify-center"><CheckCircle2 className="h-5 w-5 text-primary drop-shadow-md" /></div>}
-                        </div>
-                      </button>
-                      <div className="px-2 py-1.5 bg-muted/40 flex items-center gap-1">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium truncate">{v.filename}</p>
-                          <p className="text-xs text-muted-foreground">{formatFileSize(v.fileSize)}{mediaDurations[v.id] ? ` · ${Math.round(mediaDurations[v.id])}s` : ''}</p>
-                        </div>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleAddToTimeline(v); }}
-                          disabled={processing}
-                          className="shrink-0 bg-primary/10 hover:bg-primary/20 text-primary p-1 rounded transition-colors"
-                          title="Add to timeline">
-                          <Plus className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
 
       {/* ══════════════ BOTTOM STATUS BAR ══════════════ */}
       <div className="flex items-center gap-3 px-4 py-2 border rounded-b-lg bg-muted/30 mt-0 shrink-0">

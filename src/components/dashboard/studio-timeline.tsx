@@ -360,7 +360,7 @@ export function StudioTimeline({
           <button onClick={() => handleSetTool('razor')}
             className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium ${
               activeTool === 'razor' ? 'bg-red-600 text-white' : 'text-gray-400 hover:text-white hover:bg-white/10'
-            }`} title="Razor (B)">
+            }`} title="Blade (B)">
             <Scissors className="h-3 w-3" />
           </button>
         </div>
@@ -518,6 +518,9 @@ export function StudioTimeline({
                     const width = Math.max(timeToX(clip.duration), 4);
                     const isSelected = selectedClipId === clip.id;
                     const isDragging = dragState?.clipId === clip.id;
+                    // DaVinci Resolve trim handle colors: green = more footage, red = at boundary
+                    const leftHasMore = clip.mediaOffset > 0.05;
+                    const rightHasMore = clip.duration < (clip.mediaDuration - clip.mediaOffset - 0.05);
 
                     return (
                       <div key={clip.id} data-clip
@@ -531,13 +534,15 @@ export function StudioTimeline({
                         style={{ left, width, height: track.height }}
                         onPointerDown={(e) => handleClipPointerDown(e, clip, activeTool === 'razor' ? null : 'move')}>
 
-                        {/* ═══ RED TRIM HANDLE LEFT (DaVinci Resolve style) ═══ */}
+                        {/* ═══ LEFT TRIM HANDLE (DaVinci: green=more footage, red=at boundary) ═══ */}
                         {activeTool !== 'razor' && (
-                          <div className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize z-10 group/trim"
+                          <div className="absolute left-0 top-0 bottom-0 w-2.5 cursor-ew-resize z-10 group/trim"
                             onPointerDown={(e) => { e.stopPropagation(); handleClipPointerDown(e, clip, 'resize-left'); }}>
-                            {/* Red bracket visible on hover */}
-                            <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-red-500 opacity-0 group-hover/trim:opacity-100 transition-opacity rounded-l-sm" />
-                            {/* Red triangle/arrow pointing right */}
+                            {/* Always-visible thin edge — green if extendable, red if at media start */}
+                            <div className={`absolute left-0 top-0 bottom-0 w-[2px] transition-all rounded-l-sm ${
+                              leftHasMore ? 'bg-green-400' : 'bg-red-500/60'
+                            } group-hover/trim:w-[4px] group-hover/trim:bg-red-500`} />
+                            {/* Arrow indicator on hover */}
                             <div className="absolute left-0 top-1/2 -translate-y-1/2 opacity-0 group-hover/trim:opacity-100 transition-opacity">
                               <svg width="8" height="14" viewBox="0 0 8 14" fill="none">
                                 <path d="M0 0 L0 14 L8 7 Z" fill="#ef4444" />
@@ -576,12 +581,15 @@ export function StudioTimeline({
                           </div>
                         )}
 
-                        {/* ═══ RED TRIM HANDLE RIGHT (DaVinci Resolve style) ═══ */}
+                        {/* ═══ RIGHT TRIM HANDLE (DaVinci: green=more footage, red=at boundary) ═══ */}
                         {activeTool !== 'razor' && (
-                          <div className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize z-10 group/trim"
+                          <div className="absolute right-0 top-0 bottom-0 w-2.5 cursor-ew-resize z-10 group/trim"
                             onPointerDown={(e) => { e.stopPropagation(); handleClipPointerDown(e, clip, 'resize-right'); }}>
-                            <div className="absolute right-0 top-0 bottom-0 w-[3px] bg-red-500 opacity-0 group-hover/trim:opacity-100 transition-opacity rounded-r-sm" />
-                            {/* Red triangle/arrow pointing left */}
+                            {/* Always-visible thin edge — green if extendable, red if at media end */}
+                            <div className={`absolute right-0 top-0 bottom-0 w-[2px] transition-all rounded-r-sm ${
+                              rightHasMore ? 'bg-green-400' : 'bg-red-500/60'
+                            } group-hover/trim:w-[4px] group-hover/trim:bg-red-500`} />
+                            {/* Arrow indicator on hover */}
                             <div className="absolute right-0 top-1/2 -translate-y-1/2 opacity-0 group-hover/trim:opacity-100 transition-opacity">
                               <svg width="8" height="14" viewBox="0 0 8 14" fill="none">
                                 <path d="M8 0 L8 14 L0 7 Z" fill="#ef4444" />
@@ -626,11 +634,13 @@ export function StudioTimeline({
         <span className="text-[9px] text-gray-500">
           <kbd className="px-0.5 bg-[#252540] rounded text-gray-400">Space</kbd> Play
           &nbsp;&nbsp;<kbd className="px-0.5 bg-[#252540] rounded text-gray-400">A</kbd> Select
-          &nbsp;&nbsp;<kbd className="px-0.5 bg-[#252540] rounded text-gray-400">B</kbd> Razor
+          &nbsp;&nbsp;<kbd className="px-0.5 bg-[#252540] rounded text-gray-400">T</kbd> Trim
+          &nbsp;&nbsp;<kbd className="px-0.5 bg-[#252540] rounded text-gray-400">B</kbd> Blade
           &nbsp;&nbsp;<kbd className="px-0.5 bg-[#252540] rounded text-gray-400">S</kbd> Split
           &nbsp;&nbsp;<kbd className="px-0.5 bg-[#252540] rounded text-gray-400">Del</kbd> Delete
+          &nbsp;&nbsp;<kbd className="px-0.5 bg-[#252540] rounded text-gray-400">J/K/L</kbd> Navigate
           &nbsp;&nbsp;<kbd className="px-0.5 bg-[#252540] rounded text-gray-400">Ctrl+Scroll</kbd> Zoom
-          &nbsp;&nbsp;Drag media from pool to timeline
+          &nbsp;&nbsp;<span className="text-green-500/70">Green</span>=more footage <span className="text-red-500/70">Red</span>=at boundary
         </span>
       </div>
     </div>
