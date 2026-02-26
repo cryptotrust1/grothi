@@ -487,6 +487,9 @@ export default async function AutopilotPage({
               hasProducts,
               savedPrompt: ((bot.reactorState as Record<string, unknown> | null)?.autopilotCustomPrompt as string) || '',
               mediaSource: ((bot.reactorState as Record<string, unknown> | null)?.autopilotMediaSource as string) || 'AI_MIX',
+              schedulingMode: ((bot.reactorState as Record<string, unknown> | null)?.autopilotSchedulingMode as string) || 'DURATION',
+              customStartDate: ((bot.reactorState as Record<string, unknown> | null)?.autopilotCustomStartDate as string) || '',
+              customEndDate: ((bot.reactorState as Record<string, unknown> | null)?.autopilotCustomEndDate as string) || '',
             }}
           />
         </CardContent>
@@ -810,6 +813,9 @@ function AutopilotSettingsWrapper({
     hasProducts: boolean;
     savedPrompt: string;
     mediaSource: string;
+    schedulingMode: string;
+    customStartDate: string;
+    customEndDate: string;
   };
 }) {
   async function saveSettings(formData: FormData) {
@@ -824,11 +830,15 @@ function AutopilotSettingsWrapper({
     const productRotation = formData.get('productRotation') === 'on';
     const mediaSource = formData.get('mediaSource') as string || 'AI_MIX';
     const customPrompt = formData.get('customPrompt') as string || '';
+    const schedulingMode = formData.get('schedulingMode') as string || 'DURATION';
+    const customStartDate = formData.get('customStartDate') as string || '';
+    const customEndDate = formData.get('customEndDate') as string || '';
 
     const validApproval = ['REVIEW_ALL', 'AUTO_APPROVE'].includes(approvalMode) ? approvalMode : 'REVIEW_ALL';
     const validDuration = [3, 5, 7, 14, 30, 60].includes(planDuration) ? planDuration : 7;
     const validMix = ['AI_RECOMMENDED', 'CUSTOM', 'CUSTOM_PROMPT'].includes(contentMixMode) ? contentMixMode : 'AI_RECOMMENDED';
     const validMediaSource = ['LIBRARY_ONLY', 'AI_GENERATED', 'AI_MIX'].includes(mediaSource) ? mediaSource : 'AI_MIX';
+    const validSchedulingMode = ['DURATION', 'CUSTOM_DATES'].includes(schedulingMode) ? schedulingMode : 'DURATION';
 
     const currentReactor = typeof currentBot.reactorState === 'object' && currentBot.reactorState !== null
       ? currentBot.reactorState as Record<string, unknown>
@@ -845,6 +855,9 @@ function AutopilotSettingsWrapper({
           ...currentReactor,
           autopilotCustomPrompt: validMix === 'CUSTOM_PROMPT' ? customPrompt : (currentReactor.autopilotCustomPrompt || ''),
           autopilotMediaSource: validMediaSource,
+          autopilotSchedulingMode: validSchedulingMode,
+          autopilotCustomStartDate: validSchedulingMode === 'CUSTOM_DATES' ? customStartDate : '',
+          autopilotCustomEndDate: validSchedulingMode === 'CUSTOM_DATES' ? customEndDate : '',
         },
       },
     });
@@ -922,6 +935,23 @@ function AutopilotGenerateButton({
     });
     if (!bot) redirect('/dashboard/bots');
 
+    const reactor = (bot.reactorState as Record<string, unknown>) || {};
+    const schedulingMode = (reactor.autopilotSchedulingMode as string) || 'DURATION';
+    const bodyPayload: Record<string, unknown> = { botId, preview: true };
+
+    if (schedulingMode === 'CUSTOM_DATES') {
+      const startDate = reactor.autopilotCustomStartDate as string;
+      const endDate = reactor.autopilotCustomEndDate as string;
+      if (startDate && endDate) {
+        bodyPayload.startDate = startDate;
+        bodyPayload.endDate = endDate;
+      } else {
+        bodyPayload.duration = bot.planDuration;
+      }
+    } else {
+      bodyPayload.duration = bot.planDuration;
+    }
+
     const baseUrl = process.env.NEXTAUTH_URL || 'https://grothi.com';
     try {
       const cookieStore = await cookies();
@@ -932,7 +962,7 @@ function AutopilotGenerateButton({
           'Content-Type': 'application/json',
           'Cookie': `session-token=${sessionToken}`,
         },
-        body: JSON.stringify({ botId, duration: bot.planDuration, preview: true }),
+        body: JSON.stringify(bodyPayload),
         signal: AbortSignal.timeout(30_000),
       });
 
@@ -977,6 +1007,23 @@ function AutopilotGenerateButton({
     });
     if (!bot) redirect('/dashboard/bots');
 
+    const reactor = (bot.reactorState as Record<string, unknown>) || {};
+    const schedulingMode = (reactor.autopilotSchedulingMode as string) || 'DURATION';
+    const confirmPayload: Record<string, unknown> = { botId };
+
+    if (schedulingMode === 'CUSTOM_DATES') {
+      const startDate = reactor.autopilotCustomStartDate as string;
+      const endDate = reactor.autopilotCustomEndDate as string;
+      if (startDate && endDate) {
+        confirmPayload.startDate = startDate;
+        confirmPayload.endDate = endDate;
+      } else {
+        confirmPayload.duration = bot.planDuration;
+      }
+    } else {
+      confirmPayload.duration = bot.planDuration;
+    }
+
     const baseUrl = process.env.NEXTAUTH_URL || 'https://grothi.com';
     try {
       const cookieStore = await cookies();
@@ -987,7 +1034,7 @@ function AutopilotGenerateButton({
           'Content-Type': 'application/json',
           'Cookie': `session-token=${sessionToken}`,
         },
-        body: JSON.stringify({ botId, duration: bot.planDuration }),
+        body: JSON.stringify(confirmPayload),
         signal: AbortSignal.timeout(30_000),
       });
 

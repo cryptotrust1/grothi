@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { HelpTip } from '@/components/ui/help-tip';
-import { Shield, Sparkles, MessageSquare, Save, Loader2 } from 'lucide-react';
+import { Sparkles, Save, CalendarDays } from 'lucide-react';
 import { AutopilotCustomPrompt } from './autopilot-custom-prompt';
 
 interface AutopilotSettingsProps {
@@ -21,9 +21,21 @@ interface AutopilotSettingsProps {
     hasProducts: boolean;
     savedPrompt: string;
     mediaSource: string;
+    schedulingMode: string;
+    customStartDate: string;
+    customEndDate: string;
   };
   saveAction: (formData: FormData) => Promise<void>;
   savePromptAction: (formData: FormData) => Promise<void>;
+}
+
+function toInputDate(iso: string): string {
+  if (!iso) return '';
+  return iso.split('T')[0];
+}
+
+function todayStr(): string {
+  return new Date().toISOString().split('T')[0];
 }
 
 export function AutopilotSettingsClient({
@@ -33,6 +45,7 @@ export function AutopilotSettingsClient({
   const [isPending, startTransition] = useTransition();
   const [contentMixMode, setContentMixMode] = useState(defaults.contentMixMode);
   const [savedPrompt, setSavedPrompt] = useState(defaults.savedPrompt);
+  const [schedulingMode, setSchedulingMode] = useState(defaults.schedulingMode || 'DURATION');
 
   const handleSavePrompt = useCallback((prompt: string) => {
     setSavedPrompt(prompt);
@@ -64,25 +77,71 @@ export function AutopilotSettingsClient({
             </select>
           </div>
 
-          {/* Plan Duration */}
+          {/* Plan Duration / Date Range */}
           <div className="space-y-2">
             <div className="flex items-center gap-1.5">
-              <Label>Plan Duration</Label>
-              <HelpTip text="How far ahead the autopilot plans content. 3-7 days recommended. Longer plans generate more posts and cost more credits." />
+              <Label>Schedule Mode</Label>
+              <HelpTip text="DURATION: Plan content for X days ahead from now. CUSTOM DATES: Choose exact start and end dates — posting starts on the start date." />
             </div>
             <select
-              name="planDuration"
-              defaultValue={defaults.planDuration}
+              name="schedulingMode"
+              value={schedulingMode}
+              onChange={(e) => setSchedulingMode(e.target.value)}
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             >
-              <option value="3">3 Days</option>
-              <option value="5">5 Days</option>
-              <option value="7">7 Days</option>
-              <option value="14">14 Days</option>
-              <option value="30">30 Days</option>
-              <option value="60">60 Days</option>
+              <option value="DURATION">Duration (days ahead)</option>
+              <option value="CUSTOM_DATES">Custom Date Range</option>
             </select>
           </div>
+
+          {schedulingMode === 'DURATION' ? (
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5">
+                <Label>Plan Duration</Label>
+              </div>
+              <select
+                name="planDuration"
+                defaultValue={defaults.planDuration}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="3">3 Days</option>
+                <option value="5">5 Days</option>
+                <option value="7">7 Days</option>
+                <option value="14">14 Days</option>
+                <option value="30">30 Days</option>
+                <option value="60">60 Days</option>
+              </select>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
+                  <Label>Start Date</Label>
+                </div>
+                <input
+                  type="date"
+                  name="customStartDate"
+                  defaultValue={toInputDate(defaults.customStartDate) || todayStr()}
+                  min={todayStr()}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                />
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
+                  <Label>End Date</Label>
+                </div>
+                <input
+                  type="date"
+                  name="customEndDate"
+                  defaultValue={toInputDate(defaults.customEndDate) || ''}
+                  min={todayStr()}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                />
+              </div>
+            </>
+          )}
 
           {/* Content Mix */}
           <div className="space-y-2">
@@ -101,7 +160,10 @@ export function AutopilotSettingsClient({
               <option value="CUSTOM_PROMPT">Custom Prompt (AI Chat)</option>
             </select>
           </div>
+        </div>
 
+        {/* Second row */}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {/* Media Source */}
           <div className="space-y-2">
             <div className="flex items-center gap-1.5">
