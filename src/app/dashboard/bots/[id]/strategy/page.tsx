@@ -670,7 +670,24 @@ export default async function ContentStrategyPage({
                 </div>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-3 mt-3">
+              <div className="grid gap-3 sm:grid-cols-2 mt-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Relationship with Brand</Label>
+                  <select name="ap_brandRelationship" defaultValue={audienceProfile.brandRelationship || ''} className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm">
+                    <option value="">Not specified</option>
+                    <option value="unaware">Unaware — never heard of us</option>
+                    <option value="aware">Aware — has seen our content</option>
+                    <option value="engaged">Engaged — follows us / interacts</option>
+                    <option value="customer">Customer — has purchased</option>
+                    <option value="loyal">Loyal — repeat customer / advocate</option>
+                    <option value="churned">Churned — used to be a customer</option>
+                    <option value="mixed">Mixed — all stages</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Topics/Approaches to Avoid</Label>
+                  <input type="text" name="ap_avoidTopics" defaultValue={audienceProfile.avoidTopics || ''} placeholder="e.g. politics, religion, clickbait" className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm" />
+                </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Competitors They Follow</Label>
                   <input type="text" name="ap_competitors" defaultValue={audienceProfile.competitors || ''} placeholder="e.g. Buffer, Hootsuite, Later" className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm" />
@@ -678,10 +695,6 @@ export default async function ContentStrategyPage({
                 <div className="space-y-1">
                   <Label className="text-xs">Influencers They Trust</Label>
                   <input type="text" name="ap_influencers" defaultValue={audienceProfile.influencers || ''} placeholder="e.g. Gary Vee, Alex Hormozi" className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm" />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Topics/Approaches to Avoid</Label>
-                  <input type="text" name="ap_avoidTopics" defaultValue={audienceProfile.avoidTopics || ''} placeholder="e.g. politics, religion, clickbait" className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm" />
                 </div>
               </div>
             </div>

@@ -460,7 +460,8 @@ async function generateContent(
     profileParts.push('INSTRUCTIONS: Use this audience profile to create content that deeply resonates with these specific people.');
     profileParts.push('Address their pain points, speak to their desires, use their vocabulary (not corporate language), and trigger the psychological factors that drive them to engage, follow, and buy.');
     if (ap.wordsTheyUse) {
-      profileParts.push(`CRITICAL: Naturally incorporate their language: ${(ap.wordsTheyUse as string).split(',').slice(0, 5).map(w => `"${w.trim()}"`).join(', ')}`);
+      const topWords = (ap.wordsTheyUse as string).split(/[,;\n|]+/).map(w => w.trim()).filter(Boolean).slice(0, 5);
+      profileParts.push(`CRITICAL: Naturally incorporate their language: ${topWords.map(w => `"${w}"`).join(', ')}`);
     }
     if (ap.wordsToAvoid) {
       profileParts.push(`NEVER use these words/phrases: ${ap.wordsToAvoid}`);

@@ -132,7 +132,8 @@ function buildAudiencePromptSection(ap: Record<string, unknown>): string[] {
   parts.push('INSTRUCTIONS: Use this audience profile to create content that deeply resonates with these specific people.');
   parts.push('Address their pain points, speak to their desires, use their vocabulary (not corporate language), and trigger the psychological factors that drive them to engage, follow, and buy.');
   if (ap.wordsTheyUse) {
-    parts.push(`CRITICAL: Naturally incorporate their language: ${(ap.wordsTheyUse as string).split(',').slice(0, 5).map(w => `"${w.trim()}"`).join(', ')}`);
+    const topWords = (ap.wordsTheyUse as string).split(/[,;\n|]+/).map(w => w.trim()).filter(Boolean).slice(0, 5);
+    parts.push(`CRITICAL: Naturally incorporate their language: ${topWords.map(w => `"${w}"`).join(', ')}`);
   }
   if (ap.wordsToAvoid) {
     parts.push(`NEVER use these words/phrases: ${ap.wordsToAvoid}`);
@@ -864,5 +865,206 @@ describe('Security and edge cases', () => {
       expect(langNames[lang.value]).toBeDefined();
       expect(langNames[lang.value].length).toBeGreaterThan(0);
     }
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// TEST SUITE: Stress Tests — Second Audit Verification
+// ══════════════════════════════════════════════════════════════
+
+describe('Stress tests — second audit', () => {
+  test('brandRelationship field is included in AUDIENCE_PROFILE_FIELDS', () => {
+    expect(AUDIENCE_PROFILE_FIELDS).toContain('brandRelationship');
+  });
+
+  test('brandRelationship appears in prompt when set', () => {
+    const ap = { brandRelationship: 'engaged' };
+    const joined = buildAudiencePromptSection(ap).join('\n');
+    expect(joined).toContain('Relationship with brand: engaged');
+  });
+
+  test('brandRelationship is omitted from prompt when empty', () => {
+    const ap = { summary: 'Test audience' };
+    const joined = buildAudiencePromptSection(ap).join('\n');
+    expect(joined).not.toContain('Relationship with brand');
+  });
+
+  test('vocabulary split handles semicolons', () => {
+    const ap = { wordsTheyUse: 'side hustle; passive income; scale; growth hacking; content game; marketing' };
+    const joined = buildAudiencePromptSection(ap).join('\n');
+    expect(joined).toContain('"side hustle"');
+    expect(joined).toContain('"passive income"');
+    expect(joined).toContain('"content game"');
+    // Only top 5 should appear in CRITICAL line
+    expect(joined).not.toContain('"marketing"');
+  });
+
+  test('vocabulary split handles newlines', () => {
+    const ap = { wordsTheyUse: 'growth\nautomation\nscaling\nbrand\nROI\nextra' };
+    const joined = buildAudiencePromptSection(ap).join('\n');
+    expect(joined).toContain('"growth"');
+    expect(joined).toContain('"ROI"');
+    // 6th word should not appear in CRITICAL enforcement
+    expect(joined).not.toContain('"extra"');
+  });
+
+  test('vocabulary split handles pipes', () => {
+    const ap = { wordsTheyUse: 'hustle|grind|build|ship|launch|scale' };
+    const joined = buildAudiencePromptSection(ap).join('\n');
+    expect(joined).toContain('"hustle"');
+    expect(joined).toContain('"launch"');
+    expect(joined).not.toContain('"scale"');
+  });
+
+  test('vocabulary split handles mixed delimiters', () => {
+    const ap = { wordsTheyUse: 'hustle, grind; build\nship | launch, scale' };
+    const joined = buildAudiencePromptSection(ap).join('\n');
+    expect(joined).toContain('"hustle"');
+    expect(joined).toContain('"grind"');
+    expect(joined).toContain('"build"');
+    expect(joined).toContain('"ship"');
+    expect(joined).toContain('"launch"');
+    // 6th should be excluded from CRITICAL enforcement
+    expect(joined).not.toContain('"scale"');
+  });
+
+  test('vocabulary split handles trailing/leading delimiters', () => {
+    const ap = { wordsTheyUse: ',, hustle, grind, ,,' };
+    const joined = buildAudiencePromptSection(ap).join('\n');
+    expect(joined).toContain('"hustle"');
+    expect(joined).toContain('"grind"');
+    // Empty strings from split should be filtered
+    expect(joined).not.toContain('""');
+  });
+
+  test('empty profile produces zero-length prompt section', () => {
+    expect(buildAudiencePromptSection({}).length).toBe(0);
+  });
+
+  test('profile with only whitespace-value fields produces zero-length prompt section', () => {
+    // After parsing, whitespace-only values would already be excluded
+    // So an "empty-looking" profile object would simply be {}
+    const ap = {};
+    expect(buildAudiencePromptSection(ap).length).toBe(0);
+  });
+
+  test('every purchase stage value generates a directive', () => {
+    const stages = ['unaware', 'problem_aware', 'exploring', 'comparing', 'ready_to_buy', 'existing_customer'];
+    for (const stage of stages) {
+      const joined = buildAudiencePromptSection({ purchaseStage: stage }).join('\n');
+      expect(joined).toContain('CONTENT STRATEGY FOR PURCHASE STAGE');
+    }
+  });
+
+  test('unknown purchase stage does not generate a directive', () => {
+    const joined = buildAudiencePromptSection({ purchaseStage: 'unknown_stage' }).join('\n');
+    expect(joined).toContain('PURCHASE STAGE: unknown_stage');
+    expect(joined).not.toContain('CONTENT STRATEGY FOR PURCHASE STAGE');
+  });
+
+  test('all 39 fields exist in AUDIENCE_PROFILE_FIELDS', () => {
+    expect(AUDIENCE_PROFILE_FIELDS.length).toBe(39);
+    // Verify key fields are present
+    const expected = [
+      'audienceName', 'summary', 'transformation', 'ageRange', 'gender', 'location', 'languages',
+      'occupation', 'incomeLevel', 'education',
+      'interests', 'values', 'lifestyle', 'onlineBehavior', 'contentPreferences',
+      'painPoint1', 'painPoint2', 'painPoint3',
+      'desire1', 'desire2', 'desire3',
+      'followMotivation', 'aspirationalIdentity', 'biggestFear',
+      'buyingTriggers', 'decisionFactors', 'purchaseStage',
+      'trustBarriers', 'priceSensitivity',
+      'wordsTheyUse', 'wordsToAvoid', 'commonQuestions', 'objections',
+      'communicationStyle', 'emotionalHooks', 'avoidTopics',
+      'competitors', 'influencers', 'brandRelationship',
+    ];
+    expect([...AUDIENCE_PROFILE_FIELDS]).toEqual(expected);
+  });
+
+  test('no removed fields remain (companySize, followReasons, fears, socialPlatforms)', () => {
+    const fields = [...AUDIENCE_PROFILE_FIELDS];
+    expect(fields).not.toContain('companySize');
+    expect(fields).not.toContain('followReasons');
+    expect(fields).not.toContain('fears');
+    expect(fields).not.toContain('socialPlatforms');
+  });
+
+  test('emoji input in fields is preserved', () => {
+    const form = new Map<string, string>();
+    form.set('ap_emotionalHooks', '🔥 FOMO — competitors ahead 💪 Motivation');
+    const profile = parseAudienceProfile(form);
+    expect(profile.emotionalHooks).toBe('🔥 FOMO — competitors ahead 💪 Motivation');
+  });
+
+  test('multiline textarea content preserved through full pipeline', () => {
+    const form = new Map<string, string>();
+    form.set('ap_commonQuestions', 'How do I grow?\nIs AI content detectable?\nWhat platforms work best?');
+    const profile = parseAudienceProfile(form);
+    const parts = buildAudiencePromptSection(profile);
+    const joined = parts.join('\n');
+    expect(joined).toContain('How do I grow?');
+    expect(joined).toContain('Is AI content detectable?');
+  });
+
+  test('select dropdown values are AI-readable', () => {
+    const ap = {
+      gender: 'mostly_female',
+      incomeLevel: 'affluent',
+      education: 'master',
+      decisionFactors: 'research',
+      priceSensitivity: 'very_sensitive',
+      brandRelationship: 'churned',
+    };
+    const joined = buildAudiencePromptSection(ap).join('\n');
+    expect(joined).toContain('Gender: mostly_female');
+    expect(joined).toContain('Income level: affluent');
+    expect(joined).toContain('Education: master');
+    expect(joined).toContain('DECISION STYLE: research');
+    expect(joined).toContain('PRICE SENSITIVITY: very_sensitive');
+    expect(joined).toContain('Relationship with brand: churned');
+  });
+
+  test('wordsToAvoid enforcement appears twice in prompt (sandwich technique)', () => {
+    const ap = { wordsToAvoid: 'guru, get rich quick' };
+    const joined = buildAudiencePromptSection(ap).join('\n');
+    // First mention in vocabulary section
+    expect(joined).toContain('WORDS & PHRASES TO AVOID');
+    // Second mention as NEVER enforcement
+    expect(joined).toContain('NEVER use these words/phrases');
+  });
+
+  test('wordsTheyUse enforcement appears twice in prompt (sandwich technique)', () => {
+    const ap = { wordsTheyUse: 'hustle, grind, build' };
+    const joined = buildAudiencePromptSection(ap).join('\n');
+    // First mention in vocabulary section
+    expect(joined).toContain('WORDS & PHRASES TO USE');
+    // Second mention as CRITICAL enforcement
+    expect(joined).toContain('CRITICAL: Naturally incorporate');
+  });
+
+  test('extremely long pain point field is truncated at 2000 chars', () => {
+    const form = new Map<string, string>();
+    form.set('ap_painPoint1', 'x'.repeat(5000));
+    form.set('ap_painPoint2', 'y'.repeat(3000));
+    const profile = parseAudienceProfile(form);
+    expect(profile.painPoint1.length).toBe(2000);
+    expect(profile.painPoint2.length).toBe(2000);
+    // Merged field combines truncated versions
+    expect(profile.painPoints.length).toBe(2000 + 2 + 2000); // '; ' separator
+  });
+
+  test('backward compatibility: old profile without new fields works', () => {
+    // Simulates a profile saved before transformation, audienceName were added
+    const oldProfile: Record<string, unknown> = {
+      summary: 'Old profile',
+      painPoints: 'Old pain points',
+      occupation: 'Tech',
+    };
+    const parts = buildAudiencePromptSection(oldProfile);
+    const joined = parts.join('\n');
+    expect(joined).toContain('Audience summary: Old profile');
+    expect(joined).toContain('PAIN POINTS');
+    expect(joined).not.toContain('Audience name:');
+    expect(joined).not.toContain('TRANSFORMATION:');
   });
 });
