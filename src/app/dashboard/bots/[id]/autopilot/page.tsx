@@ -13,11 +13,11 @@ import { AlertMessage } from '@/components/ui/alert-message';
 import { HelpTip } from '@/components/ui/help-tip';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
-  Zap, Bot, Clock, FileText, ImageIcon, Film, CheckCircle2,
-  AlertCircle, Eye, ArrowRight, Trash2, RefreshCw, Info, Sparkles,
-  Calendar, BarChart3, Target, Shield,
+  Zap, Bot, Clock, CheckCircle2,
+  AlertCircle, Eye, Trash2, RefreshCw, Info, Sparkles,
+  BarChart3, Target, Shield,
 } from 'lucide-react';
-import { PLATFORM_NAMES, POST_STATUS_COLORS } from '@/lib/constants';
+import { PLATFORM_NAMES } from '@/lib/constants';
 import {
   PLATFORM_ALGORITHM,
   getRecommendedPlan,
@@ -25,6 +25,8 @@ import {
   getEngagementVelocityTip,
   getBestContentFormat,
 } from '@/lib/platform-algorithm';
+import { AutopilotPostManagerClient } from '@/components/dashboard/autopilot-post-manager-client';
+import { AutopilotCustomPromptClient } from '@/components/dashboard/autopilot-custom-prompt-client';
 
 export const metadata: Metadata = { title: 'Autopilot', robots: { index: false } };
 
@@ -100,8 +102,8 @@ export default async function AutopilotPage({
     ]);
   }
 
-  // Get pending review posts (DRAFT autopilot posts)
-  let pendingReview: Array<{
+  // Get ALL autopilot posts (for calendar + list views)
+  let allAutopilotPosts: Array<{
     id: string;
     content: string;
     contentType: string | null;
@@ -111,12 +113,15 @@ export default async function AutopilotPage({
     mediaId: string | null;
     productId: string | null;
     product: { name: string } | null;
+    media: { type: string } | null;
+    status: string;
+    error: string | null;
   }> = [];
   try {
-    pendingReview = await db.scheduledPost.findMany({
-      where: { botId: id, source: 'AUTOPILOT', status: 'DRAFT' },
+    allAutopilotPosts = await db.scheduledPost.findMany({
+      where: { botId: id, source: 'AUTOPILOT' },
       orderBy: { scheduledAt: 'asc' },
-      take: 20,
+      take: 200,
       select: {
         id: true,
         content: true,
@@ -127,14 +132,17 @@ export default async function AutopilotPage({
         mediaId: true,
         productId: true,
         product: { select: { name: true } },
+        media: { select: { type: true } },
+        status: true,
+        error: true,
       },
     });
   } catch {
     // Fallback: query without source filter
-    pendingReview = await db.scheduledPost.findMany({
-      where: { botId: id, status: 'DRAFT' },
+    allAutopilotPosts = await db.scheduledPost.findMany({
+      where: { botId: id },
       orderBy: { scheduledAt: 'asc' },
-      take: 20,
+      take: 200,
       select: {
         id: true,
         content: true,
@@ -145,9 +153,28 @@ export default async function AutopilotPage({
         mediaId: true,
         productId: true,
         product: { select: { name: true } },
+        media: { select: { type: true } },
+        status: true,
+        error: true,
       },
     });
   }
+
+  // Serialize posts for the client component
+  const serializedPosts = allAutopilotPosts.map(p => ({
+    id: p.id,
+    content: p.content,
+    contentType: p.contentType,
+    contentFormat: p.contentFormat,
+    platforms: (p.platforms as string[]) || [],
+    scheduledAt: p.scheduledAt?.toISOString() || null,
+    mediaId: p.mediaId,
+    mediaType: p.media?.type || null,
+    productId: p.productId,
+    productName: p.product?.name || null,
+    status: p.status,
+    error: p.error,
+  }));
 
   // Platform algorithm recommendations — v2 with full data
   const platformRecommendations = connectedPlatforms.map(p => {
@@ -206,7 +233,12 @@ export default async function AutopilotPage({
 
     const validApproval = ['REVIEW_ALL', 'AUTO_APPROVE'].includes(approvalMode) ? approvalMode : 'REVIEW_ALL';
     const validDuration = [7, 14, 30].includes(planDuration) ? planDuration : 7;
-    const validMix = ['AI_RECOMMENDED', 'CUSTOM'].includes(contentMixMode) ? contentMixMode : 'AI_RECOMMENDED';
+    const validMix = ['AI_RECOMMENDED', 'CUSTOM', 'CUSTOM_PROMPT'].includes(contentMixMode) ? contentMixMode : 'AI_RECOMMENDED';
+    const customPrompt = formData.get('customPrompt') as string || '';
+
+    const currentReactor = typeof currentBot.reactorState === 'object' && currentBot.reactorState !== null
+      ? currentBot.reactorState as Record<string, unknown>
+      : {};
 
     await db.bot.update({
       where: { id },
@@ -215,6 +247,10 @@ export default async function AutopilotPage({
         planDuration: validDuration,
         contentMixMode: validMix,
         autopilotProductRotation: productRotation,
+        reactorState: {
+          ...currentReactor,
+          autopilotCustomPrompt: validMix === 'CUSTOM_PROMPT' ? customPrompt : undefined,
+        },
       },
     });
 
@@ -258,54 +294,6 @@ export default async function AutopilotPage({
     }
 
     redirect(`/dashboard/bots/${id}/autopilot?success=${approvedCount} posts approved and scheduled`);
-  }
-
-  async function handleApprovePost(formData: FormData) {
-    'use server';
-    const currentUser = await requireAuth();
-    const postId = formData.get('postId') as string;
-    if (!postId) redirect(`/dashboard/bots/${id}/autopilot`);
-
-    const post = await db.scheduledPost.findFirst({
-      where: { id: postId, botId: id, bot: { userId: currentUser.id } },
-    });
-    if (!post) redirect(`/dashboard/bots/${id}/autopilot`);
-
-    // Prevent approving posts that still have placeholder content or are being generated
-    if (post.content.startsWith('[AUTOPILOT]') || post.content.startsWith('[GENERATING]')) {
-      redirect(`/dashboard/bots/${id}/autopilot?error=${encodeURIComponent('Cannot approve this post — AI is still generating content. Please wait and try again.')}`);
-    }
-
-    // Ensure post has a future scheduledAt, or set it to 5 minutes from now
-    const scheduledAt = post.scheduledAt && post.scheduledAt > new Date()
-      ? post.scheduledAt
-      : new Date(Date.now() + 5 * 60 * 1000);
-
-    await db.scheduledPost.update({
-      where: { id: postId },
-      data: { status: 'SCHEDULED', scheduledAt },
-    });
-
-    redirect(`/dashboard/bots/${id}/autopilot?success=Post approved and scheduled`);
-  }
-
-  async function handleRejectPost(formData: FormData) {
-    'use server';
-    const currentUser = await requireAuth();
-    const postId = formData.get('postId') as string;
-    if (!postId) redirect(`/dashboard/bots/${id}/autopilot`);
-
-    // Verify the post belongs to this bot and this user before deleting
-    const post = await db.scheduledPost.findFirst({
-      where: { id: postId, botId: id, bot: { userId: currentUser.id } },
-    });
-    if (!post) redirect(`/dashboard/bots/${id}/autopilot`);
-
-    await db.scheduledPost.delete({
-      where: { id: postId },
-    });
-
-    redirect(`/dashboard/bots/${id}/autopilot?success=Post removed`);
   }
 
   async function handleRetryFailed() {
@@ -570,7 +558,7 @@ export default async function AutopilotPage({
               <div className="space-y-2">
                 <div className="flex items-center gap-1.5">
                   <Label>Content Mix</Label>
-                  <HelpTip text="AI RECOMMENDED: The system uses platform algorithm research to determine the optimal mix of text, image, and video posts for each platform. CUSTOM: Use your settings from the Content Strategy page." />
+                  <HelpTip text="AI RECOMMENDED: Uses platform algorithm research for optimal content mix. CUSTOM (from Strategy): Uses your Content Strategy settings. CUSTOM PROMPT: You write exact instructions via AI chat — overrides all other settings." />
                 </div>
                 <select
                   name="contentMixMode"
@@ -579,6 +567,7 @@ export default async function AutopilotPage({
                 >
                   <option value="AI_RECOMMENDED">AI Recommended</option>
                   <option value="CUSTOM">Custom (from Strategy)</option>
+                  <option value="CUSTOM_PROMPT">Custom Prompt (AI Chat)</option>
                 </select>
               </div>
 
@@ -728,108 +717,56 @@ export default async function AutopilotPage({
         </CardContent>
       </Card>
 
-      {/* Pending Review */}
-      {pendingReview.length > 0 && (
+      {/* Custom Prompt AI Chat (shown when Content Mix = CUSTOM_PROMPT) */}
+      {bot.contentMixMode === 'CUSTOM_PROMPT' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-violet-600" /> Custom Autopilot Instructions
+            </CardTitle>
+            <CardDescription>
+              Tell the AI exactly what content to create. These instructions override strategy and brand settings.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <AutopilotCustomPromptWrapper
+              botId={id}
+              platforms={connectedPlatforms}
+              savedPrompt={((bot.reactorState as Record<string, unknown> | null)?.autopilotCustomPrompt as string) || ''}
+            />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* All Autopilot Posts — with platform previews, edit/delete, calendar */}
+      {serializedPosts.length > 0 && (
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle className="flex items-center gap-2">
-                  <Eye className="h-5 w-5" /> Pending Review ({draftCount})
+                  <Eye className="h-5 w-5" /> Autopilot Posts ({serializedPosts.length})
                 </CardTitle>
                 <CardDescription>
-                  Review and approve autopilot-generated posts before they go live
+                  View, edit, approve or delete posts. Toggle preview to see how each post looks on the platform.
                 </CardDescription>
               </div>
-              <form action={handleApproveAll}>
-                <Button type="submit" size="sm" className="gap-1">
-                  <CheckCircle2 className="h-4 w-4" /> Approve All
-                </Button>
-              </form>
+              {draftCount > 0 && (
+                <form action={handleApproveAll}>
+                  <Button type="submit" size="sm" className="gap-1">
+                    <CheckCircle2 className="h-4 w-4" /> Approve All Drafts ({draftCount})
+                  </Button>
+                </form>
+              )}
             </div>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
-              {pendingReview.map(post => {
-                const platforms = (post.platforms as string[]) || [];
-                const isPlaceholder = post.content.startsWith('[AUTOPILOT]') || post.content.startsWith('[GENERATING]');
-                const platformName = platforms.map(p => PLATFORM_NAMES[p] || p).join(', ');
-
-                return (
-                  <div key={post.id} className="rounded-lg border p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0 space-y-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {platforms.map(p => (
-                            <Badge key={p} variant="secondary" className="text-xs">
-                              {PLATFORM_NAMES[p] || p}
-                            </Badge>
-                          ))}
-                          {post.contentType && (
-                            <Badge variant="outline" className="text-xs">
-                              {post.contentType}
-                            </Badge>
-                          )}
-                          {post.contentFormat && (
-                            <Badge variant="outline" className="text-xs text-green-700 border-green-300 bg-green-50">
-                              {post.contentFormat}
-                            </Badge>
-                          )}
-                          {post.product && (
-                            <Badge variant="default" className="text-xs">
-                              {post.product.name}
-                            </Badge>
-                          )}
-                          {isPlaceholder && (
-                            <Badge variant="secondary" className="text-xs bg-yellow-100 text-yellow-800">
-                              <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
-                              Generating...
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="text-sm text-muted-foreground line-clamp-3">
-                          {isPlaceholder ? 'AI is generating content for this post...' : post.content}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          <Clock className="h-3 w-3 inline mr-1" />
-                          {post.scheduledAt
-                            ? new Date(post.scheduledAt).toLocaleString('en-US', {
-                                weekday: 'short', month: 'short', day: 'numeric',
-                                hour: '2-digit', minute: '2-digit',
-                              })
-                            : 'Not scheduled'}
-                        </p>
-                      </div>
-                      <div className="flex gap-1 shrink-0">
-                        {!isPlaceholder && (
-                          <form action={handleApprovePost}>
-                            <input type="hidden" name="postId" value={post.id} />
-                            <Button type="submit" size="sm" variant="default" className="gap-1">
-                              <CheckCircle2 className="h-3.5 w-3.5" />
-                              Approve
-                            </Button>
-                          </form>
-                        )}
-                        <form action={handleRejectPost}>
-                          <input type="hidden" name="postId" value={post.id} />
-                          <Button type="submit" size="sm" variant="ghost" className="text-destructive">
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </form>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            {draftCount > 20 && (
-              <p className="text-xs text-muted-foreground mt-3 text-center">
-                Showing 20 of {draftCount} pending posts.{' '}
-                <Link href={`/dashboard/bots/${id}/post`} className="underline">
-                  View all in Post Scheduler
-                </Link>
-              </p>
-            )}
+            <AutopilotPostManagerWrapper
+              posts={serializedPosts}
+              botId={id}
+              botPageId={id}
+              platformNames={PLATFORM_NAMES}
+            />
           </CardContent>
         </Card>
       )}
@@ -888,6 +825,140 @@ export default async function AutopilotPage({
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/**
+ * Client wrapper for AutopilotPostManager that calls the API endpoints
+ */
+function AutopilotPostManagerWrapper({
+  posts, botId, botPageId, platformNames,
+}: {
+  posts: Array<{
+    id: string; content: string; contentType: string | null; contentFormat: string | null;
+    platforms: string[]; scheduledAt: string | null; mediaId: string | null; mediaType: string | null;
+    productId: string | null; productName: string | null; status: string; error: string | null;
+  }>;
+  botId: string;
+  botPageId: string;
+  platformNames: Record<string, string>;
+}) {
+  async function handleApprovePost(formData: FormData) {
+    'use server';
+    const currentUser = await requireAuth();
+    const postId = formData.get('postId') as string;
+    if (!postId) redirect(`/dashboard/bots/${botPageId}/autopilot`);
+
+    const post = await db.scheduledPost.findFirst({
+      where: { id: postId, botId, bot: { userId: currentUser.id } },
+    });
+    if (!post) redirect(`/dashboard/bots/${botPageId}/autopilot`);
+
+    if (post.content.startsWith('[AUTOPILOT]') || post.content.startsWith('[GENERATING]')) {
+      redirect(`/dashboard/bots/${botPageId}/autopilot?error=${encodeURIComponent('Cannot approve — AI is still generating content.')}`);
+    }
+
+    const scheduledAt = post.scheduledAt && post.scheduledAt > new Date()
+      ? post.scheduledAt
+      : new Date(Date.now() + 5 * 60 * 1000);
+
+    await db.scheduledPost.update({
+      where: { id: postId },
+      data: { status: 'SCHEDULED', scheduledAt },
+    });
+
+    redirect(`/dashboard/bots/${botPageId}/autopilot?success=Post approved`);
+  }
+
+  async function handleDeletePost(formData: FormData) {
+    'use server';
+    const currentUser = await requireAuth();
+    const postId = formData.get('postId') as string;
+    if (!postId) redirect(`/dashboard/bots/${botPageId}/autopilot`);
+
+    const post = await db.scheduledPost.findFirst({
+      where: { id: postId, botId, bot: { userId: currentUser.id } },
+    });
+    if (!post) redirect(`/dashboard/bots/${botPageId}/autopilot`);
+
+    await db.scheduledPost.delete({ where: { id: postId } });
+    redirect(`/dashboard/bots/${botPageId}/autopilot?success=Post deleted`);
+  }
+
+  async function handleEditPost(formData: FormData) {
+    'use server';
+    const currentUser = await requireAuth();
+    const postId = formData.get('postId') as string;
+    const content = formData.get('content') as string;
+    if (!postId || !content) redirect(`/dashboard/bots/${botPageId}/autopilot`);
+
+    const post = await db.scheduledPost.findFirst({
+      where: { id: postId, botId, bot: { userId: currentUser.id } },
+    });
+    if (!post) redirect(`/dashboard/bots/${botPageId}/autopilot`);
+
+    await db.scheduledPost.update({
+      where: { id: postId },
+      data: { content: content.trim() },
+    });
+
+    redirect(`/dashboard/bots/${botPageId}/autopilot?success=Post updated`);
+  }
+
+  return (
+    <AutopilotPostManagerClient
+      posts={posts}
+      botId={botId}
+      botPageId={botPageId}
+      platformNames={platformNames}
+      approveAction={handleApprovePost}
+      deleteAction={handleDeletePost}
+      editAction={handleEditPost}
+    />
+  );
+}
+
+/**
+ * Client wrapper for AutopilotCustomPrompt that saves the prompt via server action
+ */
+function AutopilotCustomPromptWrapper({
+  botId, platforms, savedPrompt,
+}: {
+  botId: string;
+  platforms: string[];
+  savedPrompt: string;
+}) {
+  async function handleSavePrompt(formData: FormData) {
+    'use server';
+    const currentUser = await requireAuth();
+    const currentBot = await db.bot.findFirst({ where: { id: botId, userId: currentUser.id } });
+    if (!currentBot) redirect('/dashboard/bots');
+
+    const prompt = formData.get('prompt') as string;
+    const currentReactor = typeof currentBot.reactorState === 'object' && currentBot.reactorState !== null
+      ? currentBot.reactorState as Record<string, unknown>
+      : {};
+
+    await db.bot.update({
+      where: { id: botId },
+      data: {
+        reactorState: {
+          ...currentReactor,
+          autopilotCustomPrompt: prompt || '',
+        },
+      },
+    });
+
+    redirect(`/dashboard/bots/${botId}/autopilot?success=Custom prompt saved`);
+  }
+
+  return (
+    <AutopilotCustomPromptClient
+      botId={botId}
+      platforms={platforms}
+      savedPrompt={savedPrompt}
+      saveAction={handleSavePrompt}
+    />
   );
 }
 
