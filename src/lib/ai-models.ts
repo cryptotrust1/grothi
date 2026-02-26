@@ -100,6 +100,7 @@ const OUTPUT_FORMATS: ParamOption[] = [
 
 export const IMAGE_MODELS: AIModel[] = [
   // ── FLUX 1.1 Pro ──
+  // Real cost: $0.040/image → with 30% margin: $0.052 → 1 credit
   {
     id: 'flux-1.1-pro',
     replicateId: 'black-forest-labs/flux-1.1-pro',
@@ -107,7 +108,7 @@ export const IMAGE_MODELS: AIModel[] = [
     brand: 'Black Forest Labs',
     description: 'Best quality/speed balance. Professional grade image generation with excellent prompt following.',
     category: 'image',
-    creditCost: 3,
+    creditCost: 1,
     supportsReferenceImage: true,
     referenceImageKey: 'image_prompt',
     referenceDescription: 'Style reference image. The model blends visual elements (style, colors, composition) from this image into the generated output. Lower image_prompt_strength = subtle influence, higher = stronger match.',
@@ -189,6 +190,7 @@ export const IMAGE_MODELS: AIModel[] = [
   },
 
   // ── FLUX 1.1 Pro Ultra ──
+  // Real cost: $0.060/image → with 30% margin: $0.078 → 2 credits
   {
     id: 'flux-1.1-pro-ultra',
     replicateId: 'black-forest-labs/flux-1.1-pro-ultra',
@@ -196,7 +198,7 @@ export const IMAGE_MODELS: AIModel[] = [
     brand: 'Black Forest Labs',
     description: 'Highest quality, up to 4 megapixel resolution. Best for large prints and premium content.',
     category: 'image',
-    creditCost: 5,
+    creditCost: 2,
     supportsReferenceImage: true,
     referenceImageKey: 'image_prompt',
     referenceDescription: 'Style reference image. The model blends visual elements from this image into the 4MP output. Use with Raw Mode for natural photography-style blending.',
@@ -366,6 +368,7 @@ export const IMAGE_MODELS: AIModel[] = [
   },
 
   // ── FLUX Dev ──
+  // Real cost: $0.025/image → with 30% margin: $0.033 → 1 credit
   {
     id: 'flux-dev',
     replicateId: 'black-forest-labs/flux-dev',
@@ -373,7 +376,7 @@ export const IMAGE_MODELS: AIModel[] = [
     brand: 'Black Forest Labs',
     description: 'Development model with fine-grained control. Adjustable inference steps and guidance.',
     category: 'image',
-    creditCost: 2,
+    creditCost: 1,
     supportsReferenceImage: false,
     supportsNegativePrompt: false,
     provider: 'replicate',
@@ -476,6 +479,7 @@ export const IMAGE_MODELS: AIModel[] = [
   },
 
   // ── Recraft V3 ──
+  // Real cost: $0.040/image → with 30% margin: $0.052 → 1 credit
   {
     id: 'recraft-v3',
     replicateId: 'recraft-ai/recraft-v3',
@@ -483,7 +487,7 @@ export const IMAGE_MODELS: AIModel[] = [
     brand: 'Recraft AI',
     description: 'Design-focused model. Excellent for logos, icons, illustrations, and design assets.',
     category: 'image',
-    creditCost: 3,
+    creditCost: 1,
     supportsReferenceImage: false,
     supportsNegativePrompt: false,
     provider: 'replicate',
@@ -530,6 +534,7 @@ export const IMAGE_MODELS: AIModel[] = [
   },
 
   // ── Ideogram V2 ──
+  // Real cost: ~$0.080/image → with 30% margin: $0.104 → 2 credits
   {
     id: 'ideogram-v2',
     replicateId: 'ideogram-ai/ideogram-v2',
@@ -537,7 +542,7 @@ export const IMAGE_MODELS: AIModel[] = [
     brand: 'Ideogram',
     description: 'Excellent text rendering in images. Best for posters, banners, and social media with text.',
     category: 'image',
-    creditCost: 3,
+    creditCost: 2,
     supportsReferenceImage: false,
     supportsNegativePrompt: true,
     provider: 'replicate',
@@ -769,6 +774,7 @@ export const IMAGE_MODELS: AIModel[] = [
 export const VIDEO_MODELS: AIModel[] = [
   // ── Kling V3 Video (longest duration: 3-15 seconds) ──
   // Schema: kwaivgi/kling-v3-video — duration: integer min 3, max 15, default 5
+  // Real cost: ~$1.00/10s video → with 30% margin: $1.30 → 21 credits
   {
     id: 'kling-v3-video',
     replicateId: 'kwaivgi/kling-v3-video',
@@ -776,7 +782,7 @@ export const VIDEO_MODELS: AIModel[] = [
     brand: 'Kuaishou (Kling)',
     description: 'Longest AI video: up to 15 seconds. Multi-shot mode with up to 6 scenes. Native audio, 720p/1080p. Best for narrative content.',
     category: 'video',
-    creditCost: 15,
+    creditCost: 21,
     supportsReferenceImage: true,
     referenceImageKey: 'start_image',
     referenceDescription: 'Starting frame image. The video begins from this image and animates it based on your prompt. When provided, aspect ratio is determined by the image dimensions.',
@@ -842,6 +848,7 @@ export const VIDEO_MODELS: AIModel[] = [
 
   // ── xAI Grok Imagine Video (1-15 seconds, flexible) ──
   // Schema: xai/grok-imagine-video — duration: integer min 1, max 15, default 5
+  // Real cost: ~$0.50/video → with 30% margin: $0.65 → 11 credits
   {
     id: 'grok-imagine-video',
     replicateId: 'xai/grok-imagine-video',
@@ -849,7 +856,7 @@ export const VIDEO_MODELS: AIModel[] = [
     brand: 'xAI (Grok)',
     description: 'Up to 15 seconds. Image-to-video and text-to-video. Any duration from 1 to 15 seconds.',
     category: 'video',
-    creditCost: 10,
+    creditCost: 11,
     supportsReferenceImage: true,
     referenceImageKey: 'image',
     referenceDescription: 'Image to animate into video. The model transforms this still image into motion based on your prompt. When provided, the aspect ratio is determined by the image.',
@@ -911,7 +918,8 @@ export const VIDEO_MODELS: AIModel[] = [
     brand: 'OpenAI',
     description: 'OpenAI video generation. Up to 12 seconds with synchronized audio. Portrait (720x1280) or landscape (1280x720).',
     category: 'video',
-    creditCost: 12,
+    // Real cost: ~$1.00/10s → with 30% margin: $1.30 → 21 credits
+    creditCost: 21,
     supportsReferenceImage: true,
     referenceImageKey: 'input_reference',
     referenceDescription: 'Visual reference image to guide the video style and content. The model uses this image as creative guidance for the generated video.',
@@ -958,7 +966,8 @@ export const VIDEO_MODELS: AIModel[] = [
     brand: 'ByteDance',
     description: 'Up to 12 seconds at 1080p. Flexible duration from 2-12s. Image-to-video with first/last frame control.',
     category: 'video',
-    creditCost: 10,
+    // Real cost: ~$0.60/10s → with 30% margin: $0.78 → 13 credits
+    creditCost: 13,
     supportsReferenceImage: true,
     referenceImageKey: 'image',
     referenceDescription: 'First frame image. The video starts from this image and animates based on your prompt. Works with end image for smooth start-to-end transitions.',
@@ -1042,7 +1051,8 @@ export const VIDEO_MODELS: AIModel[] = [
     brand: 'Kuaishou (Kling)',
     description: 'Up to 10 seconds with native synchronized audio. Cinematic quality with excellent motion.',
     category: 'video',
-    creditCost: 10,
+    // Real cost: ~$0.70/10s → with 30% margin: $0.91 → 15 credits
+    creditCost: 15,
     supportsReferenceImage: true,
     referenceImageKey: 'start_image',
     referenceDescription: 'Starting frame image. The video begins from this image with cinematic motion and optional synchronized audio. Aspect ratio is determined by the image.',
@@ -1104,7 +1114,8 @@ export const VIDEO_MODELS: AIModel[] = [
     brand: 'Google DeepMind',
     description: 'Latest Google model. Up to 8 seconds with context-aware audio. 1080p. Reference image + first/last frame support.',
     category: 'video',
-    creditCost: 15,
+    // Real cost: ~$6.00/8s ($0.75/s) → with 30% margin: $7.80 → 125 credits
+    creditCost: 125,
     supportsReferenceImage: true,
     referenceImageKey: 'image',
     referenceDescription: 'Reference image for visual guidance. The model preserves the visual style and elements from this image while generating motion with context-aware audio.',
@@ -1191,7 +1202,8 @@ export const VIDEO_MODELS: AIModel[] = [
     brand: 'Google DeepMind',
     description: 'Flagship text-to-video with native audio and dialogue lip-sync. Up to 8 seconds. Cinematic quality.',
     category: 'video',
-    creditCost: 12,
+    // Real cost: ~$6.00/8s ($0.75/s) → with 30% margin: $7.80 → 125 credits
+    creditCost: 125,
     supportsReferenceImage: true,
     referenceImageKey: 'image',
     referenceDescription: 'Reference image to animate. The model preserves the unique visual style of this image while generating cinematic motion with dialogue lip-sync and native audio.',
@@ -1275,7 +1287,8 @@ export const VIDEO_MODELS: AIModel[] = [
     brand: 'MiniMax',
     description: 'Up to 10 seconds at 768p. Realistic human motion, cinematic VFX, camera movement control.',
     category: 'video',
-    creditCost: 10,
+    // Real cost: ~$0.49/6s (1080p) → with 30% margin: $0.64 → 11 credits
+    creditCost: 11,
     supportsReferenceImage: true,
     referenceImageKey: 'first_frame_image',
     referenceDescription: 'First frame image. The video starts from this image with realistic human motion and cinematic VFX effects. Best with high-quality, well-composed images.',
@@ -1329,7 +1342,8 @@ export const VIDEO_MODELS: AIModel[] = [
     brand: 'Kuaishou (Kling)',
     description: 'Premium Kling. Up to 10 seconds. Superb dynamics and prompt adherence. Text or image input.',
     category: 'video',
-    creditCost: 12,
+    // Real cost: ~$0.98/10s → with 30% margin: $1.27 → 21 credits
+    creditCost: 21,
     supportsReferenceImage: true,
     referenceImageKey: 'start_image',
     referenceDescription: 'Starting frame image for premium video generation. The model creates video with superior dynamics and prompt adherence starting from this image.',
@@ -1383,7 +1397,8 @@ export const VIDEO_MODELS: AIModel[] = [
     brand: 'Alibaba (Wan)',
     description: 'Up to 10 seconds at 1080p with audio sync. Voice/music synchronization. Major upgrade from Wan 2.1.',
     category: 'video',
-    creditCost: 8,
+    // Real cost: ~$0.45/5s (480p) → with 30% margin: $0.59 → 10 credits
+    creditCost: 10,
     supportsReferenceImage: false,
     supportsNegativePrompt: true,
     provider: 'replicate',
@@ -1456,7 +1471,8 @@ export const VIDEO_MODELS: AIModel[] = [
     brand: 'Luma AI',
     description: 'Up to 9 seconds. Cinematic quality with smooth camera motion. Photorealistic at 720p. Supports start + end frame interpolation.',
     category: 'video',
-    creditCost: 10,
+    // Real cost: ~$1.62/9s ($0.18/s) → with 30% margin: $2.11 → 34 credits
+    creditCost: 34,
     supportsReferenceImage: true,
     referenceImageKey: 'start_image',
     referenceDescription: 'Starting frame image. The video begins from this image with smooth cinematic camera motion. Min 512x512, max 4096x4096 pixels.',
@@ -1520,7 +1536,8 @@ export const VIDEO_MODELS: AIModel[] = [
     brand: 'MiniMax',
     description: 'Fixed 6 seconds at 720p/25fps. Reliable text-to-video and image-to-video. Good motion quality.',
     category: 'video',
-    creditCost: 8,
+    // Real cost: ~$0.50/6s → with 30% margin: $0.65 → 11 credits
+    creditCost: 11,
     supportsReferenceImage: true,
     referenceImageKey: 'first_frame_image',
     referenceDescription: 'First frame of the video. The model generates a reliable 6-second video starting from this image with good motion quality.',
@@ -1550,7 +1567,8 @@ export const VIDEO_MODELS: AIModel[] = [
     brand: 'MiniMax',
     description: 'Fixed ~6 seconds. Image-to-video animation. Optimized for Live2D and animation. Requires reference image.',
     category: 'video',
-    creditCost: 8,
+    // Real cost: ~$0.50/6s → with 30% margin: $0.65 → 11 credits
+    creditCost: 11,
     supportsReferenceImage: true,
     requiresReferenceImage: true,
     referenceImageKey: 'first_frame_image',
@@ -1581,7 +1599,8 @@ export const VIDEO_MODELS: AIModel[] = [
     brand: 'Kuaishou (Kling)',
     description: 'Up to 10 seconds. Image-to-video at 720p or 1080p. Requires a starting image.',
     category: 'video',
-    creditCost: 10,
+    // Real cost: ~$0.70/10s → with 30% margin: $0.91 → 15 credits
+    creditCost: 15,
     supportsReferenceImage: true,
     requiresReferenceImage: true,
     referenceImageKey: 'start_image',
@@ -1635,7 +1654,8 @@ export const VIDEO_MODELS: AIModel[] = [
     brand: 'Google DeepMind',
     description: 'Up to 8 seconds. Realistic motion, high-quality output. Mature and stable model.',
     category: 'video',
-    creditCost: 8,
+    // Real cost: ~$4.00/8s ($0.50/s) → with 30% margin: $5.20 → 84 credits
+    creditCost: 84,
     supportsReferenceImage: true,
     referenceImageKey: 'image',
     referenceDescription: 'Reference image for visual guidance. The model generates realistic video motion while preserving the style and visual elements of this image.',

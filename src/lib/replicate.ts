@@ -71,8 +71,9 @@ export const PLATFORM_IMAGE_DIMENSIONS: Record<string, { width: number; height: 
   NOSTR: { width: 1200, height: 675 },
 };
 
-// Credit costs for AI generation
+// Credit costs for AI generation (legacy — actual costs come from ai-models.ts per model)
+// These are minimum costs used as fallback only
 export const GENERATION_COSTS = {
-  GENERATE_IMAGE: 3,
-  GENERATE_VIDEO: 8,
+  GENERATE_IMAGE: 1,
+  GENERATE_VIDEO: 10,
 };

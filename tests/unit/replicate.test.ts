@@ -93,11 +93,11 @@ describe('Replicate Configuration', () => {
 
   describe('GENERATION_COSTS', () => {
     it('should have image generation cost', () => {
-      expect(GENERATION_COSTS.GENERATE_IMAGE).toBe(3);
+      expect(GENERATION_COSTS.GENERATE_IMAGE).toBe(1);
     });
 
     it('should have video generation cost', () => {
-      expect(GENERATION_COSTS.GENERATE_VIDEO).toBe(8);
+      expect(GENERATION_COSTS.GENERATE_VIDEO).toBe(10);
     });
 
     it('should have video cost higher than image cost', () => {
