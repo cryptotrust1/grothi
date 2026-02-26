@@ -390,7 +390,11 @@ async function generateContent(
     const ap = params.audienceProfile;
     const profileParts: string[] = ['=== TARGET AUDIENCE PROFILE ==='];
 
+    if (ap.audienceName) profileParts.push(`Audience name: ${ap.audienceName}`);
     if (ap.summary) profileParts.push(`Audience summary: ${ap.summary}`);
+    if (ap.transformation) profileParts.push(`TRANSFORMATION: ${ap.transformation} — Every piece of content should move them along this journey.`);
+
+    // Demographics
     if (ap.ageRange) profileParts.push(`Age range: ${ap.ageRange}`);
     if (ap.gender) profileParts.push(`Gender: ${ap.gender}`);
     if (ap.location) profileParts.push(`Location: ${ap.location}`);
@@ -399,33 +403,68 @@ async function generateContent(
     if (ap.incomeLevel) profileParts.push(`Income level: ${ap.incomeLevel}`);
     if (ap.education) profileParts.push(`Education: ${ap.education}`);
 
+    // Psychographics
     if (ap.interests) profileParts.push(`\nInterests & Hobbies: ${ap.interests}`);
     if (ap.values) profileParts.push(`Core values: ${ap.values}`);
     if (ap.lifestyle) profileParts.push(`Lifestyle: ${ap.lifestyle}`);
     if (ap.onlineBehavior) profileParts.push(`Online behavior: ${ap.onlineBehavior}`);
-    if (ap.socialPlatforms) profileParts.push(`Primary social platforms: ${ap.socialPlatforms}`);
     if (ap.contentPreferences) profileParts.push(`Content preferences: ${ap.contentPreferences}`);
+    if (ap.followMotivation) profileParts.push(`Primary reason they follow accounts: ${ap.followMotivation}`);
 
-    if (ap.painPoints) profileParts.push(`\nPAIN POINTS (problems they face): ${ap.painPoints}`);
-    if (ap.desires) profileParts.push(`DESIRES (what they want to achieve): ${ap.desires}`);
-    if (ap.fears) profileParts.push(`FEARS (what they want to avoid): ${ap.fears}`);
+    // Core psychology — pain/gain framework (highest impact on content)
+    if (ap.painPoints) profileParts.push(`\nPAIN POINTS (problems they face — address these directly): ${ap.painPoints}`);
+    if (ap.desires) profileParts.push(`DESIRES (what they want to achieve — speak to these aspirations): ${ap.desires}`);
+    if (ap.biggestFear) profileParts.push(`BIGGEST FEAR (what keeps them up at night): ${ap.biggestFear}`);
+    if (ap.aspirationalIdentity) profileParts.push(`ASPIRATIONAL IDENTITY (who they want to become): ${ap.aspirationalIdentity}`);
     if (ap.objections) profileParts.push(`OBJECTIONS (why they hesitate to buy/follow): ${ap.objections}`);
+    if (ap.commonQuestions) profileParts.push(`QUESTIONS THEY ASK (use these as content inspiration): ${ap.commonQuestions}`);
 
-    if (ap.buyingTriggers) profileParts.push(`\nBUYING TRIGGERS: ${ap.buyingTriggers}`);
-    if (ap.followReasons) profileParts.push(`WHY THEY FOLLOW: ${ap.followReasons}`);
-    if (ap.decisionFactors) profileParts.push(`DECISION FACTORS: ${ap.decisionFactors}`);
+    // Vocabulary — critical for authentic voice
+    if (ap.wordsTheyUse) profileParts.push(`\nWORDS & PHRASES TO USE (their actual vocabulary): ${ap.wordsTheyUse}`);
+    if (ap.wordsToAvoid) profileParts.push(`WORDS & PHRASES TO AVOID (will make content feel inauthentic): ${ap.wordsToAvoid}`);
 
+    // Buying psychology
+    if (ap.buyingTriggers) profileParts.push(`\nBUYING TRIGGERS (what makes them take action): ${ap.buyingTriggers}`);
+    if (ap.decisionFactors) profileParts.push(`DECISION STYLE: ${ap.decisionFactors}`);
+    if (ap.purchaseStage) profileParts.push(`PURCHASE STAGE: ${ap.purchaseStage}`);
+    if (ap.priceSensitivity) profileParts.push(`PRICE SENSITIVITY: ${ap.priceSensitivity}`);
+    if (ap.trustBarriers) profileParts.push(`TRUST BARRIERS: ${ap.trustBarriers}`);
+
+    // Competitive & relationship context
     if (ap.brandRelationship) profileParts.push(`\nRelationship with brand: ${ap.brandRelationship}`);
     if (ap.competitors) profileParts.push(`Competitors they follow: ${ap.competitors}`);
     if (ap.influencers) profileParts.push(`Influencers they trust: ${ap.influencers}`);
 
+    // Communication strategy
     if (ap.communicationStyle) profileParts.push(`\nHow to communicate with them: ${ap.communicationStyle}`);
     if (ap.emotionalHooks) profileParts.push(`Emotional hooks that work: ${ap.emotionalHooks}`);
     if (ap.avoidTopics) profileParts.push(`Topics/approaches to AVOID: ${ap.avoidTopics}`);
 
+    // Purchase stage → content strategy mapping (Eugene Schwartz awareness model)
+    if (ap.purchaseStage) {
+      const stageDirectives: Record<string, string> = {
+        unaware: 'Audience is UNAWARE of their problem. Focus on curiosity-driven content — make them realize they have a problem without selling. Use stories, questions, and relatable scenarios.',
+        problem_aware: 'Audience KNOWS they have a problem but not the solution. Validate their struggles, name the problem clearly, and hint at solutions without hard-selling.',
+        exploring: 'Audience is EXPLORING solutions. Provide educational content — how-tos, comparisons, frameworks. Position the brand as a knowledgeable guide.',
+        comparing: 'Audience is COMPARING options. Use social proof, case studies, data, and differentiators. Show why this solution is better than alternatives.',
+        ready_to_buy: 'Audience is READY TO BUY. Use clear CTAs, urgency, limited offers, and remove final objections. Focus on risk-reversal (guarantees, free trials).',
+        existing_customer: 'Audience is ALREADY A CUSTOMER. Focus on community, loyalty, advanced tips, and cross-sell. Make them feel valued and encourage advocacy.',
+      };
+      const directive = stageDirectives[ap.purchaseStage as string];
+      if (directive) {
+        profileParts.push(`\nCONTENT STRATEGY FOR PURCHASE STAGE: ${directive}`);
+      }
+    }
+
     profileParts.push('');
     profileParts.push('INSTRUCTIONS: Use this audience profile to create content that deeply resonates with these specific people.');
-    profileParts.push('Address their pain points, speak to their desires, use language they relate to, and trigger the psychological factors that drive them to engage, follow, and buy.');
+    profileParts.push('Address their pain points, speak to their desires, use their vocabulary (not corporate language), and trigger the psychological factors that drive them to engage, follow, and buy.');
+    if (ap.wordsTheyUse) {
+      profileParts.push(`CRITICAL: Naturally incorporate their language: ${(ap.wordsTheyUse as string).split(',').slice(0, 5).map(w => `"${w.trim()}"`).join(', ')}`);
+    }
+    if (ap.wordsToAvoid) {
+      profileParts.push(`NEVER use these words/phrases: ${ap.wordsToAvoid}`);
+    }
     profileParts.push('');
 
     systemParts.push(...profileParts);

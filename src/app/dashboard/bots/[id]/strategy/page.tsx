@@ -102,13 +102,13 @@ export default async function ContentStrategyPage({
 
     // Collect all audience profile fields — trimmed, empty strings become absent
     const fields = [
-      'audienceName', 'summary', 'ageRange', 'gender', 'location', 'languages',
-      'occupation', 'incomeLevel', 'education', 'companySize',
+      'audienceName', 'summary', 'transformation', 'ageRange', 'gender', 'location', 'languages',
+      'occupation', 'incomeLevel', 'education',
       'interests', 'values', 'lifestyle', 'onlineBehavior', 'contentPreferences',
       'painPoint1', 'painPoint2', 'painPoint3',
       'desire1', 'desire2', 'desire3',
       'followMotivation', 'aspirationalIdentity', 'biggestFear',
-      'buyingTriggers', 'followReasons', 'decisionFactors', 'purchaseStage',
+      'buyingTriggers', 'decisionFactors', 'purchaseStage',
       'trustBarriers', 'priceSensitivity',
       'wordsTheyUse', 'wordsToAvoid', 'commonQuestions', 'objections',
       'communicationStyle', 'emotionalHooks', 'avoidTopics',
@@ -429,6 +429,18 @@ export default async function ContentStrategyPage({
               <textarea name="ap_summary" defaultValue={audienceProfile.summary || ''} placeholder="Describe your ideal follower/customer in 2-3 sentences. Who are they? What do they do? What matters to them?" className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground" />
             </div>
 
+            {/* Transformation Statement — StoryBrand framework */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-emerald-600" />
+                <Label>Transformation Statement</Label>
+                <HelpTip text="The single most powerful framing for your content. Complete this sentence: 'My audience wants to go FROM [current frustrating state] TO [desired dream state].' This gives the AI the emotional core of every post. Based on Donald Miller's StoryBrand framework." />
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <input type="text" name="ap_transformation" defaultValue={audienceProfile.transformation || ''} placeholder="FROM [current state] → TO [desired state], e.g. 'FROM overwhelmed solopreneur posting randomly → TO confident brand with automated growth'" className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm" />
+              </div>
+            </div>
+
             {/* Pain Points — the highest-impact field */}
             <div className="space-y-3">
               <div className="flex items-center gap-2">
@@ -560,16 +572,8 @@ export default async function ContentStrategyPage({
               <div className="grid gap-3 sm:grid-cols-2 mt-3">
                 <div className="space-y-1">
                   <Label className="text-xs">Why They Follow Accounts</Label>
-                  <select name="ap_followMotivation" defaultValue={audienceProfile.followMotivation || ''} className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm">
-                    <option value="">Not specified</option>
-                    <option value="learn">To learn something new / get tips</option>
-                    <option value="stay_updated">To stay updated on industry/news</option>
-                    <option value="entertainment">To be entertained / have fun</option>
-                    <option value="connection">To feel connected / part of community</option>
-                    <option value="deals">To get deals and offers</option>
-                    <option value="inspiration">To be inspired / motivated</option>
-                    <option value="identity">Identity alignment / "this is who I am"</option>
-                  </select>
+                  <HelpTip text="People follow accounts for multiple reasons. List all that apply — this determines the ideal content mix between educational, entertaining, and inspirational posts." />
+                  <input type="text" name="ap_followMotivation" defaultValue={audienceProfile.followMotivation || ''} placeholder="e.g. learn new skills, stay updated, entertainment, community, deals, inspiration" className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm" />
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Content Preferences</Label>
@@ -687,11 +691,12 @@ export default async function ContentStrategyPage({
               <p className="font-medium text-blue-900 flex items-center gap-1.5"><Brain className="h-4 w-4" /> How Audience Intelligence works</p>
               <ul className="text-xs text-blue-700 space-y-1 list-disc list-inside">
                 <li><strong>Pain points</strong> drive problem-aware content that makes people stop scrolling</li>
-                <li><strong>Audience vocabulary</strong> makes AI-generated content sound authentic and relatable</li>
+                <li><strong>Audience vocabulary</strong> is injected into AI prompts so content uses their exact words</li>
+                <li><strong>Transformation statement</strong> gives every post emotional direction (FROM → TO)</li>
                 <li><strong>Desires & aspirations</strong> create emotional resonance and inspire action</li>
+                <li><strong>Purchase stage</strong> automatically adapts content strategy (educational → social proof → CTA)</li>
                 <li><strong>Buying psychology</strong> helps the AI craft posts that move people from awareness to purchase</li>
                 <li><strong>Follow motivation</strong> determines the ideal content mix (educational vs entertaining vs inspirational)</li>
-                <li>The AI uses all of this to address objections, speak their language, and trigger the right emotions</li>
               </ul>
             </div>
 
