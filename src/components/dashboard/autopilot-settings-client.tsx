@@ -247,7 +247,6 @@ export function AutopilotSettingsClient({
             <div className="flex items-center gap-3">
               <Label className="text-xs font-medium">Promote</Label>
               <select
-                name="productRotationMode"
                 value={productRotationMode}
                 onChange={(e) => setProductRotationMode(e.target.value)}
                 className="flex h-8 rounded-md border border-input bg-background px-2 py-1 text-xs"
