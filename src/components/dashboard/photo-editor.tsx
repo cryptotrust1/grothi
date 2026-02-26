@@ -24,6 +24,7 @@ import {
   type ShapeOverlay,
   type FrameConfig,
   type CropState,
+  type ExportFormat,
   PHOTO_FILTERS,
   PHOTO_FILTER_CATEGORY_LABELS,
   PHOTO_ADJUSTMENT_DEFS,
@@ -34,6 +35,7 @@ import {
   FRAME_PRESETS,
   SHAPE_TYPES,
   BRUSH_SIZES,
+  EXPORT_FORMATS,
   createDefaultAdjustments,
   createDefaultTextOverlay,
   buildCompositeCSSFilter,
@@ -134,6 +136,20 @@ export function PhotoEditorPanel({ images, botId, botPageId }: PhotoEditorPanelP
 
   // ── Frame ──
   const [frame, setFrame] = useState<FrameConfig | null>(null);
+
+  // ── Export format ──
+  const [exportFormat, setExportFormat] = useState<ExportFormat>(EXPORT_FORMATS[0]);
+  const [exportQuality, setExportQuality] = useState(90);
+
+  // ── Overlay dragging ──
+  const [overlayDrag, setOverlayDrag] = useState<{
+    id: string;
+    type: 'text' | 'shape';
+    startX: number;
+    startY: number;
+    startPosX: number;
+    startPosY: number;
+  } | null>(null);
 
   // ── Undo/Redo ──
   const [undoStack, setUndoStack] = useState<EditorSnapshot[]>([]);
@@ -569,18 +585,19 @@ export function PhotoEditorPanel({ images, botId, botPageId }: PhotoEditorPanelP
         }
       }
 
-      // Export as blob
+      // Export as blob in selected format
+      const quality = exportFormat.supportsQuality ? exportQuality / 100 : 1.0;
       const blob = await new Promise<Blob>((resolve, reject) => {
         canvas.toBlob(
           (b) => (b ? resolve(b) : reject(new Error('Failed to export image'))),
-          'image/png',
-          1.0
+          exportFormat.mime,
+          quality
         );
       });
 
       // Upload to server
       const formData = new FormData();
-      formData.append('file', blob, `edited-${Date.now()}.png`);
+      formData.append('file', blob, `edited-${Date.now()}.${exportFormat.ext}`);
       formData.append('botId', botId);
 
       const res = await fetch('/api/media', { method: 'POST', body: formData });
@@ -593,14 +610,14 @@ export function PhotoEditorPanel({ images, botId, botPageId }: PhotoEditorPanelP
       setResult({
         mediaId: data.id,
         url: `/api/media/${data.id}`,
-        filename: data.filename || `edited-${Date.now()}.png`,
+        filename: data.filename || `edited-${Date.now()}.${exportFormat.ext}`,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Export failed');
     } finally {
       setProcessing(false);
     }
-  }, [selectedImageId, crop, frame, rotation, flipH, flipV, selectedFilterId, adjustments, drawStrokes, shapes, textOverlays, botId]);
+  }, [selectedImageId, crop, frame, rotation, flipH, flipV, selectedFilterId, adjustments, drawStrokes, shapes, textOverlays, botId, exportFormat, exportQuality]);
 
   // ── Keyboard shortcuts ──
   useEffect(() => {
@@ -717,6 +734,45 @@ export function PhotoEditorPanel({ images, botId, botPageId }: PhotoEditorPanelP
     };
   }, [cropDrag]);
 
+  // ── Overlay drag handlers ──
+  const handleOverlayDragStart = useCallback((e: React.PointerEvent, id: string, type: 'text' | 'shape', posX: number, posY: number) => {
+    if (activeTool === 'draw' || isCropping) return;
+    e.stopPropagation();
+    e.preventDefault();
+    setSelectedOverlayId(id);
+    setActiveTool(type);
+    setOverlayDrag({ id, type, startX: e.clientX, startY: e.clientY, startPosX: posX, startPosY: posY });
+  }, [activeTool, isCropping]);
+
+  useEffect(() => {
+    if (!overlayDrag) return;
+    let moved = false;
+    const handleMove = (e: PointerEvent) => {
+      if (!overlayDrag || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const dx = ((e.clientX - overlayDrag.startX) / rect.width) * 100;
+      const dy = ((e.clientY - overlayDrag.startY) / rect.height) * 100;
+      if (!moved && (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5)) {
+        moved = true;
+        pushUndo('Move overlay');
+      }
+      const newX = Math.max(0, Math.min(100, overlayDrag.startPosX + dx));
+      const newY = Math.max(0, Math.min(100, overlayDrag.startPosY + dy));
+      if (overlayDrag.type === 'text') {
+        setTextOverlays(prev => prev.map(t => t.id === overlayDrag.id ? { ...t, x: newX, y: newY } : t));
+      } else {
+        setShapes(prev => prev.map(s => s.id === overlayDrag.id ? { ...s, x: newX, y: newY } : s));
+      }
+    };
+    const handleUp = () => setOverlayDrag(null);
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+    return () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+    };
+  }, [overlayDrag, pushUndo]);
+
   // ═══════════ RENDER ═══════════
 
   if (images.length === 0) {
@@ -749,10 +805,10 @@ export function PhotoEditorPanel({ images, botId, botPageId }: PhotoEditorPanelP
           <button
             key={tool}
             onClick={() => {
+              if (activeTool === tool) return;
               setActiveTool(tool);
+              setSelectedOverlayId(null);
               if (tool === 'crop') startCrop();
-              if (tool === 'text') addText();
-              if (tool === 'shape') addShape();
             }}
             className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-colors ${
               activeTool === tool
@@ -971,13 +1027,13 @@ export function PhotoEditorPanel({ images, botId, botPageId }: PhotoEditorPanelP
               {textOverlays.map(t => (
                 <div
                   key={t.id}
-                  className={`absolute cursor-move select-none ${
-                    selectedOverlayId === t.id ? 'ring-2 ring-primary ring-offset-1' : ''
+                  className={`absolute cursor-move select-none touch-none ${
+                    selectedOverlayId === t.id ? 'ring-2 ring-primary ring-offset-1' : 'hover:ring-1 hover:ring-primary/40'
                   }`}
                   style={{
                     left: `${t.x}%`, top: `${t.y}%`,
                     transform: `translate(-50%, -50%) rotate(${t.rotation}deg)`,
-                    fontSize: `${Math.max(8, t.fontSize * 0.4)}px`,
+                    fontSize: `${Math.max(10, t.fontSize * 0.5)}px`,
                     fontFamily: t.fontFamily,
                     color: t.color,
                     backgroundColor: t.backgroundColor !== 'transparent' ? t.backgroundColor : undefined,
@@ -988,15 +1044,12 @@ export function PhotoEditorPanel({ images, botId, botPageId }: PhotoEditorPanelP
                     opacity: t.opacity,
                     textShadow: t.shadow ? '1px 1px 3px rgba(0,0,0,0.5)' : undefined,
                     WebkitTextStroke: t.outline ? '1px #000' : undefined,
-                    padding: '2px 4px',
+                    padding: '4px 8px',
                     whiteSpace: 'nowrap',
                     pointerEvents: activeTool === 'draw' ? 'none' : 'auto',
+                    zIndex: selectedOverlayId === t.id ? 20 : 10,
                   }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedOverlayId(t.id);
-                    setActiveTool('text');
-                  }}
+                  onPointerDown={(e) => handleOverlayDragStart(e, t.id, 'text', t.x, t.y)}
                 >
                   {t.text}
                 </div>
@@ -1006,8 +1059,8 @@ export function PhotoEditorPanel({ images, botId, botPageId }: PhotoEditorPanelP
               {shapes.map(s => (
                 <div
                   key={s.id}
-                  className={`absolute cursor-move ${
-                    selectedOverlayId === s.id ? 'ring-2 ring-primary' : ''
+                  className={`absolute cursor-move touch-none ${
+                    selectedOverlayId === s.id ? 'ring-2 ring-primary' : 'hover:ring-1 hover:ring-primary/40'
                   }`}
                   style={{
                     left: `${s.x}%`, top: `${s.y}%`,
@@ -1015,11 +1068,9 @@ export function PhotoEditorPanel({ images, botId, botPageId }: PhotoEditorPanelP
                     transform: `rotate(${s.rotation}deg)`,
                     opacity: s.opacity,
                     pointerEvents: activeTool === 'draw' ? 'none' : 'auto',
+                    zIndex: selectedOverlayId === s.id ? 20 : 10,
                   }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedOverlayId(s.id);
-                  }}
+                  onPointerDown={(e) => handleOverlayDragStart(e, s.id, 'shape', s.x, s.y)}
                 >
                   <svg viewBox="0 0 100 100" className="w-full h-full" preserveAspectRatio="none">
                     {s.type === 'rectangle' && (
@@ -1221,11 +1272,19 @@ export function PhotoEditorPanel({ images, botId, botPageId }: PhotoEditorPanelP
           )}
 
           {/* ── Text Properties ── */}
-          {activeTool === 'text' && selectedText && (
+          {activeTool === 'text' && (
             <>
-              <SectionHeader id="text-props" icon={Type} label="Text Properties" />
+              <SectionHeader id="text-props" icon={Type} label="Text" />
               {!collapsedSections['text-props'] && (
                 <div className="p-2 space-y-2 border-b">
+                  <Button size="sm" className="w-full text-[10px] h-6 gap-1" onClick={addText}>
+                    <Type className="h-2.5 w-2.5" /> Add New Text
+                  </Button>
+                  {textOverlays.length > 0 && !selectedText && (
+                    <p className="text-[10px] text-muted-foreground text-center">Click a text overlay to select it</p>
+                  )}
+                  {selectedText && (
+                  <>
                   <div>
                     <Label className="text-[10px]">Content</Label>
                     <Input
@@ -1318,6 +1377,8 @@ export function PhotoEditorPanel({ images, botId, botPageId }: PhotoEditorPanelP
                   <Button variant="destructive" size="sm" className="w-full text-[10px] h-6 gap-1" onClick={deleteSelectedOverlay}>
                     <Trash2 className="h-2.5 w-2.5" /> Delete Text
                   </Button>
+                  </>
+                  )}
                 </div>
               )}
             </>
@@ -1411,8 +1472,16 @@ export function PhotoEditorPanel({ images, botId, botPageId }: PhotoEditorPanelP
                     </div>
                   </div>
                   <Button size="sm" className="w-full text-[10px] h-6 gap-1" onClick={addShape}>
-                    Add Shape
+                    <Square className="h-2.5 w-2.5" /> Add Shape
                   </Button>
+                  {shapes.length > 0 && (
+                    <p className="text-[10px] text-muted-foreground text-center">Drag shapes to reposition</p>
+                  )}
+                  {selectedOverlayId && shapes.some(s => s.id === selectedOverlayId) && (
+                    <Button variant="destructive" size="sm" className="w-full text-[10px] h-6 gap-1" onClick={deleteSelectedOverlay}>
+                      <Trash2 className="h-2.5 w-2.5" /> Delete Shape
+                    </Button>
+                  )}
                 </div>
               )}
             </>
@@ -1437,6 +1506,54 @@ export function PhotoEditorPanel({ images, botId, botPageId }: PhotoEditorPanelP
                   </button>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* ── Export Format ── */}
+          <SectionHeader id="export-format" icon={Download} label="Export Format" />
+          {!collapsedSections['export-format'] && (
+            <div className="p-2 space-y-2 border-b">
+              <div className="flex gap-1">
+                {EXPORT_FORMATS.map(f => (
+                  <button
+                    key={f.value}
+                    onClick={() => setExportFormat(f)}
+                    className={`flex-1 text-[10px] px-2 py-1.5 rounded border text-center font-medium ${
+                      exportFormat.value === f.value
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-muted hover:border-primary/40'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+              {exportFormat.supportsQuality && (
+                <div className="space-y-0.5">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-[10px]">Quality</Label>
+                    <span className="text-[10px] text-muted-foreground">{exportQuality}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={10}
+                    max={100}
+                    step={5}
+                    value={exportQuality}
+                    onChange={(e) => setExportQuality(Number(e.target.value))}
+                    className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                  />
+                  <div className="flex justify-between text-[9px] text-muted-foreground">
+                    <span>Smaller file</span>
+                    <span>Best quality</span>
+                  </div>
+                </div>
+              )}
+              <p className="text-[9px] text-muted-foreground">
+                {exportFormat.value === 'png' && 'Lossless, best for graphics with transparency'}
+                {exportFormat.value === 'jpeg' && 'Smaller files, great for photos (no transparency)'}
+                {exportFormat.value === 'webp' && 'Modern format, smaller files with high quality'}
+              </p>
             </div>
           )}
         </div>

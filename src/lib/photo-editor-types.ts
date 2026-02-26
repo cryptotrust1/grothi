@@ -172,12 +172,15 @@ export type PhotoFilterCategory =
   | 'warm'
   | 'vivid'
   | 'muted'
-  | 'social';
+  | 'social'
+  | 'beauty'
+  | 'fun';
 
 export const PHOTO_FILTER_CATEGORY_LABELS: Record<PhotoFilterCategory, string> = {
   original:  'Original',
   natural:   'Natural',
   portrait:  'Portrait',
+  beauty:    'Beauty',
   cinematic: 'Cinematic',
   vintage:   'Vintage',
   mono:      'B&W',
@@ -186,6 +189,7 @@ export const PHOTO_FILTER_CATEGORY_LABELS: Record<PhotoFilterCategory, string> =
   vivid:     'Vivid',
   muted:     'Muted',
   social:    'Social',
+  fun:       'Fun',
 };
 
 export interface PhotoFilter {
@@ -296,6 +300,28 @@ export const PHOTO_FILTERS: PhotoFilter[] = [
   { id: 'dust', name: 'Dust', category: 'muted',
     cssFilter: 'saturate(0.65) contrast(0.9) brightness(1.05) sepia(0.12)' },
 
+  // ── Beauty (skin smoothing, rejuvenation, glow) ──
+  { id: 'skin_smooth', name: 'Skin Smooth', category: 'beauty',
+    cssFilter: 'brightness(1.06) contrast(0.9) saturate(0.92) blur(0.4px)' },
+  { id: 'soft_glow', name: 'Soft Glow', category: 'beauty',
+    cssFilter: 'brightness(1.1) contrast(0.88) saturate(0.95) blur(0.5px) sepia(0.03)' },
+  { id: 'fair_skin', name: 'Fair Skin', category: 'beauty',
+    cssFilter: 'brightness(1.12) contrast(0.92) saturate(0.85) sepia(0.05)' },
+  { id: 'warm_glow', name: 'Warm Glow', category: 'beauty',
+    cssFilter: 'brightness(1.08) contrast(0.95) saturate(1.05) sepia(0.12) hue-rotate(-5deg) blur(0.3px)' },
+  { id: 'rosy', name: 'Rosy', category: 'beauty',
+    cssFilter: 'brightness(1.05) contrast(0.95) saturate(1.1) sepia(0.08) hue-rotate(-8deg)' },
+  { id: 'fresh_face', name: 'Fresh Face', category: 'beauty',
+    cssFilter: 'brightness(1.08) contrast(1.02) saturate(1.08) sepia(0.02)' },
+  { id: 'dewy', name: 'Dewy', category: 'beauty',
+    cssFilter: 'brightness(1.1) contrast(0.9) saturate(1.05) blur(0.3px)' },
+  { id: 'flawless', name: 'Flawless', category: 'beauty',
+    cssFilter: 'brightness(1.08) contrast(0.88) saturate(0.9) blur(0.5px) sepia(0.03)' },
+  { id: 'rejuvenate', name: 'Rejuvenate', category: 'beauty',
+    cssFilter: 'brightness(1.1) contrast(0.92) saturate(0.95) sepia(0.06) hue-rotate(-3deg) blur(0.4px)' },
+  { id: 'radiant', name: 'Radiant', category: 'beauty',
+    cssFilter: 'brightness(1.12) contrast(0.95) saturate(1.1) sepia(0.04) blur(0.2px)' },
+
   // ── Social (optimized for social platforms) ──
   { id: 'insta', name: 'Insta', category: 'social',
     cssFilter: 'contrast(1.1) saturate(1.3) brightness(1.05) sepia(0.1)' },
@@ -303,6 +329,42 @@ export const PHOTO_FILTERS: PhotoFilter[] = [
     cssFilter: 'contrast(1.05) saturate(1.2) brightness(1.08)' },
   { id: 'feed', name: 'Feed', category: 'social',
     cssFilter: 'contrast(1.12) saturate(1.15) brightness(1.02)' },
+  { id: 'clarendon', name: 'Clarendon', category: 'social',
+    cssFilter: 'contrast(1.2) saturate(1.35) brightness(1.05)' },
+  { id: 'juno', name: 'Juno', category: 'social',
+    cssFilter: 'contrast(1.05) saturate(1.4) brightness(1.02) sepia(0.08) hue-rotate(-5deg)' },
+  { id: 'lark', name: 'Lark', category: 'social',
+    cssFilter: 'contrast(0.9) saturate(0.85) brightness(1.12) sepia(0.05)' },
+  { id: 'ludwig', name: 'Ludwig', category: 'social',
+    cssFilter: 'contrast(1.05) saturate(0.9) brightness(1.05) sepia(0.08)' },
+  { id: 'valencia', name: 'Valencia', category: 'social',
+    cssFilter: 'contrast(1.08) saturate(1.1) brightness(1.08) sepia(0.15) hue-rotate(-5deg)' },
+
+  // ── Fun (creative, funny, artistic effects) ──
+  { id: 'invert', name: 'Invert', category: 'fun',
+    cssFilter: 'invert(1)' },
+  { id: 'x_ray', name: 'X-Ray', category: 'fun',
+    cssFilter: 'invert(1) hue-rotate(180deg) contrast(1.2)' },
+  { id: 'thermal', name: 'Thermal', category: 'fun',
+    cssFilter: 'saturate(3) hue-rotate(180deg) contrast(1.3) brightness(0.9)' },
+  { id: 'night_vision', name: 'Night Vision', category: 'fun',
+    cssFilter: 'brightness(1.3) contrast(1.5) saturate(0.3) hue-rotate(90deg) sepia(0.3)' },
+  { id: 'psychedelic', name: 'Psychedelic', category: 'fun',
+    cssFilter: 'saturate(4) hue-rotate(90deg) contrast(1.2) brightness(1.1)' },
+  { id: 'alien', name: 'Alien', category: 'fun',
+    cssFilter: 'hue-rotate(120deg) saturate(1.8) contrast(1.15) brightness(0.95)' },
+  { id: 'radioactive', name: 'Radioactive', category: 'fun',
+    cssFilter: 'hue-rotate(80deg) saturate(2.5) contrast(1.3) brightness(1.05)' },
+  { id: 'old_tv', name: 'Old TV', category: 'fun',
+    cssFilter: 'grayscale(0.7) contrast(1.5) brightness(0.9) sepia(0.2)' },
+  { id: 'comic', name: 'Comic', category: 'fun',
+    cssFilter: 'saturate(2) contrast(1.8) brightness(1.05)' },
+  { id: 'zombie', name: 'Zombie', category: 'fun',
+    cssFilter: 'saturate(0.5) hue-rotate(60deg) contrast(1.3) brightness(0.85) sepia(0.2)' },
+  { id: 'infrared', name: 'Infrared', category: 'fun',
+    cssFilter: 'hue-rotate(-30deg) saturate(2.5) contrast(1.2) brightness(1.05) sepia(0.15)' },
+  { id: 'underwater', name: 'Underwater', category: 'fun',
+    cssFilter: 'hue-rotate(180deg) saturate(0.8) contrast(1.1) brightness(0.9) sepia(0.1)' },
 ];
 
 // ── Adjustment Definitions ──────────────────────────────────────────────────
@@ -429,6 +491,22 @@ export const SHAPE_TYPES = [
   { value: 'triangle',  label: 'Triangle' },
   { value: 'star',      label: 'Star' },
 ] as const;
+
+// ── Export Format Config ────────────────────────────────────────────────────
+
+export interface ExportFormat {
+  value: string;
+  label: string;
+  mime: string;
+  ext: string;
+  supportsQuality: boolean;
+}
+
+export const EXPORT_FORMATS: ExportFormat[] = [
+  { value: 'png',  label: 'PNG',  mime: 'image/png',  ext: 'png',  supportsQuality: false },
+  { value: 'jpeg', label: 'JPEG', mime: 'image/jpeg', ext: 'jpg',  supportsQuality: true },
+  { value: 'webp', label: 'WebP', mime: 'image/webp', ext: 'webp', supportsQuality: true },
+];
 
 // ── Drawing Tool Config ─────────────────────────────────────────────────────
 
