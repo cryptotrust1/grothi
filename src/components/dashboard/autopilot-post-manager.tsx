@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   CheckCircle2, Trash2, Clock, ChevronLeft, ChevronRight, List, CalendarDays,
-  Eye, Pencil, X, Save, ImageIcon, Film, ExternalLink,
+  Eye, Pencil, Save, ImageIcon,
   Heart, MessageCircle, Send, Bookmark, Share2, ThumbsUp,
   Repeat2, MoreHorizontal,
 } from 'lucide-react';
@@ -93,9 +93,12 @@ function PlatformPostPreview({ post, platform, platformName }: {
         {post.mediaId ? (
           <div className="aspect-square bg-muted flex items-center justify-center overflow-hidden">
             {post.mediaType === 'VIDEO' ? (
-              <div className="w-full h-full bg-gray-900 flex items-center justify-center">
-                <Film className="h-12 w-12 text-white/50" />
-              </div>
+              <video
+                src={`/api/media/${post.mediaId}`}
+                controls
+                preload="metadata"
+                className="w-full h-full object-cover"
+              />
             ) : (
               /* eslint-disable-next-line @next/next/no-img-element */
               <img src={`/api/media/${post.mediaId}`} alt="" className="w-full h-full object-cover" loading="lazy" />
@@ -143,9 +146,12 @@ function PlatformPostPreview({ post, platform, platformName }: {
         {post.mediaId && (
           <div className="aspect-video bg-muted flex items-center justify-center overflow-hidden">
             {post.mediaType === 'VIDEO' ? (
-              <div className="w-full h-full bg-gray-900 flex items-center justify-center">
-                <Film className="h-12 w-12 text-white/50" />
-              </div>
+              <video
+                src={`/api/media/${post.mediaId}`}
+                controls
+                preload="metadata"
+                className="w-full h-full object-cover"
+              />
             ) : (
               /* eslint-disable-next-line @next/next/no-img-element */
               <img src={`/api/media/${post.mediaId}`} alt="" className="w-full h-full object-cover" loading="lazy" />
@@ -179,7 +185,12 @@ function PlatformPostPreview({ post, platform, platformName }: {
             {post.mediaId && (
               <div className="mt-2 rounded-lg overflow-hidden border aspect-video bg-muted flex items-center justify-center">
                 {post.mediaType === 'VIDEO' ? (
-                  <Film className="h-8 w-8 text-muted-foreground/40" />
+                  <video
+                    src={`/api/media/${post.mediaId}`}
+                    controls
+                    preload="metadata"
+                    className="w-full h-full object-cover"
+                  />
                 ) : (
                   /* eslint-disable-next-line @next/next/no-img-element */
                   <img src={`/api/media/${post.mediaId}`} alt="" className="w-full h-full object-cover" loading="lazy" />
@@ -215,7 +226,12 @@ function PlatformPostPreview({ post, platform, platformName }: {
             {post.mediaId && (
               <div className="mt-2 rounded-xl overflow-hidden border aspect-video bg-muted flex items-center justify-center">
                 {post.mediaType === 'VIDEO' ? (
-                  <Film className="h-8 w-8 text-muted-foreground/40" />
+                  <video
+                    src={`/api/media/${post.mediaId}`}
+                    controls
+                    preload="metadata"
+                    className="w-full h-full object-cover"
+                  />
                 ) : (
                   /* eslint-disable-next-line @next/next/no-img-element */
                   <img src={`/api/media/${post.mediaId}`} alt="" className="w-full h-full object-cover" loading="lazy" />
@@ -250,9 +266,12 @@ function PlatformPostPreview({ post, platform, platformName }: {
       {post.mediaId && (
         <div className="aspect-video bg-muted flex items-center justify-center overflow-hidden">
           {post.mediaType === 'VIDEO' ? (
-            <div className="w-full h-full bg-gray-900 flex items-center justify-center">
-              <Film className="h-10 w-10 text-white/50" />
-            </div>
+            <video
+              src={`/api/media/${post.mediaId}`}
+              controls
+              preload="metadata"
+              className="w-full h-full object-cover"
+            />
           ) : (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img src={`/api/media/${post.mediaId}`} alt="" className="w-full h-full object-cover" loading="lazy" />
