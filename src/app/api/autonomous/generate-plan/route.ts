@@ -59,14 +59,31 @@ export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser();
     if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json({
+        error: 'Unauthorized',
+        code: 'AUTH_REQUIRED',
+        detail: 'You must be logged in to generate a content plan.',
+      }, { status: 401 });
     }
 
-    const body = await request.json() as GeneratePlanRequest;
+    let body: GeneratePlanRequest;
+    try {
+      body = await request.json() as GeneratePlanRequest;
+    } catch {
+      return NextResponse.json({
+        error: 'Invalid request body',
+        code: 'INVALID_JSON',
+        detail: 'The request body must be valid JSON with a botId field.',
+      }, { status: 400 });
+    }
     const { botId, preview } = body;
 
-    if (!botId) {
-      return NextResponse.json({ error: 'botId is required' }, { status: 400 });
+    if (!botId || typeof botId !== 'string') {
+      return NextResponse.json({
+        error: 'botId is required',
+        code: 'MISSING_BOT_ID',
+        detail: 'Provide a valid bot ID to generate a plan for.',
+      }, { status: 400 });
     }
 
     // Load bot with all related data
@@ -86,7 +103,11 @@ export async function POST(request: NextRequest) {
     });
 
     if (!bot) {
-      return NextResponse.json({ error: 'Bot not found' }, { status: 404 });
+      return NextResponse.json({
+        error: 'Bot not found',
+        code: 'BOT_NOT_FOUND',
+        detail: 'The specified bot does not exist or you do not have access to it.',
+      }, { status: 404 });
     }
 
     // Determine duration and custom start date from either date range or duration param
@@ -123,7 +144,9 @@ export async function POST(request: NextRequest) {
 
     if (connectedPlatforms.length === 0) {
       return NextResponse.json({
-        error: 'No connected platforms. Connect at least one platform before generating a plan.',
+        error: 'No connected platforms',
+        code: 'NO_PLATFORMS',
+        detail: 'Connect at least one social media platform before generating a content plan. Go to Platforms settings to connect your accounts.',
       }, { status: 400 });
     }
 
@@ -157,6 +180,16 @@ export async function POST(request: NextRequest) {
     const hashtagPatterns = (reactorState.hashtagPatterns as string[]) || ['moderate'];
     const selfLearning = (reactorState.selfLearning as boolean) ?? true;
 
+    // Post intensity multiplier — adjusts how many posts per day
+    const intensityLevel = (reactorState.autopilotIntensity as string) || 'recommended';
+    const INTENSITY_MULTIPLIERS: Record<string, number> = {
+      low: 0.5,
+      recommended: 1.0,
+      high: 1.5,
+      extreme: 2.5,
+    };
+    const intensityMultiplier = INTENSITY_MULTIPLIERS[intensityLevel] ?? 1.0;
+
     // Get RL insights for best-performing content dimensions — only if self-learning is enabled
     const rlInsights = selfLearning
       ? getRLInsights(bot.rlArmStates)
@@ -166,14 +199,38 @@ export async function POST(request: NextRequest) {
     const imageMedia = bot.media.filter(m => m.type === 'IMAGE');
     const videoMedia = bot.media.filter(m => m.type === 'VIDEO');
 
-    // Build product rotation pool
-    const products = bot.products;
+    // Build product rotation pool — filter by user selection if applicable
+    const productRotationMode = (reactorState.autopilotProductRotationMode as string) || 'all';
+    const selectedProductIds = (reactorState.autopilotSelectedProductIds as string[]) || [];
+    const products = productRotationMode === 'selected' && selectedProductIds.length > 0
+      ? bot.products.filter(p => selectedProductIds.includes(p.id))
+      : bot.products;
     let productIndex = 0;
 
     // Generate plan slots
     const slots: PlanSlot[] = [];
     // If custom start date is set, use it; otherwise start 1 hour from now
     const startDate = customPlanStart || new Date(now.getTime() + 60 * 60 * 1000);
+
+    // Load existing scheduled posts to detect time conflicts
+    const planEnd = new Date(startDate);
+    planEnd.setDate(planEnd.getDate() + duration);
+    const existingPosts = await db.scheduledPost.findMany({
+      where: {
+        botId,
+        status: { in: ['DRAFT', 'SCHEDULED', 'PUBLISHED', 'PUBLISHING'] },
+        scheduledAt: { gte: startDate, lte: planEnd },
+      },
+      select: { platforms: true, scheduledAt: true },
+    });
+
+    // Build a set of occupied time slots: "PLATFORM:YYYY-MM-DDTHH"
+    const occupiedSlots = new Set<string>();
+    for (const ep of existingPosts) {
+      if (!ep.scheduledAt) continue;
+      const key = `${(ep.platforms as string[])[0]}:${ep.scheduledAt.toISOString().slice(0, 13)}`;
+      occupiedSlots.add(key);
+    }
 
     for (let day = 0; day < duration; day++) {
       const date = new Date(startDate);
@@ -208,6 +265,18 @@ export async function POST(request: NextRequest) {
           dailyImages = plan!.dailyImages;
           dailyVideos = plan!.dailyVideos;
           dailyStories = plan!.dailyStories;
+        }
+
+        // Apply intensity multiplier
+        if (intensityMultiplier !== 1.0) {
+          dailyTexts = Math.max(0, Math.round(dailyTexts * intensityMultiplier));
+          dailyImages = Math.max(0, Math.round(dailyImages * intensityMultiplier));
+          dailyVideos = Math.max(0, Math.round(dailyVideos * intensityMultiplier));
+          dailyStories = Math.max(0, Math.round(dailyStories * intensityMultiplier));
+          // Ensure at least 1 post on low intensity (avoid 0 total)
+          if (intensityMultiplier < 1 && dailyTexts + dailyImages + dailyVideos + dailyStories === 0) {
+            dailyTexts = 1;
+          }
         }
 
         // On non-best days, reduce volume slightly
@@ -288,8 +357,30 @@ export async function POST(request: NextRequest) {
             continue;  // Skip this slot — too close to previous post
           }
 
-          const scheduledAt = new Date(date);
+          let scheduledAt = new Date(date);
           scheduledAt.setHours(slot.hour, Math.floor(Math.random() * 60), 0, 0);
+
+          // Conflict detection: check if a post already exists at this platform+hour
+          const slotKey = `${platform}:${scheduledAt.toISOString().slice(0, 13)}`;
+          if (occupiedSlots.has(slotKey)) {
+            // Try shifting to the next available hour within the same day
+            let shifted = false;
+            for (let offset = 1; offset <= 3; offset++) {
+              const altHour = slot.hour + offset;
+              if (altHour > 23) break;
+              const altAt = new Date(date);
+              altAt.setHours(altHour, Math.floor(Math.random() * 60), 0, 0);
+              const altKey = `${platform}:${altAt.toISOString().slice(0, 13)}`;
+              if (!occupiedSlots.has(altKey)) {
+                scheduledAt = altAt;
+                shifted = true;
+                break;
+              }
+            }
+            if (!shifted) continue; // Skip — no available slot this day for this platform
+          }
+          // Mark this slot as occupied
+          occupiedSlots.add(`${platform}:${scheduledAt.toISOString().slice(0, 13)}`);
 
           // Select content type — use RL insights if available
           const platformBestTypes = algo.bestContentTypes.filter(t =>
@@ -474,8 +565,18 @@ export async function POST(request: NextRequest) {
     const totalCostCheck = finalSlots.length * (generateCostCheck + postCostCheck);
     const balanceCheck = await getUserBalance(user.id);
     if (balanceCheck < totalCostCheck) {
+      const shortfall = totalCostCheck - balanceCheck;
       return NextResponse.json({
-        error: `Not enough credits. Plan requires ${totalCostCheck} credits (${finalSlots.length} posts × ${generateCostCheck + postCostCheck} cr/post) but you only have ${balanceCheck}. Buy more credits to continue.`,
+        error: 'Insufficient credits',
+        code: 'INSUFFICIENT_CREDITS',
+        detail: `This plan requires ${totalCostCheck} credits (${finalSlots.length} posts × ${generateCostCheck + postCostCheck} cr/post) but you only have ${balanceCheck} credits. You need ${shortfall} more credits.`,
+        data: {
+          required: totalCostCheck,
+          available: balanceCheck,
+          shortfall,
+          postsPlanned: finalSlots.length,
+          costPerPost: generateCostCheck + postCostCheck,
+        },
       }, { status: 402 });
     }
 
@@ -540,13 +641,34 @@ export async function POST(request: NextRequest) {
         platformBreakdown,
         startDate: finalSlots[0]?.scheduledAt,
         endDate: finalSlots[finalSlots.length - 1]?.scheduledAt,
+        intensity: intensityLevel,
+        conflictsResolved: existingPosts.length,
       },
     });
   } catch (error) {
-    console.error('[autonomous/generate-plan] Error:', error instanceof Error ? error.message : error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    console.error('[autonomous/generate-plan] Error:', errorMessage);
+    if (errorStack) console.error('[autonomous/generate-plan] Stack:', errorStack);
+
+    // Classify the error for a helpful response
+    let code = 'INTERNAL_ERROR';
+    let detail = 'An unexpected error occurred while generating the content plan. Please try again.';
+    let status = 500;
+
+    if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT')) {
+      code = 'TIMEOUT';
+      detail = 'The plan generation took too long. Try a shorter duration or fewer platforms.';
+      status = 504;
+    } else if (errorMessage.includes('connect') || errorMessage.includes('ECONNREFUSED')) {
+      code = 'DATABASE_ERROR';
+      detail = 'Could not connect to the database. Please try again in a moment.';
+      status = 503;
+    }
+
     return NextResponse.json(
-      { error: 'Failed to generate content plan. Please try again.' },
-      { status: 500 }
+      { error: 'Failed to generate content plan', code, detail },
+      { status }
     );
   }
 }

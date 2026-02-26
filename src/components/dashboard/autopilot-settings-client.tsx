@@ -9,6 +9,11 @@ import { HelpTip } from '@/components/ui/help-tip';
 import { Sparkles, Save, CalendarDays } from 'lucide-react';
 import { AutopilotCustomPrompt } from './autopilot-custom-prompt';
 
+interface ProductItem {
+  id: string;
+  name: string;
+}
+
 interface AutopilotSettingsProps {
   botId: string;
   platforms: string[];
@@ -17,6 +22,9 @@ interface AutopilotSettingsProps {
     planDuration: number;
     contentMixMode: string;
     productRotation: boolean;
+    productRotationMode: string;       // 'all' or 'selected'
+    selectedProductIds: string[];       // IDs of products selected for rotation
+    products: ProductItem[];           // All available products
     productCount: number;
     hasProducts: boolean;
     savedPrompt: string;
@@ -24,6 +32,7 @@ interface AutopilotSettingsProps {
     schedulingMode: string;
     customStartDate: string;
     customEndDate: string;
+    intensity: string;
   };
   saveAction: (formData: FormData) => Promise<void>;
   savePromptAction: (formData: FormData) => Promise<void>;
@@ -46,6 +55,8 @@ export function AutopilotSettingsClient({
   const [contentMixMode, setContentMixMode] = useState(defaults.contentMixMode);
   const [savedPrompt, setSavedPrompt] = useState(defaults.savedPrompt);
   const [schedulingMode, setSchedulingMode] = useState(defaults.schedulingMode || 'DURATION');
+  const [productRotationMode, setProductRotationMode] = useState(defaults.productRotationMode || 'all');
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>(defaults.selectedProductIds || []);
 
   const handleSavePrompt = useCallback((prompt: string) => {
     setSavedPrompt(prompt);
@@ -163,7 +174,31 @@ export function AutopilotSettingsClient({
         </div>
 
         {/* Second row */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {/* Post Intensity */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5">
+              <Label>Post Intensity</Label>
+              <HelpTip text="Controls how many posts per day the autopilot generates. Recommended follows platform best practices. Higher intensity = more posts = more credits used." />
+            </div>
+            <select
+              name="intensity"
+              defaultValue={defaults.intensity || 'recommended'}
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              <option value="low">Low (~1-2 posts/day)</option>
+              <option value="recommended">Recommended (Optimal)</option>
+              <option value="high">High (~4-6 posts/day)</option>
+              <option value="extreme">Extreme (~8-12 posts/day)</option>
+            </select>
+            <p className="text-[10px] text-muted-foreground">
+              {defaults.intensity === 'low' && 'Minimal posting — best for niche audiences or premium content'}
+              {(defaults.intensity === 'recommended' || !defaults.intensity) && 'Balanced — follows platform algorithm research for best reach'}
+              {defaults.intensity === 'high' && 'Aggressive — more content visibility, higher credit usage'}
+              {defaults.intensity === 'extreme' && 'Maximum output — high credit cost, risk of audience fatigue'}
+            </p>
+          </div>
+
           {/* Media Source */}
           <div className="space-y-2">
             <div className="flex items-center gap-1.5">
@@ -183,7 +218,10 @@ export function AutopilotSettingsClient({
 
           {/* Product Rotation */}
           <div className="space-y-2">
-            <Label>Product Rotation</Label>
+            <div className="flex items-center gap-1.5">
+              <Label>Product Rotation</Label>
+              <HelpTip text="Enable to auto-promote your products in autopilot posts. Choose 'Rotate All' to cycle through every product, or 'Select Products' to pick specific ones." />
+            </div>
             <label className="flex items-center gap-2 h-10 cursor-pointer">
               <input
                 type="checkbox"
@@ -193,13 +231,70 @@ export function AutopilotSettingsClient({
               />
               <span className="text-sm">Auto-promote products</span>
             </label>
-            <p className="text-xs text-muted-foreground">
-              {defaults.hasProducts
-                ? `Rotate ${defaults.productCount} product(s) in promo posts`
-                : 'No products added yet'}
-            </p>
+            {defaults.hasProducts ? (
+              <p className="text-xs text-muted-foreground">
+                {defaults.productCount} product(s) available
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">No products added yet</p>
+            )}
           </div>
         </div>
+
+        {/* Product Selection — only shown when rotation is enabled and products exist */}
+        {defaults.hasProducts && (
+          <div className="space-y-3 rounded-md border p-3 bg-muted/20">
+            <div className="flex items-center gap-3">
+              <Label className="text-xs font-medium">Promote</Label>
+              <select
+                name="productRotationMode"
+                value={productRotationMode}
+                onChange={(e) => setProductRotationMode(e.target.value)}
+                className="flex h-8 rounded-md border border-input bg-background px-2 py-1 text-xs"
+              >
+                <option value="all">Rotate All Products ({defaults.productCount})</option>
+                <option value="selected">Select Specific Products</option>
+              </select>
+            </div>
+
+            {productRotationMode === 'selected' && (
+              <div className="space-y-1.5">
+                {defaults.products.map(product => {
+                  const isChecked = selectedProductIds.includes(product.id);
+                  return (
+                    <label key={product.id} className="flex items-center gap-2 cursor-pointer group">
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => {
+                          setSelectedProductIds(prev =>
+                            isChecked
+                              ? prev.filter(pid => pid !== product.id)
+                              : [...prev, product.id]
+                          );
+                        }}
+                        className="h-3.5 w-3.5 rounded border-input"
+                      />
+                      <span className="text-sm group-hover:text-primary transition-colors">{product.name}</span>
+                    </label>
+                  );
+                })}
+                {selectedProductIds.length === 0 && (
+                  <p className="text-[10px] text-amber-600">Select at least one product for promotion</p>
+                )}
+                {selectedProductIds.length > 0 && (
+                  <p className="text-[10px] text-muted-foreground">
+                    {selectedProductIds.length} of {defaults.productCount} product(s) selected for rotation
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Hidden inputs to submit product selection */}
+            <input type="hidden" name="productRotationMode" value={productRotationMode} />
+            <input type="hidden" name="selectedProductIds" value={JSON.stringify(selectedProductIds)} />
+          </div>
+        )}
 
         {/* Hidden field for custom prompt */}
         {contentMixMode === 'CUSTOM_PROMPT' && (
