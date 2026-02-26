@@ -33,11 +33,32 @@ export default async function AutopilotPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ success?: string; error?: string }>;
+  searchParams: Promise<{ success?: string; error?: string; costPreview?: string }>;
 }) {
   const user = await requireAuth();
   const { id } = await params;
   const sp = await searchParams;
+
+  // Parse cost preview from URL if present (from two-step generate flow)
+  let costPreview: {
+    totalPosts: number;
+    totalCredits: number;
+    totalGenerationCredits: number;
+    totalPublishCredits: number;
+    creditsPerPost: number;
+    userBalance: number;
+    hasEnoughCredits: boolean;
+    shortfall: number;
+    platformBreakdown: Record<string, { posts: number; totalCredits: number }>;
+    duration: number;
+  } | null = null;
+  if (sp.costPreview) {
+    try {
+      costPreview = JSON.parse(sp.costPreview);
+    } catch {
+      // Invalid JSON — ignore, user will see default generate button
+    }
+  }
 
   const bot = await db.bot.findFirst({
     where: { id, userId: user.id },
@@ -410,7 +431,7 @@ export default async function AutopilotPage({
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            <AutopilotGenerateButton botId={id} disabled={!hasPlatforms} />
+            <AutopilotGenerateButton botId={id} disabled={!hasPlatforms} showCostPreview={costPreview} />
             {draftCount > 0 && (
               <form action={handleApproveAll}>
                 <Button type="submit" variant="outline" className="w-full gap-2" size="sm">
@@ -827,12 +848,33 @@ export default async function AutopilotPage({
 }
 
 /**
- * Generate button — calls the generate-plan API via server action.
- * Uses direct internal import instead of self-referencing HTTP fetch to avoid
- * network round-trip and cookie forwarding fragility.
+ * Two-step generate flow:
+ * Step 1: "Preview Cost" — calls API with preview:true to calculate exact credits
+ * Step 2: "Confirm & Generate" — shown only after cost is displayed, creates posts
+ *
+ * This ensures users see EXACTLY how many credits the plan will cost before committing.
  */
-function AutopilotGenerateButton({ botId, disabled }: { botId: string; disabled: boolean }) {
-  async function handleGenerate() {
+function AutopilotGenerateButton({
+  botId,
+  disabled,
+  showCostPreview,
+}: {
+  botId: string;
+  disabled: boolean;
+  showCostPreview?: {
+    totalPosts: number;
+    totalCredits: number;
+    totalGenerationCredits: number;
+    totalPublishCredits: number;
+    creditsPerPost: number;
+    userBalance: number;
+    hasEnoughCredits: boolean;
+    shortfall: number;
+    platformBreakdown: Record<string, { posts: number; totalCredits: number }>;
+    duration: number;
+  } | null;
+}) {
+  async function handlePreviewCost() {
     'use server';
     const user = await requireAuth();
     const bot = await db.bot.findFirst({
@@ -840,7 +882,61 @@ function AutopilotGenerateButton({ botId, disabled }: { botId: string; disabled:
     });
     if (!bot) redirect('/dashboard/bots');
 
-    // Build a mock request to call the generate-plan handler directly
+    const baseUrl = process.env.NEXTAUTH_URL || 'https://grothi.com';
+    try {
+      const cookieStore = await cookies();
+      const sessionToken = cookieStore.get('session-token')?.value || '';
+      const res = await fetch(`${baseUrl}/api/autonomous/generate-plan`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Cookie': `session-token=${sessionToken}`,
+        },
+        body: JSON.stringify({ botId, duration: bot.planDuration, preview: true }),
+        signal: AbortSignal.timeout(30_000),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: 'Failed to preview plan' }));
+        redirect(`/dashboard/bots/${botId}/autopilot?error=${encodeURIComponent(data.error || 'Failed to preview plan')}`);
+      }
+
+      const data = await res.json();
+      if (!data.preview || !data.cost) {
+        redirect(`/dashboard/bots/${botId}/autopilot?error=Unexpected response from plan preview`);
+      }
+
+      // Encode cost data in URL params for the confirmation step
+      const c = data.cost;
+      const costParam = encodeURIComponent(JSON.stringify({
+        totalPosts: c.totalPosts,
+        totalCredits: c.totalCredits,
+        totalGenerationCredits: c.totalGenerationCredits,
+        totalPublishCredits: c.totalPublishCredits,
+        creditsPerPost: c.creditsPerPost.total,
+        userBalance: c.userBalance,
+        hasEnoughCredits: c.hasEnoughCredits,
+        shortfall: c.shortfall,
+        platformBreakdown: c.platformBreakdown,
+        duration: c.duration,
+      }));
+      redirect(`/dashboard/bots/${botId}/autopilot?costPreview=${costParam}`);
+    } catch (error: unknown) {
+      // Re-throw Next.js redirect errors (they use error.digest)
+      if (error && typeof error === 'object' && 'digest' in error) throw error;
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      redirect(`/dashboard/bots/${botId}/autopilot?error=${encodeURIComponent('Failed to preview cost: ' + msg)}`);
+    }
+  }
+
+  async function handleConfirmGenerate() {
+    'use server';
+    const user = await requireAuth();
+    const bot = await db.bot.findFirst({
+      where: { id: botId, userId: user.id },
+    });
+    if (!bot) redirect('/dashboard/bots');
+
     const baseUrl = process.env.NEXTAUTH_URL || 'https://grothi.com';
     try {
       const cookieStore = await cookies();
@@ -852,7 +948,6 @@ function AutopilotGenerateButton({ botId, disabled }: { botId: string; disabled:
           'Cookie': `session-token=${sessionToken}`,
         },
         body: JSON.stringify({ botId, duration: bot.planDuration }),
-        // Use AbortController with timeout to avoid hanging forever
         signal: AbortSignal.timeout(30_000),
       });
 
@@ -863,16 +958,93 @@ function AutopilotGenerateButton({ botId, disabled }: { botId: string; disabled:
 
       const data = await res.json();
       redirect(`/dashboard/bots/${botId}/autopilot?success=Plan generated: ${data.plan.totalPosts} posts for ${data.plan.duration} days`);
-    } catch (error) {
+    } catch (error: unknown) {
+      // Re-throw Next.js redirect errors (they use error.digest)
+      if (error && typeof error === 'object' && 'digest' in error) throw error;
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      // Re-throw NEXT_REDIRECT errors (from redirect())
-      if (msg === 'NEXT_REDIRECT') throw error;
       redirect(`/dashboard/bots/${botId}/autopilot?error=${encodeURIComponent('Failed to generate plan: ' + msg)}`);
     }
   }
 
+  // If cost preview is available, show it with confirm button
+  if (showCostPreview) {
+    const cp = showCostPreview;
+    return (
+      <div className="space-y-3">
+        <div className="rounded-lg border-2 border-blue-200 bg-blue-50 p-3 space-y-2">
+          <p className="font-semibold text-sm flex items-center gap-1.5">
+            <BarChart3 className="h-4 w-4 text-blue-600" />
+            Plan Cost Estimate
+          </p>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div>
+              <span className="text-muted-foreground">Total posts:</span>{' '}
+              <span className="font-medium">{cp.totalPosts}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Duration:</span>{' '}
+              <span className="font-medium">{cp.duration} days</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">AI Generation:</span>{' '}
+              <span className="font-medium">{cp.totalGenerationCredits} cr</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Publishing:</span>{' '}
+              <span className="font-medium">{cp.totalPublishCredits} cr</span>
+            </div>
+          </div>
+          <Separator />
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-bold">Total cost:</span>
+            <span className="text-lg font-bold text-blue-700">{cp.totalCredits} credits</span>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">Your balance:</span>
+            <span className={cp.hasEnoughCredits ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>
+              {cp.userBalance} credits
+            </span>
+          </div>
+          {!cp.hasEnoughCredits && (
+            <p className="text-xs text-red-600 font-medium">
+              You need {cp.shortfall} more credits.{' '}
+              <Link href="/dashboard/credits/buy" className="underline">Buy credits</Link>
+            </p>
+          )}
+          {Object.keys(cp.platformBreakdown).length > 1 && (
+            <div className="text-xs text-muted-foreground space-y-0.5">
+              {Object.entries(cp.platformBreakdown).map(([name, data]) => (
+                <div key={name} className="flex justify-between">
+                  <span>{name}</span>
+                  <span>{(data as { posts: number; totalCredits: number }).posts} posts = {(data as { posts: number; totalCredits: number }).totalCredits} cr</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <form action={handlePreviewCost} className="flex-1">
+            <Button type="submit" variant="outline" size="sm" className="w-full">
+              <RefreshCw className="h-3 w-3 mr-1" /> Recalculate
+            </Button>
+          </form>
+          <form action={handleConfirmGenerate} className="flex-1">
+            <Button
+              type="submit"
+              className="w-full gap-1"
+              disabled={disabled || !cp.hasEnoughCredits}
+            >
+              <Sparkles className="h-4 w-4" /> Confirm ({cp.totalCredits} cr)
+            </Button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // Default: show preview button
   return (
-    <form action={handleGenerate}>
+    <form action={handlePreviewCost}>
       <Button type="submit" className="w-full gap-2" disabled={disabled}>
         <Sparkles className="h-4 w-4" /> Generate Content Plan
       </Button>

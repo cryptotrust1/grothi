@@ -124,29 +124,33 @@ export function getTopupBySlug(slug: string): TopupPackDefinition | undefined {
 }
 
 // ============ CREDIT COSTS PER ACTION ============
-// Updated comprehensive cost table based on specification
+// All costs include 30% margin over real API costs.
+// Margin formula: ceil(real_cost_usd × 1.3 / 0.0625) where 0.0625 = $/credit at best pack rate
+//
+// Image/video generation costs are per-model in ai-models.ts (creditCost field).
+// These defaults are fallbacks only — actual model costs override via model.creditCost.
 
 export const CREDIT_COSTS: Record<string, number> = {
-  // Content generation
+  // Content generation (Claude Sonnet ~$0.006/call → +30% = $0.008 → 1cr min, using 2 for buffer)
   GENERATE_CONTENT: 2,      // AI text post generation
-  GENERATE_IMAGE: 5,        // AI image generation
-  GENERATE_VIDEO: 25,       // Short video (5-15s)
-  GENERATE_VIDEO_LONG: 50,  // Medium video (30-60s)
-  GENERATE_VIDEO_PREMIUM: 100, // Long/premium video (2-5min)
-  GENERATE_EMAIL: 3,        // AI email content
+  GENERATE_IMAGE: 1,        // AI image generation (fallback — real cost per model in ai-models.ts)
+  GENERATE_VIDEO: 11,       // Short video (fallback — real cost per model in ai-models.ts)
+  GENERATE_VIDEO_LONG: 50,  // Medium video (30-60s) — rarely used
+  GENERATE_VIDEO_PREMIUM: 125, // Long/premium video (2-5min) — e.g. Veo 3
+  GENERATE_EMAIL: 2,        // AI email content (Claude ~$0.006 → +30% → 1cr, using 2 for buffer)
 
   // Publishing
-  POST: 1,                  // Publish to 1 platform
-  REPLY: 2,                 // AI-generated reply
+  POST: 1,                  // Publish to 1 platform (no API cost, platform-side)
+  REPLY: 2,                 // AI-generated reply (Claude ~$0.006 → +30% → 1cr, using 2 for buffer)
   FAVOURITE: 0,             // Like (free)
-  BOOST: 1,                 // Repost/boost
+  BOOST: 1,                 // Repost/boost (no API cost)
 
   // Intelligence
   SCAN_FEEDS: 1,            // RSS feed scan
   COLLECT_METRICS: 0,       // Metrics collection (free)
 
-  // AI Chat
-  AI_CHAT_MESSAGE: 5,       // Chat with AI assistant
+  // AI Chat (Claude ~$0.015/message with longer context → +30% → 1cr, using 2 for buffer)
+  AI_CHAT_MESSAGE: 2,       // Chat with AI assistant
 
   // Safety (no cost)
   SAFETY_BLOCK: 0,

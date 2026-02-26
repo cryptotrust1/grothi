@@ -29,6 +29,7 @@ import {
   getBestContentFormat,
 } from '@/lib/platform-algorithm';
 import { PLATFORM_NAMES, CONTENT_TYPES } from '@/lib/constants';
+import { getActionCost, getUserBalance } from '@/lib/credits';
 import type { PlatformType, PostSource } from '@prisma/client';
 
 /** Maximum posts to generate in a single plan */
@@ -37,6 +38,7 @@ const MAX_PLAN_POSTS = 300;
 interface GeneratePlanRequest {
   botId: string;
   duration?: number;  // 7, 14, or 30 days
+  preview?: boolean;  // If true, return cost estimate without creating posts
 }
 
 interface PlanSlot {
@@ -59,7 +61,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json() as GeneratePlanRequest;
-    const { botId } = body;
+    const { botId, preview } = body;
 
     if (!botId) {
       return NextResponse.json({ error: 'botId is required' }, { status: 400 });
@@ -388,6 +390,54 @@ export async function POST(request: NextRequest) {
 
     // Use the deduplicated slots from here
     const finalSlots = deduplicatedSlots;
+
+    // If preview mode, calculate exact cost and return WITHOUT creating posts
+    if (preview) {
+      const generateCost = await getActionCost('GENERATE_CONTENT');
+      const postCost = await getActionCost('POST');
+      const userBalance = await getUserBalance(user.id);
+
+      // Each autopilot post costs: GENERATE_CONTENT (AI writes it) + POST per platform (publishing)
+      // Each slot has exactly 1 platform
+      const totalGenerationCredits = finalSlots.length * generateCost;
+      const totalPublishCredits = finalSlots.length * postCost;
+      const totalCredits = totalGenerationCredits + totalPublishCredits;
+
+      // Build per-platform breakdown
+      const platformBreakdown: Record<string, { posts: number; generationCredits: number; publishCredits: number; totalCredits: number }> = {};
+      for (const slot of finalSlots) {
+        const name = PLATFORM_NAMES[slot.platform] || slot.platform;
+        if (!platformBreakdown[name]) {
+          platformBreakdown[name] = { posts: 0, generationCredits: 0, publishCredits: 0, totalCredits: 0 };
+        }
+        platformBreakdown[name].posts += 1;
+        platformBreakdown[name].generationCredits += generateCost;
+        platformBreakdown[name].publishCredits += postCost;
+        platformBreakdown[name].totalCredits += generateCost + postCost;
+      }
+
+      return NextResponse.json({
+        preview: true,
+        cost: {
+          totalPosts: finalSlots.length,
+          creditsPerPost: {
+            generation: generateCost,
+            publishing: postCost,
+            total: generateCost + postCost,
+          },
+          totalGenerationCredits,
+          totalPublishCredits,
+          totalCredits,
+          userBalance,
+          hasEnoughCredits: userBalance >= totalCredits,
+          shortfall: Math.max(0, totalCredits - userBalance),
+          platformBreakdown,
+          duration,
+          startDate: finalSlots[0]?.scheduledAt,
+          endDate: finalSlots[finalSlots.length - 1]?.scheduledAt,
+        },
+      });
+    }
 
     // Determine initial status based on approval mode
     const initialStatus = bot.approvalMode === 'AUTO_APPROVE' ? 'SCHEDULED' : 'DRAFT';
