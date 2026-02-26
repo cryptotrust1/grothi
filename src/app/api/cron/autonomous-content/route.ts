@@ -5,11 +5,10 @@
  * Called by cron every 5 minutes.
  *
  * Flow:
- * 1. Find DRAFT or SCHEDULED autopilot posts with placeholder content
- * 2. For each post, generate AI content using Claude API
+ * 1. Atomically claim DRAFT/SCHEDULED autopilot posts with placeholder content
+ * 2. For each post, deduct credits then generate AI content using Claude API
  * 3. Use platform algorithm knowledge + bot settings to create optimized content
- * 4. Update the post with generated content
- * 5. Deduct credits for content generation
+ * 4. Update the post with generated content (or refund credits on failure)
  *
  * Security: Protected by CRON_SECRET.
  */
@@ -17,7 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateCronSecret } from '@/lib/api-helpers';
 import { db } from '@/lib/db';
-import { deductCredits, getActionCost } from '@/lib/credits';
+import { deductCredits, addCredits, getActionCost } from '@/lib/credits';
 import {
   getContentGenerationContext,
   PLATFORM_ALGORITHM,
@@ -25,12 +24,16 @@ import {
   getBestContentFormat,
 } from '@/lib/platform-algorithm';
 import { PLATFORM_NAMES, CONTENT_TYPES } from '@/lib/constants';
+import type { PlatformType } from '@prisma/client';
 
 /** Max posts to generate content for per invocation */
 const BATCH_SIZE = 5;
 
 /** Placeholder prefix that identifies autopilot posts needing content */
 const AUTOPILOT_PLACEHOLDER = '[AUTOPILOT]';
+
+/** Timeout for Anthropic API calls (60 seconds) */
+const AI_TIMEOUT_MS = 60_000;
 
 export async function POST(request: NextRequest) {
   const cronError = validateCronSecret(request.headers.get('authorization'));
@@ -41,13 +44,41 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 500 });
   }
 
-  // Find autopilot posts that need content generation
+  // Atomically claim posts for processing to prevent race conditions.
+  // If two cron instances overlap, each post is processed by only one instance.
+  const claimedIds = await db.$transaction(async (tx) => {
+    const candidates = await tx.scheduledPost.findMany({
+      where: {
+        source: 'AUTOPILOT',
+        content: { startsWith: AUTOPILOT_PLACEHOLDER },
+        status: { in: ['DRAFT', 'SCHEDULED'] },
+      },
+      orderBy: { scheduledAt: 'asc' },
+      take: BATCH_SIZE,
+      select: { id: true },
+    });
+
+    if (candidates.length === 0) return [];
+
+    // Mark as "being generated" by prepending a lock marker
+    // This prevents the next cron invocation from picking the same posts
+    for (const c of candidates) {
+      await tx.scheduledPost.update({
+        where: { id: c.id },
+        data: { content: `[GENERATING] ${c.id}` },
+      });
+    }
+
+    return candidates.map(c => c.id);
+  });
+
+  if (claimedIds.length === 0) {
+    return NextResponse.json({ processed: 0, message: 'No autopilot posts need content generation' });
+  }
+
+  // Fetch full data for claimed posts
   const pendingPosts = await db.scheduledPost.findMany({
-    where: {
-      source: 'AUTOPILOT',
-      content: { startsWith: AUTOPILOT_PLACEHOLDER },
-      status: { in: ['DRAFT', 'SCHEDULED'] },
-    },
+    where: { id: { in: claimedIds } },
     include: {
       bot: {
         select: {
@@ -90,12 +121,7 @@ export async function POST(request: NextRequest) {
       },
     },
     orderBy: { scheduledAt: 'asc' },
-    take: BATCH_SIZE,
   });
-
-  if (pendingPosts.length === 0) {
-    return NextResponse.json({ processed: 0, message: 'No autopilot posts need content generation' });
-  }
 
   const results: Array<{ postId: string; success: boolean; error?: string }> = [];
 
@@ -103,19 +129,21 @@ export async function POST(request: NextRequest) {
     try {
       // Deduct credits for content generation
       const cost = await getActionCost('GENERATE_CONTENT');
+      const platform = (post.platforms as string[])[0] || 'FACEBOOK';
       const deducted = await deductCredits(
         post.bot.userId,
         cost,
-        `Autopilot content generation for ${PLATFORM_NAMES[(post.platforms as string[])[0]] || 'platform'}`,
+        `Autopilot content generation for ${PLATFORM_NAMES[platform] || 'platform'}`,
         post.bot.id
       );
 
       if (!deducted) {
-        // Mark post with error and skip
+        // Mark post with error and restore placeholder so it can be retried after credits are added
         await db.scheduledPost.update({
           where: { id: post.id },
           data: {
             status: 'FAILED',
+            content: `[AUTOPILOT] Pending — insufficient credits`,
             error: 'Not enough credits for content generation. Purchase more credits to continue autopilot.',
           },
         });
@@ -124,7 +152,6 @@ export async function POST(request: NextRequest) {
       }
 
       // Generate content
-      const platform = (post.platforms as string[])[0] || 'FACEBOOK';
       const content = await generateContent(apiKey, {
         platform,
         contentType: post.contentType || 'educational',
@@ -137,11 +164,22 @@ export async function POST(request: NextRequest) {
       });
 
       if (!content) {
+        // REFUND credits — generation failed, user shouldn't pay for nothing
+        await addCredits(
+          post.bot.userId,
+          cost,
+          'REFUND',
+          `Refund: AI content generation failed for autopilot post`,
+        );
+        // Restore placeholder so autonomous-content can retry on next cycle
         await db.scheduledPost.update({
           where: { id: post.id },
-          data: { error: 'AI content generation failed. Will retry on next cycle.' },
+          data: {
+            content: `[AUTOPILOT] Retry pending — generation failed`,
+            error: 'AI content generation failed. Credits refunded. Will retry on next cycle.',
+          },
         });
-        results.push({ postId: post.id, success: false, error: 'Generation failed' });
+        results.push({ postId: post.id, success: false, error: 'Generation failed (credits refunded)' });
         continue;
       }
 
@@ -154,11 +192,12 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // Record activity
+      // Record activity — safe cast through validation
+      const validPlatform = Object.keys(PLATFORM_NAMES).includes(platform) ? platform as PlatformType : 'FACEBOOK' as PlatformType;
       await db.botActivity.create({
         data: {
           botId: post.bot.id,
-          platform: platform as any,
+          platform: validPlatform,
           action: 'GENERATE_CONTENT',
           content: content.text.slice(0, 500),
           contentType: post.contentType || 'educational',
@@ -171,6 +210,16 @@ export async function POST(request: NextRequest) {
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       console.error(`[autonomous-content] Failed for post ${post.id}:`, msg);
+      // Restore placeholder so it can be retried
+      try {
+        await db.scheduledPost.update({
+          where: { id: post.id },
+          data: {
+            content: `[AUTOPILOT] Retry pending — error occurred`,
+            error: `Content generation error: ${msg.slice(0, 200)}`,
+          },
+        });
+      } catch { /* best effort */ }
       results.push({ postId: post.id, success: false, error: msg });
     }
   }
@@ -269,14 +318,18 @@ async function generateContent(
   // Add best format recommendation — use stored contentFormat if available, else fall back to live lookup
   const effectiveFormat = params.contentFormat || bestFormat?.format || null;
   if (effectiveFormat || bestFormat) {
-    systemParts.push(
+    const formatParts: string[] = [
       `=== RECOMMENDED FORMAT ===`,
       `Target format for this post: ${effectiveFormat || bestFormat?.format}`,
-      bestFormat ? `Performance data: ${bestFormat.format} (${bestFormat.reachMultiplier}x reach, ${bestFormat.engagementRate}% engagement)` : '',
-      bestFormat?.note ? `Note: ${bestFormat.note}` : '',
-      `Optimize the content structure specifically for this format.`,
-      '',
-    );
+    ];
+    if (bestFormat) {
+      formatParts.push(`Performance data: ${bestFormat.format} (${bestFormat.reachMultiplier}x reach, ${bestFormat.engagementRate}% engagement)`);
+    }
+    if (bestFormat?.note) {
+      formatParts.push(`Note: ${bestFormat.note}`);
+    }
+    formatParts.push(`Optimize the content structure specifically for this format.`, '');
+    systemParts.push(...formatParts);
   }
 
   systemParts.push(
@@ -360,6 +413,10 @@ async function generateContent(
   }
 
   try {
+    // Use AbortController to enforce timeout on the API call
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -370,10 +427,13 @@ async function generateContent(
       body: JSON.stringify({
         model: 'claude-sonnet-4-5-20250929',
         max_tokens: 1000,
-        system: systemParts.join('\n'),
+        system: systemParts.filter(Boolean).join('\n'),
         messages: [{ role: 'user', content: userPrompt }],
       }),
+      signal: controller.signal,
     });
+
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
