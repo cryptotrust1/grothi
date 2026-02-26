@@ -117,6 +117,8 @@ export async function POST(request: NextRequest) {
               tonesOverride: true,
               hashtagPatternsOverride: true,
               customHashtags: true,
+              customContentType: true,
+              customToneStyle: true,
             },
           },
         },
@@ -179,6 +181,8 @@ export async function POST(request: NextRequest) {
       const platform = (post.platforms as string[])[0] || 'FACEBOOK';
       const platformPlan = post.bot.contentPlans?.find((p: { platform: string }) => p.platform === platform);
       const customHashtags = (platformPlan?.customHashtags as string) || null;
+      const customContentType = (platformPlan?.customContentType as string) || null;
+      const customToneStyle = (platformPlan?.customToneStyle as string) || null;
 
       // Deduct credits for content generation
       const cost = await getActionCost('GENERATE_CONTENT');
@@ -220,6 +224,8 @@ export async function POST(request: NextRequest) {
         media: post.media,
         rssContext: rssContext || undefined,
         customHashtags: customHashtags || undefined,
+        customContentType: customContentType || undefined,
+        customToneStyle: customToneStyle || undefined,
         postLanguage,
         audienceProfile,
       });
@@ -334,6 +340,8 @@ async function generateContent(
     } | null;
     rssContext?: RssContext;
     customHashtags?: string;
+    customContentType?: string;
+    customToneStyle?: string;
     postLanguage?: string;
     audienceProfile?: Record<string, unknown>;
   }
@@ -564,7 +572,16 @@ async function generateContent(
   userPrompt += `\n\nIMPORTANT RULES:`;
   userPrompt += `\n- Output ONLY the post text. No explanations, no "Here's a post:", no quotes.`;
   userPrompt += `\n- Stay within ${algo?.caption.optimalLength.min || 50}-${algo?.caption.optimalLength.max || 300} characters if possible`;
-  userPrompt += `\n- Use ${params.toneStyle} tone`;
+  // Tone — use custom override if provided, otherwise standard
+  if (params.customToneStyle) {
+    userPrompt += `\n- TONE: Use this SPECIFIC tone style: "${params.customToneStyle}". This overrides all default tone settings.`;
+  } else {
+    userPrompt += `\n- Use ${params.toneStyle} tone`;
+  }
+  // Content type — add custom directive if non-standard
+  if (params.customContentType) {
+    userPrompt += `\n- CONTENT STYLE: Create this SPECIFIC type of content: "${params.customContentType}". This overrides standard content type categories.`;
+  }
   userPrompt += `\n- Include exactly ${algo?.hashtags.recommended || 3} relevant hashtags (${params.hashtagPattern} style)`;
   if (algo?.hashtags.strategy === 'none') {
     userPrompt += `\n- DO NOT include any hashtags (${platformName} does not use them)`;

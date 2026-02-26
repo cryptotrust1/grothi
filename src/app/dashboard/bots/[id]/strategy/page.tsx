@@ -186,6 +186,8 @@ export default async function ContentStrategyPage({
           .filter((v) => formData.get(`${prefix}ht_${v}`) === 'on');
 
         const customHashtags = ((formData.get(`${prefix}customHashtags`) as string) || '').trim() || null;
+        const customContentType = ((formData.get(`${prefix}customContentType`) as string) || '').trim().slice(0, 200) || null;
+        const customToneStyle = ((formData.get(`${prefix}customToneStyle`) as string) || '').trim().slice(0, 200) || null;
 
         // Keep backward compatibility: set toneOverride to first selected tone (or null)
         const toneOverride = selectedTones.length === 1 ? selectedTones[0] : null;
@@ -207,6 +209,8 @@ export default async function ContentStrategyPage({
           tonesOverride: selectedTones.length > 0 ? selectedTones : Prisma.DbNull,
           hashtagPatternsOverride: selectedHashtagPatterns.length > 0 ? selectedHashtagPatterns : Prisma.DbNull,
           customHashtags,
+          customContentType,
+          customToneStyle,
         };
 
         await db.platformContentPlan.upsert({
@@ -890,6 +894,17 @@ export default async function ContentStrategyPage({
                         );
                       })}
                     </div>
+                    <div className="mt-2">
+                      <Label className="text-xs text-muted-foreground">Custom Content Type (overrides standard selections when filled)</Label>
+                      <input
+                        type="text"
+                        name={`${platform}_customContentType`}
+                        defaultValue={(plan as Record<string, unknown>)?.customContentType as string || ''}
+                        placeholder="e.g. behind-the-scenes, client success story, myth busting, day-in-life..."
+                        className="flex h-8 w-full rounded-md border border-input bg-background px-3 text-xs placeholder:text-muted-foreground mt-1"
+                        maxLength={200}
+                      />
+                    </div>
                   </div>
 
                   {/* Per-Platform Tone Styles */}
@@ -915,6 +930,17 @@ export default async function ContentStrategyPage({
                           </label>
                         );
                       })}
+                    </div>
+                    <div className="mt-2">
+                      <Label className="text-xs text-muted-foreground">Custom Tone Style (overrides standard selections when filled)</Label>
+                      <input
+                        type="text"
+                        name={`${platform}_customToneStyle`}
+                        defaultValue={(plan as Record<string, unknown>)?.customToneStyle as string || ''}
+                        placeholder="e.g. sarcastic but helpful, brutally honest, warm and nurturing..."
+                        className="flex h-8 w-full rounded-md border border-input bg-background px-3 text-xs placeholder:text-muted-foreground mt-1"
+                        maxLength={200}
+                      />
                     </div>
                   </div>
 

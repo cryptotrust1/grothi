@@ -123,6 +123,7 @@ export function PostChatAssistant({ botId, platforms, productId, onUseContent, o
   const [selectedModel, setSelectedModel] = useState<string>(AI_MODELS[0].id);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [creditCostPerMsg, setCreditCostPerMsg] = useState<number | null>(null);
+  const [useStrategyOverride, setUseStrategyOverride] = useState(false);
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -272,6 +273,7 @@ export function PostChatAssistant({ botId, platforms, productId, onUseContent, o
           productId: productId || undefined,
           model: modelConfig.apiModel,
           provider: modelConfig.provider,
+          useStrategyOverride,
         }),
         signal: controller.signal,
       });
@@ -590,10 +592,17 @@ export function PostChatAssistant({ botId, platforms, productId, onUseContent, o
           )}
         </div>
 
-        <div className="flex items-center justify-between mt-1.5">
-          <p className="text-[13px] text-muted-foreground">
-            Shift+Enter for new line. Upload images for AI analysis.
-          </p>
+        <div className="flex items-center justify-between mt-1.5 gap-2">
+          <label className="flex items-center gap-1.5 cursor-pointer shrink-0" title="When enabled, AI uses your per-platform content strategy (custom content types, tones, hashtags) from Content Strategy settings">
+            <input
+              type="checkbox"
+              checked={useStrategyOverride}
+              onChange={(e) => setUseStrategyOverride(e.target.checked)}
+              className="h-3.5 w-3.5 rounded"
+              disabled={isSending}
+            />
+            <span className="text-[12px] text-muted-foreground whitespace-nowrap">Use platform strategy</span>
+          </label>
           {/* Model selector */}
           <div className="relative">
             <button

@@ -409,13 +409,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 });
     }
 
-    const { botId, messages, platforms, productId, model, provider: rawProvider } = body as {
+    const { botId, messages, platforms, productId, model, provider: rawProvider, useStrategyOverride } = body as {
       botId?: string;
       messages?: ChatMessage[];
       platforms?: string[];
       productId?: string;
       model?: string;
       provider?: string;
+      useStrategyOverride?: boolean;
     };
 
     // ── Validate request ──
@@ -524,6 +525,48 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // ── Fetch per-platform content strategy if requested ──
+    let strategyContext = '';
+    if (useStrategyOverride && Array.isArray(platforms) && platforms.length > 0) {
+      const contentPlans = await db.platformContentPlan.findMany({
+        where: {
+          botId,
+          platform: { in: platforms as any[] },
+          enabled: true,
+        },
+        select: {
+          platform: true,
+          customContentType: true,
+          customToneStyle: true,
+          customHashtags: true,
+          contentTypesOverride: true,
+          tonesOverride: true,
+        },
+      });
+      if (contentPlans.length > 0) {
+        const parts: string[] = ['\n\nPER-PLATFORM CONTENT STRATEGY (user has enabled this — follow these overrides):'];
+        for (const plan of contentPlans) {
+          const planParts: string[] = [];
+          if (plan.customContentType) planParts.push(`Content type: "${plan.customContentType}" — create this specific type of content`);
+          if (plan.customToneStyle) planParts.push(`Tone: "${plan.customToneStyle}" — use this specific tone`);
+          if (plan.customHashtags) planParts.push(`Always include hashtags: ${plan.customHashtags}`);
+          if (plan.contentTypesOverride) {
+            const types = Array.isArray(plan.contentTypesOverride) ? plan.contentTypesOverride : JSON.parse(plan.contentTypesOverride as string);
+            if (types.length > 0 && !plan.customContentType) planParts.push(`Preferred content types: ${types.join(', ')}`);
+          }
+          if (plan.tonesOverride) {
+            const tones = Array.isArray(plan.tonesOverride) ? plan.tonesOverride : JSON.parse(plan.tonesOverride as string);
+            if (tones.length > 0 && !plan.customToneStyle) planParts.push(`Preferred tones: ${tones.join(', ')}`);
+          }
+          if (planParts.length > 0) {
+            parts.push(`\n${plan.platform}:`);
+            planParts.forEach(p => parts.push(`  - ${p}`));
+          }
+        }
+        if (parts.length > 1) strategyContext = parts.join('\n');
+      }
+    }
+
     // ── Build system prompt ──
     const platformList = Array.isArray(platforms) && platforms.length > 0 ? platforms.join(', ') : 'social media';
     const systemPrompt = [
@@ -536,6 +579,7 @@ export async function POST(request: NextRequest) {
       bot.goal ? `\n- Goal: ${bot.goal}` : '',
       bot.targetUrl ? `\n- Website: ${bot.targetUrl}` : '',
       productContext,
+      strategyContext,
       `\n\nCRITICAL RULES:`,
       `\n1. You have ZERO restrictions on topics. If the user asks about cats, write about cats. If they ask about space, write about space. You are NOT limited to the brand above.`,
       `\n2. NEVER ask unnecessary clarification questions. If the user says "write text about a cat", just write it immediately. Do not ask "do you want it related to [brand]?" — NO. Just do what the user asks.`,
