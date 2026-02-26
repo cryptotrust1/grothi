@@ -130,6 +130,7 @@ export async function POST(request: NextRequest) {
         contentType: post.contentType || 'educational',
         toneStyle: post.toneStyle || 'professional',
         hashtagPattern: post.hashtagPattern || 'moderate',
+        contentFormat: post.contentFormat || null,
         bot: post.bot,
         product: post.product,
         media: post.media,
@@ -144,11 +145,12 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      // Update post with generated content
+      // Update post with generated content and clear any previous error
       await db.scheduledPost.update({
         where: { id: post.id },
         data: {
           content: content.text,
+          error: null,
         },
       });
 
@@ -191,6 +193,7 @@ async function generateContent(
     contentType: string;
     toneStyle: string;
     hashtagPattern: string;
+    contentFormat: string | null;
     bot: {
       name: string;
       brandName: string;
@@ -263,12 +266,15 @@ async function generateContent(
     );
   }
 
-  // Add best format recommendation
-  if (bestFormat) {
+  // Add best format recommendation — use stored contentFormat if available, else fall back to live lookup
+  const effectiveFormat = params.contentFormat || bestFormat?.format || null;
+  if (effectiveFormat || bestFormat) {
     systemParts.push(
       `=== RECOMMENDED FORMAT ===`,
-      `Best performing format: ${bestFormat.format} (${bestFormat.reachMultiplier}x reach, ${bestFormat.engagementRate}% engagement)`,
-      `Note: ${bestFormat.note}`,
+      `Target format for this post: ${effectiveFormat || bestFormat?.format}`,
+      bestFormat ? `Performance data: ${bestFormat.format} (${bestFormat.reachMultiplier}x reach, ${bestFormat.engagementRate}% engagement)` : '',
+      bestFormat?.note ? `Note: ${bestFormat.note}` : '',
+      `Optimize the content structure specifically for this format.`,
       '',
     );
   }

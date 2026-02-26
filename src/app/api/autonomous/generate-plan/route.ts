@@ -23,6 +23,7 @@ import {
   PLATFORM_ALGORITHM,
   getContentGenerationContext,
   getRecommendedPlan,
+  getOptimalHoursForPlatform,
   getMinPostInterval,
   wouldExceedPromoLimit,
   getBestContentFormat,
@@ -186,10 +187,30 @@ export async function POST(request: NextRequest) {
           dailyVideos = Math.max(0, Math.ceil(dailyVideos * 0.7));
         }
 
-        // Get posting hours for this platform
-        const postingHours = plan?.postingHours
-          ? (plan.postingHours as number[])
-          : (isWeekend ? algo.bestTimesWeekend : algo.bestTimesWeekday);
+        // Get posting hours — priority: user plan > RL best time slot > algorithm optimal hours
+        let postingHours: number[];
+        if (plan?.postingHours) {
+          // User-configured posting hours take highest priority
+          postingHours = plan.postingHours as number[];
+        } else {
+          // Use the algorithm's optimal hours helper (sorted by engagement data)
+          postingHours = getOptimalHoursForPlatform(platform);
+          // If RL engine has learned a best time slot, prioritize it
+          const rlBestHour = rlInsights.bestTimeSlot[platform];
+          if (rlBestHour !== undefined && !postingHours.includes(rlBestHour)) {
+            // Insert RL's best hour at the front so it gets first pick
+            postingHours = [rlBestHour, ...postingHours];
+          } else if (rlBestHour !== undefined) {
+            // Move RL's best hour to front of the array
+            postingHours = [rlBestHour, ...postingHours.filter(h => h !== rlBestHour)];
+          }
+          // For weekends, filter to weekend-appropriate hours if available
+          if (isWeekend && algo.bestTimesWeekend.length > 0) {
+            const weekendSet = new Set(algo.bestTimesWeekend);
+            const weekendFiltered = postingHours.filter(h => weekendSet.has(h));
+            if (weekendFiltered.length > 0) postingHours = weekendFiltered;
+          }
+        }
 
         if (postingHours.length === 0) continue;
 
@@ -339,6 +360,7 @@ export async function POST(request: NextRequest) {
             hashtagPattern: slot.hashtagPattern,
             productId: slot.productId,
             postType: slot.postType,
+            contentFormat: slot.contentFormat,
             source: 'AUTOPILOT' as PostSource,
             autoSchedule: bot.approvalMode === 'AUTO_APPROVE',
           },
