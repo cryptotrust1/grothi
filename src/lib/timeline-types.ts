@@ -55,10 +55,10 @@ export const MIN_ZOOM = 10;   // 10px per second (zoomed way out)
 export const MAX_ZOOM = 400;  // 400px per second (zoomed way in, frame-level)
 export const DEFAULT_ZOOM = 80;
 
-export const DEFAULT_TRACK_HEIGHT = 56;
-export const TEXT_TRACK_HEIGHT = 40;
-export const RULER_HEIGHT = 32;
-export const TRACK_HEADER_WIDTH = 120;
+export const DEFAULT_TRACK_HEIGHT = 40;
+export const TEXT_TRACK_HEIGHT = 32;
+export const RULER_HEIGHT = 28;
+export const TRACK_HEADER_WIDTH = 100;
 
 export const SNAP_THRESHOLD_PX = 8; // Snap within 8 pixels
 
