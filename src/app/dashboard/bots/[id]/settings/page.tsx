@@ -9,12 +9,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Rss, Clock, Trash2, Target, Key, BarChart3, ArrowRight } from 'lucide-react';
+import { Rss, Clock, Trash2, Target, Key, BarChart3, ArrowRight, Brain, Zap, AlertTriangle } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { HelpTip } from '@/components/ui/help-tip';
 import { AlertMessage } from '@/components/ui/alert-message';
-import { SCHEDULE_PRESETS, TIMEZONES, GOAL_OPTIONS, SAFETY_LEVEL_OPTIONS } from '@/lib/constants';
+import { SCHEDULE_PRESETS, TIMEZONES, GOAL_OPTIONS, SAFETY_LEVEL_OPTIONS, RSS_ADAPTATION_MODES, RSS_FRESHNESS_OPTIONS } from '@/lib/constants';
 import { parseKeywords } from '@/lib/utils';
+import { DEFAULT_RSS_SETTINGS, type RssIntelligenceSettings } from '@/lib/rss-intelligence';
 
 export const metadata: Metadata = { title: 'Bot Settings', robots: { index: false } };
 
@@ -38,6 +39,17 @@ export default async function BotSettingsPage({
   const maxRepliesPerDay = (reactorState.maxRepliesPerDay as number) || 20;
   const keywords = Array.isArray(bot.keywords) ? (bot.keywords as string[]) : [];
 
+  // RSS Intelligence settings
+  const rssIntelligence = (reactorState.rssIntelligence as Record<string, unknown>) || {};
+  const rssAdaptationMode = (rssIntelligence.adaptationMode as string) || DEFAULT_RSS_SETTINGS.adaptationMode;
+  const rssFreshnessWindow = (rssIntelligence.freshnessHoursWindow as number) || DEFAULT_RSS_SETTINGS.freshnessHoursWindow;
+  const rssMaxArticles = (rssIntelligence.maxArticlesPerFeed as number) || DEFAULT_RSS_SETTINGS.maxArticlesPerFeed;
+  const rssExtractTopics = typeof rssIntelligence.extractTopics === 'boolean' ? rssIntelligence.extractTopics : DEFAULT_RSS_SETTINGS.extractTopics;
+  const rssLearnInsights = typeof rssIntelligence.learnAudienceInsights === 'boolean' ? rssIntelligence.learnAudienceInsights : DEFAULT_RSS_SETTINGS.learnAudienceInsights;
+  const rssSignificantKeywords = Array.isArray(rssIntelligence.significantEventKeywords)
+    ? (rssIntelligence.significantEventKeywords as string[]).join(', ')
+    : '';
+
   async function handleUpdate(formData: FormData) {
     'use server';
 
@@ -52,6 +64,36 @@ export default async function BotSettingsPage({
       .filter((f) => f.length > 0 && (f.startsWith('http://') || f.startsWith('https://')));
 
     const currentReactor = (currentBot.reactorState as Record<string, unknown>) || {};
+
+    // Parse RSS Intelligence settings
+    const validModes = ['always', 'sometimes', 'significant_only', 'never'];
+    const rawRssMode = formData.get('rssAdaptationMode') as string;
+    const rssMode = validModes.includes(rawRssMode) ? rawRssMode : 'sometimes';
+
+    const rawFreshness = parseInt(formData.get('rssFreshnessWindow') as string, 10);
+    const rssFreshness = isNaN(rawFreshness) ? 48 : Math.max(1, Math.min(168, rawFreshness));
+
+    const rawMaxArt = parseInt(formData.get('rssMaxArticles') as string, 10);
+    const rssMaxArt = isNaN(rawMaxArt) ? 5 : Math.max(1, Math.min(20, rawMaxArt));
+
+    const rssExtract = formData.get('rssExtractTopics') === 'on';
+    const rssLearn = formData.get('rssLearnInsights') === 'on';
+
+    const sigKeywordsRaw = (formData.get('rssSignificantKeywords') as string) || '';
+    const sigKeywords = sigKeywordsRaw
+      .split(',')
+      .map(k => k.trim())
+      .filter(k => k.length > 0)
+      .slice(0, 50);
+
+    const rssIntelligenceData = {
+      adaptationMode: rssMode,
+      maxArticlesPerFeed: rssMaxArt,
+      freshnessHoursWindow: rssFreshness,
+      extractTopics: rssExtract,
+      learnAudienceInsights: rssLearn,
+      significantEventKeywords: sigKeywords,
+    };
 
     const keywordsArr = parseKeywords((formData.get('keywords') as string) || '');
 
@@ -97,6 +139,7 @@ export default async function BotSettingsPage({
           ...currentReactor,
           maxPostsPerDay,
           maxRepliesPerDay,
+          rssIntelligence: rssIntelligenceData,
         },
       },
     });
@@ -337,23 +380,132 @@ export default async function BotSettingsPage({
           </CardContent>
         </Card>
 
-        {/* RSS Feeds */}
+        {/* RSS Feed Intelligence */}
         <Card className="mt-6">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Rss className="h-5 w-5" /> RSS Feed Sources</CardTitle>
-            <CardDescription>Content inspiration and curation. One URL per line (max 20).</CardDescription>
+            <CardTitle className="flex items-center gap-2"><Rss className="h-5 w-5" /> RSS Feed Intelligence</CardTitle>
+            <CardDescription>AI-powered content intelligence from industry feeds. The bot reads these feeds before generating posts to keep content current, relevant, and trend-aware.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-2">
-            <textarea
-              name="rssFeeds"
-              defaultValue={rssFeeds.join('\n')}
-              placeholder={"https://blog.example.com/feed\nhttps://news.example.com/rss"}
-              className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
-            <p className="text-xs text-muted-foreground">
-              {rssFeeds.length} feed{rssFeeds.length !== 1 ? 's' : ''} configured.
-              Bot scans for trending topics and curates relevant content.
-            </p>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>Feed URLs</Label>
+              <textarea
+                name="rssFeeds"
+                defaultValue={rssFeeds.join('\n')}
+                placeholder={"https://blog.example.com/feed\nhttps://news.example.com/rss\nhttps://industry-news.com/rss.xml"}
+                className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+              <p className="text-xs text-muted-foreground">
+                {rssFeeds.length} feed{rssFeeds.length !== 1 ? 's' : ''} configured. One URL per line (max 20).
+              </p>
+            </div>
+
+            <Separator />
+
+            {/* AI Content Adaptation Mode */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Brain className="h-4 w-4 text-purple-600" />
+                <Label>Content Adaptation Mode</Label>
+                <HelpTip text="Controls how the AI uses RSS feed content when generating posts. 'Always' means every post references current trends. 'Sometimes' creates a natural mix. 'Significant Events Only' watches for major news matching your keywords." />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {RSS_ADAPTATION_MODES.map((mode) => (
+                  <label key={mode.value} className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+                    <input
+                      type="radio"
+                      name="rssAdaptationMode"
+                      value={mode.value}
+                      defaultChecked={rssAdaptationMode === mode.value}
+                      className="mt-0.5 h-4 w-4"
+                    />
+                    <div>
+                      <p className="text-sm font-medium">{mode.label}</p>
+                      <p className="text-xs text-muted-foreground">{mode.desc}</p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Significant Event Keywords */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                <Label>Significant Event Keywords</Label>
+                <HelpTip text="Comma-separated keywords that trigger 'significant event' detection. When the AI finds these in RSS articles, it will always incorporate the event into posts. Useful for product launches, market crashes, regulatory changes, etc." />
+              </div>
+              <Input
+                name="rssSignificantKeywords"
+                defaultValue={rssSignificantKeywords}
+                placeholder="launch, breaking, partnership, regulation, acquisition, hack, outage"
+              />
+              <p className="text-xs text-muted-foreground">
+                Comma-separated. When these keywords appear in RSS articles, the AI treats it as a significant event.
+              </p>
+            </div>
+
+            {/* Advanced RSS Settings */}
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-2">
+                <Label className="text-xs">Freshness Window</Label>
+                <select
+                  name="rssFreshnessWindow"
+                  defaultValue={rssFreshnessWindow}
+                  className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                >
+                  {RSS_FRESHNESS_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">How far back to look for articles</p>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs">Articles Per Feed</Label>
+                <Input
+                  name="rssMaxArticles"
+                  type="number"
+                  min={1}
+                  max={20}
+                  defaultValue={rssMaxArticles}
+                />
+                <p className="text-xs text-muted-foreground">Max articles to analyze (1-20)</p>
+              </div>
+              <div className="space-y-2 self-end">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    name="rssExtractTopics"
+                    defaultChecked={rssExtractTopics}
+                    className="h-4 w-4 rounded"
+                  />
+                  <span className="text-xs">Extract trending topics</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    name="rssLearnInsights"
+                    defaultChecked={rssLearnInsights}
+                    className="h-4 w-4 rounded"
+                  />
+                  <span className="text-xs">Learn audience insights</span>
+                </label>
+              </div>
+            </div>
+
+            {/* How RSS Intelligence Works */}
+            <div className="rounded-lg bg-purple-50/50 border border-purple-200 p-4 text-sm space-y-2">
+              <p className="font-medium flex items-center gap-1.5 text-purple-900"><Zap className="h-4 w-4" /> How RSS Intelligence works</p>
+              <ul className="text-xs text-purple-700 space-y-1 list-disc list-inside">
+                <li>Before each post, the AI reads your RSS feeds for current news and trends</li>
+                <li>Posts stay current by referencing real events, not just generic content</li>
+                <li>The AI learns about your industry topics, audience pain points, and market dynamics</li>
+                <li>Significant event detection ensures major news is never missed</li>
+                <li>Topic extraction identifies what your audience is discussing right now</li>
+              </ul>
+            </div>
           </CardContent>
         </Card>
 

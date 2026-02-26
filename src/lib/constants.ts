@@ -318,6 +318,23 @@ export const VIDEO_FORMATS = [
   { value: 'landscape_16_9', label: 'Landscape 16:9', desc: 'YouTube, Twitter, LinkedIn' },
 ];
 
+// ============ RSS ADAPTATION MODES ============
+export const RSS_ADAPTATION_MODES = [
+  { value: 'always', label: 'Always Adapt', desc: 'Every post references current RSS feed content and trends' },
+  { value: 'sometimes', label: 'Sometimes Adapt', desc: 'About 50% of posts incorporate RSS context — natural mix' },
+  { value: 'significant_only', label: 'Significant Events Only', desc: 'Only adapt when a major event matches your keywords' },
+  { value: 'never', label: 'Never Adapt', desc: 'Ignore RSS feeds entirely — use only brand knowledge' },
+] as const;
+
+export const RSS_FRESHNESS_OPTIONS = [
+  { value: 6, label: 'Last 6 hours' },
+  { value: 12, label: 'Last 12 hours' },
+  { value: 24, label: 'Last 24 hours' },
+  { value: 48, label: 'Last 48 hours' },
+  { value: 72, label: 'Last 3 days' },
+  { value: 168, label: 'Last 7 days' },
+] as const;
+
 // ============ RL DIMENSIONS (for display) ============
 export const RL_DIMENSION_LABELS: Record<string, string> = {
   TIME_SLOT: 'Posting Time',

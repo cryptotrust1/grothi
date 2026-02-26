@@ -382,28 +382,40 @@ export async function POST(request: NextRequest) {
           // Mark this slot as occupied
           occupiedSlots.add(`${platform}:${scheduledAt.toISOString().slice(0, 13)}`);
 
-          // Select content type — use RL insights if available
+          // Select content type — per-platform override > RL insights > global
+          const platformContentTypesOverride = plan?.contentTypesOverride
+            ? (plan.contentTypesOverride as string[])
+            : null;
+          const effectiveContentTypes = platformContentTypesOverride || contentTypes;
           const platformBestTypes = algo.bestContentTypes.filter(t =>
-            contentTypes.includes(t)
+            effectiveContentTypes.includes(t)
           );
           const contentType = rlInsights.bestContentType[platform]
             || (platformBestTypes.length > 0
               ? platformBestTypes[Math.floor(Math.random() * platformBestTypes.length)]
-              : contentTypes[Math.floor(Math.random() * contentTypes.length)]);
+              : effectiveContentTypes[Math.floor(Math.random() * effectiveContentTypes.length)]);
 
-          // Select tone - use RL insights if available, otherwise rotate
-          const platformTones = plan?.toneOverride
-            ? [plan.toneOverride]
-            : (algo.bestTones.filter(t => toneStyles.includes(t)));
+          // Select tone — per-platform override > RL insights > global
+          const platformTonesOverride = plan?.tonesOverride
+            ? (plan.tonesOverride as string[])
+            : null;
+          const effectiveTones = platformTonesOverride
+            || (plan?.toneOverride ? [plan.toneOverride] : toneStyles);
+          const platformTones = algo.bestTones.filter(t => effectiveTones.includes(t));
           const toneStyle = rlInsights.bestTone[platform]
             || (platformTones.length > 0
               ? platformTones[Math.floor(Math.random() * platformTones.length)]
-              : toneStyles[Math.floor(Math.random() * toneStyles.length)]);
+              : effectiveTones[Math.floor(Math.random() * effectiveTones.length)]);
 
-          // Select hashtag pattern
-          const hashtagPattern = plan?.hashtagOverride
-            || algo.hashtags.strategy
-            || hashtagPatterns[Math.floor(Math.random() * hashtagPatterns.length)];
+          // Select hashtag pattern — per-platform override > global
+          const platformHashtagPatternsOverride = plan?.hashtagPatternsOverride
+            ? (plan.hashtagPatternsOverride as string[])
+            : null;
+          const effectiveHashtagPatterns = platformHashtagPatternsOverride
+            || (plan?.hashtagOverride ? [plan.hashtagOverride] : hashtagPatterns);
+          const hashtagPattern = effectiveHashtagPatterns.length > 0
+            ? effectiveHashtagPatterns[Math.floor(Math.random() * effectiveHashtagPatterns.length)]
+            : (algo.hashtags.strategy || hashtagPatterns[Math.floor(Math.random() * hashtagPatterns.length)]);
 
           // Select media based on post type
           let mediaId: string | null = null;
