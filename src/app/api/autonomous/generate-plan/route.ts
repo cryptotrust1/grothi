@@ -439,6 +439,18 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Check user has enough credits BEFORE creating any posts
+    // Each post costs: GENERATE_CONTENT + POST
+    const generateCostCheck = await getActionCost('GENERATE_CONTENT');
+    const postCostCheck = await getActionCost('POST');
+    const totalCostCheck = finalSlots.length * (generateCostCheck + postCostCheck);
+    const balanceCheck = await getUserBalance(user.id);
+    if (balanceCheck < totalCostCheck) {
+      return NextResponse.json({
+        error: `Not enough credits. Plan requires ${totalCostCheck} credits (${finalSlots.length} posts × ${generateCostCheck + postCostCheck} cr/post) but you only have ${balanceCheck}. Buy more credits to continue.`,
+      }, { status: 402 });
+    }
+
     // Determine initial status based on approval mode
     const initialStatus = bot.approvalMode === 'AUTO_APPROVE' ? 'SCHEDULED' : 'DRAFT';
 

@@ -44,6 +44,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 500 });
   }
 
+  // Recovery: Reset stale [GENERATING] posts that have been stuck for >10 minutes
+  // This handles crashes where the cron claimed posts but died before completing
+  const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+  await db.scheduledPost.updateMany({
+    where: {
+      source: 'AUTOPILOT',
+      content: { startsWith: '[GENERATING]' },
+      status: { in: ['DRAFT', 'SCHEDULED'] },
+      updatedAt: { lt: tenMinutesAgo },
+    },
+    data: { content: '[AUTOPILOT] Retry pending — recovered from stale generation lock' },
+  });
+
   // Atomically claim posts for processing to prevent race conditions.
   // If two cron instances overlap, each post is processed by only one instance.
   const claimedIds = await db.$transaction(async (tx) => {
