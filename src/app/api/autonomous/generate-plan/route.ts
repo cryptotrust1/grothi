@@ -37,7 +37,9 @@ const MAX_PLAN_POSTS = 300;
 
 interface GeneratePlanRequest {
   botId: string;
-  duration?: number;  // 7, 14, or 30 days
+  duration?: number;  // 3, 5, 7, 14, 30, or 60 days
+  startDate?: string; // ISO date string (YYYY-MM-DD) — custom date range start
+  endDate?: string;   // ISO date string (YYYY-MM-DD) — custom date range end
   preview?: boolean;  // If true, return cost estimate without creating posts
 }
 
@@ -87,9 +89,31 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Bot not found' }, { status: 404 });
     }
 
-    const duration = body.duration || bot.planDuration || 7;
-    if (![7, 14, 30].includes(duration)) {
-      return NextResponse.json({ error: 'Duration must be 7, 14, or 30 days' }, { status: 400 });
+    // Determine duration and custom start date from either date range or duration param
+    let duration: number;
+    let customPlanStart: Date | null = null;
+
+    if (body.startDate && body.endDate) {
+      // Custom date range mode
+      const start = new Date(body.startDate + 'T00:00:00');
+      const end = new Date(body.endDate + 'T23:59:59');
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        return NextResponse.json({ error: 'Invalid date format. Use YYYY-MM-DD.' }, { status: 400 });
+      }
+      if (end <= start) {
+        return NextResponse.json({ error: 'End date must be after start date.' }, { status: 400 });
+      }
+      const diffMs = end.getTime() - start.getTime();
+      duration = Math.ceil(diffMs / (1000 * 60 * 60 * 24)) + 1; // inclusive
+      if (duration > 90) {
+        return NextResponse.json({ error: 'Date range cannot exceed 90 days.' }, { status: 400 });
+      }
+      customPlanStart = start;
+    } else {
+      duration = body.duration || bot.planDuration || 7;
+      if (![3, 5, 7, 14, 30, 60].includes(duration)) {
+        return NextResponse.json({ error: 'Duration must be 3, 5, 7, 14, 30, or 60 days' }, { status: 400 });
+      }
     }
 
     // Get connected platforms
@@ -148,7 +172,8 @@ export async function POST(request: NextRequest) {
 
     // Generate plan slots
     const slots: PlanSlot[] = [];
-    const startDate = new Date(now.getTime() + 60 * 60 * 1000); // Start 1 hour from now
+    // If custom start date is set, use it; otherwise start 1 hour from now
+    const startDate = customPlanStart || new Date(now.getTime() + 60 * 60 * 1000);
 
     for (let day = 0; day < duration; day++) {
       const date = new Date(startDate);
