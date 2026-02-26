@@ -167,6 +167,7 @@ export function PhotoEditorPanel({ images, botId, botPageId }: PhotoEditorPanelP
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const imgElRef = useRef<HTMLImageElement | null>(null);
 
   // ── Filter preview thumbnails ──
   const [filterThumbnails, setFilterThumbnails] = useState<Record<string, string>>({});
@@ -790,7 +791,7 @@ export function PhotoEditorPanel({ images, botId, botPageId }: PhotoEditorPanelP
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col" style={{ height: '100%', minHeight: 0 }}>
       {/* ══════════════ TOOLBAR ══════════════ */}
       <div className="flex items-center gap-1.5 px-2 py-1.5 border rounded-t-lg bg-muted/30 flex-shrink-0 flex-wrap">
         {/* Tool buttons */}
@@ -856,30 +857,51 @@ export function PhotoEditorPanel({ images, botId, botPageId }: PhotoEditorPanelP
         {/* Spacer + Export */}
         <div className="flex-1" />
 
+        {error && (
+          <span className="text-[10px] text-destructive max-w-[200px] truncate" title={error}>{error}</span>
+        )}
         {result ? (
           <div className="flex items-center gap-1.5">
+            <Badge variant="outline" className="text-[10px] text-green-600 border-green-300 gap-1">
+              <CheckCircle2 className="h-2.5 w-2.5" /> Saved to Media
+            </Badge>
             <a href={`${result.url}?download=true`}>
               <Button variant="outline" size="sm" className="gap-1.5 text-xs h-7"><Download className="h-3 w-3" /> Download</Button>
             </a>
             <Link href={`/dashboard/bots/${botPageId}/post?mediaId=${result.mediaId}`}>
               <Button size="sm" className="gap-1.5 text-xs h-7"><ChevronRight className="h-3 w-3" /> Use in Post</Button>
             </Link>
+            <Link href={`/dashboard/bots/${botPageId}/media`}>
+              <Button variant="outline" size="sm" className="text-xs h-7">Media Library</Button>
+            </Link>
             <Button variant="ghost" size="sm" onClick={() => setResult(null)} className="text-xs h-7">
               <RotateCcw className="h-3 w-3 mr-1" /> Edit more
             </Button>
           </div>
         ) : (
-          <Button onClick={handleExport} disabled={processing || !selectedImageId} size="sm" className="gap-1.5 text-xs h-7">
-            {processing ? <><Loader2 className="h-3 w-3 animate-spin" /> Processing...</> : <><Sparkles className="h-3 w-3" /> Export &amp; Save</>}
-          </Button>
+          <div className="flex items-center gap-1.5">
+            <select
+              value={exportFormat.value}
+              onChange={(e) => {
+                const fmt = EXPORT_FORMATS.find(f => f.value === e.target.value);
+                if (fmt) setExportFormat(fmt);
+              }}
+              className="h-7 rounded-md border border-input bg-background px-1.5 text-[10px]"
+            >
+              {EXPORT_FORMATS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+            </select>
+            <Button onClick={handleExport} disabled={processing || !selectedImageId} size="sm" className="gap-1.5 text-xs h-7">
+              {processing ? <><Loader2 className="h-3 w-3 animate-spin" /> Saving...</> : <><Sparkles className="h-3 w-3" /> Export &amp; Save</>}
+            </Button>
+          </div>
         )}
       </div>
 
       {/* ══════════════ MAIN LAYOUT ══════════════ */}
-      <div className="flex flex-1 min-h-0 gap-0">
+      <div className="flex flex-1 gap-0" style={{ minHeight: 0 }}>
 
         {/* ── LEFT: Image Pool ── */}
-        <div className="w-44 lg:w-52 shrink-0 flex flex-col border-l border-b rounded-bl-lg bg-card overflow-hidden">
+        <div className="w-44 lg:w-52 shrink-0 flex flex-col border-l border-b rounded-bl-lg bg-card" style={{ overflow: 'hidden' }}>
           <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/40">
             <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
               <Layers className="h-3.5 w-3.5" /> Images
@@ -943,8 +965,8 @@ export function PhotoEditorPanel({ images, botId, botPageId }: PhotoEditorPanelP
           ) : (
             <div
               ref={containerRef}
-              className="relative max-w-full max-h-full"
-              style={{ aspectRatio: naturalWidth && naturalHeight ? `${naturalWidth}/${naturalHeight}` : 'auto' }}
+              className="relative inline-block"
+              style={{ touchAction: 'none', userSelect: 'none' }}
               onPointerDown={handleDrawStart}
               onPointerMove={handleDrawMove}
               onPointerUp={handleDrawEnd}
@@ -952,9 +974,10 @@ export function PhotoEditorPanel({ images, botId, botPageId }: PhotoEditorPanelP
               {/* Main image with CSS filter preview */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
+                ref={imgElRef}
                 src={`/api/media/${selectedImageId}`}
                 alt="Editor preview"
-                className="max-w-full max-h-[calc(100vh-20rem)] object-contain"
+                className="block max-w-full max-h-[calc(100vh-16rem)]"
                 style={{
                   filter: compositeCSSFilter,
                   transform: transformCSS,
@@ -987,6 +1010,7 @@ export function PhotoEditorPanel({ images, botId, botPageId }: PhotoEditorPanelP
                     style={{
                       top: `${crop.y}%`, left: `${crop.x}%`,
                       width: `${crop.width}%`, height: `${crop.height}%`,
+                      touchAction: 'none',
                     }}
                     onPointerDown={(e) => handleCropPointerDown(e, 'move')}
                   >
@@ -1001,13 +1025,14 @@ export function PhotoEditorPanel({ images, botId, botPageId }: PhotoEditorPanelP
                     {['nw', 'ne', 'sw', 'se'].map(corner => (
                       <div
                         key={corner}
-                        className="absolute w-3 h-3 bg-white border border-gray-400 rounded-sm"
+                        className="absolute w-4 h-4 bg-white border border-gray-400 rounded-sm"
                         style={{
-                          top: corner.startsWith('n') ? -6 : undefined,
-                          bottom: corner.startsWith('s') ? -6 : undefined,
-                          left: corner.endsWith('w') ? -6 : undefined,
-                          right: corner.endsWith('e') ? -6 : undefined,
+                          top: corner.startsWith('n') ? -8 : undefined,
+                          bottom: corner.startsWith('s') ? -8 : undefined,
+                          left: corner.endsWith('w') ? -8 : undefined,
+                          right: corner.endsWith('e') ? -8 : undefined,
                           cursor: corner === 'nw' || corner === 'se' ? 'nwse-resize' : 'nesw-resize',
+                          touchAction: 'none',
                         }}
                         onPointerDown={(e) => handleCropPointerDown(e, corner)}
                       />
@@ -1027,7 +1052,7 @@ export function PhotoEditorPanel({ images, botId, botPageId }: PhotoEditorPanelP
               {textOverlays.map(t => (
                 <div
                   key={t.id}
-                  className={`absolute cursor-move select-none touch-none ${
+                  className={`absolute cursor-move select-none ${
                     selectedOverlayId === t.id ? 'ring-2 ring-primary ring-offset-1' : 'hover:ring-1 hover:ring-primary/40'
                   }`}
                   style={{
@@ -1046,6 +1071,7 @@ export function PhotoEditorPanel({ images, botId, botPageId }: PhotoEditorPanelP
                     WebkitTextStroke: t.outline ? '1px #000' : undefined,
                     padding: '4px 8px',
                     whiteSpace: 'nowrap',
+                    touchAction: 'none',
                     pointerEvents: activeTool === 'draw' ? 'none' : 'auto',
                     zIndex: selectedOverlayId === t.id ? 20 : 10,
                   }}
@@ -1059,7 +1085,7 @@ export function PhotoEditorPanel({ images, botId, botPageId }: PhotoEditorPanelP
               {shapes.map(s => (
                 <div
                   key={s.id}
-                  className={`absolute cursor-move touch-none ${
+                  className={`absolute cursor-move select-none ${
                     selectedOverlayId === s.id ? 'ring-2 ring-primary' : 'hover:ring-1 hover:ring-primary/40'
                   }`}
                   style={{
@@ -1067,6 +1093,7 @@ export function PhotoEditorPanel({ images, botId, botPageId }: PhotoEditorPanelP
                     width: `${s.width}%`, height: `${s.height}%`,
                     transform: `rotate(${s.rotation}deg)`,
                     opacity: s.opacity,
+                    touchAction: 'none',
                     pointerEvents: activeTool === 'draw' ? 'none' : 'auto',
                     zIndex: selectedOverlayId === s.id ? 20 : 10,
                   }}
@@ -1103,7 +1130,7 @@ export function PhotoEditorPanel({ images, botId, botPageId }: PhotoEditorPanelP
 
               {/* Drawing strokes SVG overlay */}
               {(drawStrokes.length > 0 || (isDrawing && currentStroke.length > 1)) && (
-                <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+                <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ overflow: 'visible' }}>
                   {drawStrokes.map(s => (
                     <polyline
                       key={s.id}
@@ -1569,7 +1596,7 @@ export function PhotoEditorPanel({ images, botId, botPageId }: PhotoEditorPanelP
         )}
         {processing && (
           <span className="text-[11px] text-primary flex items-center gap-1.5">
-            <Loader2 className="h-3 w-3 animate-spin" /> Exporting image...
+            <Loader2 className="h-3 w-3 animate-spin" /> Exporting &amp; saving to media library...
           </span>
         )}
         {!error && !processing && (
