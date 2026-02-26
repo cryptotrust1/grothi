@@ -24,6 +24,7 @@ import {
   getBestContentFormat,
 } from '@/lib/platform-algorithm';
 import { PLATFORM_NAMES, CONTENT_TYPES } from '@/lib/constants';
+import { buildRssContext, loadRssSettings, formatRssContextForPrompt, type RssContext } from '@/lib/rss-intelligence';
 import type { PlatformType } from '@prisma/client';
 
 /** Max posts to generate content for per invocation */
@@ -107,6 +108,17 @@ export async function POST(request: NextRequest) {
           utmSource: true,
           utmMedium: true,
           creativePreferences: true,
+          rssFeeds: true,
+          reactorState: true,
+          contentPlans: {
+            select: {
+              platform: true,
+              contentTypesOverride: true,
+              tonesOverride: true,
+              hashtagPatternsOverride: true,
+              customHashtags: true,
+            },
+          },
         },
       },
       product: {
@@ -138,11 +150,38 @@ export async function POST(request: NextRequest) {
 
   const results: Array<{ postId: string; success: boolean; error?: string }> = [];
 
+  // Pre-fetch RSS context once per bot (shared across all posts from the same bot)
+  const rssContextCache = new Map<string, RssContext>();
+
   for (const post of pendingPosts) {
     try {
+      // Fetch RSS context for this bot (cached per bot)
+      let rssContext: RssContext | null = null;
+      if (!rssContextCache.has(post.bot.id)) {
+        const feedUrls = Array.isArray(post.bot.rssFeeds) ? (post.bot.rssFeeds as string[]) : [];
+        const reactorState = (post.bot.reactorState as Record<string, unknown>) || {};
+        const rssSettings = loadRssSettings(reactorState);
+        if (feedUrls.length > 0 && rssSettings.adaptationMode !== 'never') {
+          try {
+            rssContext = await buildRssContext(feedUrls, rssSettings);
+            rssContextCache.set(post.bot.id, rssContext);
+          } catch (rssError) {
+            console.warn(`[autonomous-content] RSS fetch failed for bot ${post.bot.id}:`, rssError instanceof Error ? rssError.message : rssError);
+            rssContextCache.set(post.bot.id, { shouldApply: false, trendsSummary: '', topics: [], significantEvent: false, significantEventDesc: null, articles: [] });
+          }
+        } else {
+          rssContextCache.set(post.bot.id, { shouldApply: false, trendsSummary: '', topics: [], significantEvent: false, significantEventDesc: null, articles: [] });
+        }
+      }
+      rssContext = rssContextCache.get(post.bot.id) || null;
+
+      // Get per-platform content plan overrides
+      const platform = (post.platforms as string[])[0] || 'FACEBOOK';
+      const platformPlan = post.bot.contentPlans?.find((p: { platform: string }) => p.platform === platform);
+      const customHashtags = (platformPlan?.customHashtags as string) || null;
+
       // Deduct credits for content generation
       const cost = await getActionCost('GENERATE_CONTENT');
-      const platform = (post.platforms as string[])[0] || 'FACEBOOK';
       const deducted = await deductCredits(
         post.bot.userId,
         cost,
@@ -174,6 +213,8 @@ export async function POST(request: NextRequest) {
         bot: post.bot,
         product: post.product,
         media: post.media,
+        rssContext: rssContext || undefined,
+        customHashtags: customHashtags || undefined,
       });
 
       if (!content) {
@@ -284,6 +325,8 @@ async function generateContent(
       aiDescription: string | null;
       altText: string | null;
     } | null;
+    rssContext?: RssContext;
+    customHashtags?: string;
   }
 ): Promise<{ text: string; platformContent?: Record<string, unknown> } | null> {
   const algo = PLATFORM_ALGORITHM[params.platform];
@@ -374,6 +417,14 @@ async function generateContent(
     systemParts.push('', `=== ATTACHED MEDIA ===`, `Description: ${params.media.aiDescription}`);
   }
 
+  // Add RSS intelligence context if available
+  if (params.rssContext) {
+    const rssPrompt = formatRssContextForPrompt(params.rssContext);
+    if (rssPrompt) {
+      systemParts.push('', rssPrompt);
+    }
+  }
+
   // User prompt — v2 with algorithm optimization directives
   let userPrompt = `Create a single ${contentTypeLabel.toLowerCase()} post for ${platformName}.`;
   userPrompt += `\n\nYour goal: Create content that the ${platformName} algorithm will prioritize and distribute to non-followers.`;
@@ -402,6 +453,10 @@ async function generateContent(
   userPrompt += `\n- Include exactly ${algo?.hashtags.recommended || 3} relevant hashtags (${params.hashtagPattern} style)`;
   if (algo?.hashtags.strategy === 'none') {
     userPrompt += `\n- DO NOT include any hashtags (${platformName} does not use them)`;
+  }
+  // Add custom hashtags if configured for this platform
+  if (params.customHashtags) {
+    userPrompt += `\n- MUST include these custom hashtags: ${params.customHashtags}`;
   }
   if (algo?.caption.hookImportant) {
     userPrompt += `\n- CRITICAL: Start with a strong hook in the very first line that stops the scroll`;

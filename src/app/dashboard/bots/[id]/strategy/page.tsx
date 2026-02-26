@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { Prisma } from '@prisma/client';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -112,40 +113,51 @@ export default async function ContentStrategyPage({
         const dailyVideos = Math.max(0, Math.min(10, parseInt(formData.get(`${prefix}dailyVideos`) as string) || 0));
         const dailyStories = Math.max(0, Math.min(10, parseInt(formData.get(`${prefix}dailyStories`) as string) || 0));
 
-        const toneOverride = (formData.get(`${prefix}tone`) as string) || null;
-        const hashtagOverride = (formData.get(`${prefix}hashtags`) as string) || null;
         const videoStyleOverride = (formData.get(`${prefix}videoStyle`) as string) || null;
         const videoLength = (formData.get(`${prefix}videoLength`) as string) || null;
         const videoFormat = (formData.get(`${prefix}videoFormat`) as string) || null;
 
+        // Per-platform multi-select overrides
+        const selectedContentTypes = CONTENT_TYPES
+          .map((ct) => ct.value)
+          .filter((v) => formData.get(`${prefix}ct_${v}`) === 'on');
+
+        const selectedTones = TONE_STYLES
+          .map((t) => t.value)
+          .filter((v) => formData.get(`${prefix}tone_${v}`) === 'on');
+
+        const selectedHashtagPatterns = HASHTAG_PATTERNS
+          .map((h) => h.value)
+          .filter((v) => formData.get(`${prefix}ht_${v}`) === 'on');
+
+        const customHashtags = ((formData.get(`${prefix}customHashtags`) as string) || '').trim() || null;
+
+        // Keep backward compatibility: set toneOverride to first selected tone (or null)
+        const toneOverride = selectedTones.length === 1 ? selectedTones[0] : null;
+        // Keep backward compatibility: set hashtagOverride to first selected pattern (or null)
+        const hashtagOverride = selectedHashtagPatterns.length === 1 ? selectedHashtagPatterns[0] : null;
+
+        const upsertData = {
+          enabled,
+          dailyTexts,
+          dailyImages,
+          dailyVideos,
+          dailyStories,
+          toneOverride,
+          hashtagOverride,
+          videoStyleOverride,
+          videoLength,
+          videoFormat,
+          contentTypesOverride: selectedContentTypes.length > 0 ? selectedContentTypes : Prisma.DbNull,
+          tonesOverride: selectedTones.length > 0 ? selectedTones : Prisma.DbNull,
+          hashtagPatternsOverride: selectedHashtagPatterns.length > 0 ? selectedHashtagPatterns : Prisma.DbNull,
+          customHashtags,
+        };
+
         await db.platformContentPlan.upsert({
           where: { botId_platform: { botId: id, platform: platform as any } },
-          create: {
-            botId: id,
-            platform: platform as any,
-            enabled,
-            dailyTexts,
-            dailyImages,
-            dailyVideos,
-            dailyStories,
-            toneOverride,
-            hashtagOverride,
-            videoStyleOverride,
-            videoLength,
-            videoFormat,
-          },
-          update: {
-            enabled,
-            dailyTexts,
-            dailyImages,
-            dailyVideos,
-            dailyStories,
-            toneOverride,
-            hashtagOverride,
-            videoStyleOverride,
-            videoLength,
-            videoFormat,
-          },
+          create: { botId: id, platform: platform as any, ...upsertData },
+          update: upsertData,
         });
       }
     } catch (e) {
@@ -475,34 +487,97 @@ export default async function ContentStrategyPage({
                     </div>
                   </div>
 
-                  {/* Style overrides */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs">Tone</Label>
-                      <select
-                        name={`${platform}_tone`}
-                        defaultValue={tone}
-                        className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                      >
-                        <option value="">Use bot default</option>
-                        {TONE_STYLES.map(t => (
-                          <option key={t.value} value={t.value}>{t.label}</option>
-                        ))}
-                      </select>
+                  {/* Per-Platform Content Types */}
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium text-muted-foreground block">Content Types (select which types to post on this platform)</Label>
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {CONTENT_TYPES.map((ct) => {
+                        const platformContentTypes = plan?.contentTypesOverride
+                          ? (typeof plan.contentTypesOverride === 'string' ? JSON.parse(plan.contentTypesOverride as string) : plan.contentTypesOverride) as string[]
+                          : null;
+                        const isChecked = platformContentTypes
+                          ? platformContentTypes.includes(ct.value)
+                          : contentTypes.includes(ct.value);
+                        return (
+                          <label key={ct.value} className="flex items-center gap-2 rounded border px-2 py-1.5 cursor-pointer hover:bg-muted/50 has-[:checked]:border-primary/50 has-[:checked]:bg-primary/5 text-xs">
+                            <input
+                              type="checkbox"
+                              name={`${platform}_ct_${ct.value}`}
+                              defaultChecked={isChecked}
+                              className="h-3.5 w-3.5 rounded"
+                            />
+                            <span>{ct.label}</span>
+                          </label>
+                        );
+                      })}
                     </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Hashtags</Label>
-                      <select
-                        name={`${platform}_hashtags`}
-                        defaultValue={hashtags}
-                        className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                      >
-                        <option value="">Use bot default</option>
-                        {HASHTAG_PATTERNS.map(h => (
-                          <option key={h.value} value={h.value}>{h.label}</option>
-                        ))}
-                      </select>
+                  </div>
+
+                  {/* Per-Platform Tone Styles */}
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium text-muted-foreground block">Tone Styles (select tones for this platform)</Label>
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {TONE_STYLES.map((t) => {
+                        const platformTones = plan?.tonesOverride
+                          ? (typeof plan.tonesOverride === 'string' ? JSON.parse(plan.tonesOverride as string) : plan.tonesOverride) as string[]
+                          : null;
+                        const isChecked = platformTones
+                          ? platformTones.includes(t.value)
+                          : (tone ? tone === t.value : toneStyles.includes(t.value));
+                        return (
+                          <label key={t.value} className="flex items-center gap-2 rounded border px-2 py-1.5 cursor-pointer hover:bg-muted/50 has-[:checked]:border-primary/50 has-[:checked]:bg-primary/5 text-xs">
+                            <input
+                              type="checkbox"
+                              name={`${platform}_tone_${t.value}`}
+                              defaultChecked={isChecked}
+                              className="h-3.5 w-3.5 rounded"
+                            />
+                            <span>{t.label}</span>
+                          </label>
+                        );
+                      })}
                     </div>
+                  </div>
+
+                  {/* Per-Platform Hashtag Strategy */}
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium text-muted-foreground block">Hashtag Strategy</Label>
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {HASHTAG_PATTERNS.map((h) => {
+                        const platformHashtags = plan?.hashtagPatternsOverride
+                          ? (typeof plan.hashtagPatternsOverride === 'string' ? JSON.parse(plan.hashtagPatternsOverride as string) : plan.hashtagPatternsOverride) as string[]
+                          : null;
+                        const isChecked = platformHashtags
+                          ? platformHashtags.includes(h.value)
+                          : (hashtags ? hashtags === h.value : hashtagPatterns.includes(h.value));
+                        return (
+                          <label key={h.value} className="flex items-center gap-2 rounded border px-2 py-1.5 cursor-pointer hover:bg-muted/50 has-[:checked]:border-primary/50 has-[:checked]:bg-primary/5 text-xs">
+                            <input
+                              type="checkbox"
+                              name={`${platform}_ht_${h.value}`}
+                              defaultChecked={isChecked}
+                              className="h-3.5 w-3.5 rounded"
+                            />
+                            <span>{h.label}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Per-Platform Custom Hashtags */}
+                  <div className="space-y-1">
+                    <Label className="text-xs font-medium text-muted-foreground">Custom Hashtags</Label>
+                    <input
+                      type="text"
+                      name={`${platform}_customHashtags`}
+                      defaultValue={(plan as Record<string, unknown>)?.customHashtags as string || ''}
+                      placeholder="#brand #industry #niche — comma or space separated"
+                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm placeholder:text-muted-foreground"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Custom hashtags always included in posts for this platform.
+                    </p>
                   </div>
 
                   {/* Video options — only for video-supporting platforms */}

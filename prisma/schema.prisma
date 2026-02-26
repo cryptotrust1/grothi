@@ -921,6 +921,12 @@ model PlatformContentPlan {
   videoStyleOverride String?
   hashtagOverride    String?
 
+  // Per-platform multi-select overrides (JSON string arrays, null = use global settings)
+  contentTypesOverride   Json?  // e.g. ["educational", "engagement", "news"]
+  tonesOverride          Json?  // e.g. ["professional", "casual"]
+  hashtagPatternsOverride Json? // e.g. ["moderate", "trending"]
+  customHashtags         String? // User-defined hashtags for this platform, e.g. "#brand #niche"
+
   // Video preferences for this platform
   videoLength   String?
   videoFormat   String?
