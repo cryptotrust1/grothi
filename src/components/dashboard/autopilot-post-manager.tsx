@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   CheckCircle2, Trash2, Clock, ChevronLeft, ChevronRight, List, CalendarDays,
-  Eye, Pencil, Save, ImageIcon,
+  Eye, Pencil, Save, ImageIcon, Film, AlertTriangle, X,
   Heart, MessageCircle, Send, Bookmark, Share2, ThumbsUp,
   Repeat2, MoreHorizontal,
 } from 'lucide-react';
@@ -33,6 +33,10 @@ export interface MediaItem {
   id: string;
   type: string;       // IMAGE or VIDEO
   filename: string;
+  mimeType: string;
+  width: number | null;
+  height: number | null;
+  duration: number | null;
 }
 
 interface AutopilotPostManagerProps {
@@ -72,6 +76,105 @@ const PLATFORM_STYLES: Record<string, {
   MEDIUM: { bg: 'bg-white', accent: 'text-black', avatar: 'bg-black', icon: '📝', maxChars: 100000 },
   DEVTO: { bg: 'bg-white', accent: 'text-black', avatar: 'bg-black', icon: '👨‍💻', maxChars: 100000 },
 };
+
+// ── Media–Platform Compatibility ──
+
+/**
+ * Determines if a media item is compatible with a given platform + content format.
+ * Returns { compatible, reason } — reason explains WHY it's incompatible.
+ */
+function getMediaCompatibility(
+  media: MediaItem,
+  platform: string,
+  contentFormat: string | null,
+  postType: string | null,
+): { compatible: boolean; reason: string | null; recommended: boolean } {
+  const isVideo = media.type === 'VIDEO';
+  const isImage = media.type === 'IMAGE';
+  const format = (contentFormat || '').toLowerCase();
+  const pType = (postType || '').toLowerCase();
+
+  // Reels / short video formats REQUIRE video
+  const needsVideo =
+    format.includes('reel') ||
+    format.includes('short video') ||
+    format.includes('vertical video') ||
+    pType === 'reel' ||
+    pType === 'story';
+
+  // Article / text-only formats — media optional but images preferred
+  const textOnly =
+    format.includes('thread') ||
+    format.includes('question') ||
+    format.includes('poll') ||
+    format.includes('ama') ||
+    format.includes('discussion');
+
+  // Platform-specific video requirements
+  if (platform === 'TIKTOK') {
+    if (isImage) return { compatible: false, reason: 'TikTok requires video content', recommended: false };
+    return { compatible: true, reason: null, recommended: true };
+  }
+
+  if (needsVideo) {
+    if (isImage) {
+      return { compatible: false, reason: `${contentFormat || 'This format'} requires video`, recommended: false };
+    }
+    // Video + video format = perfect match
+    return { compatible: true, reason: null, recommended: true };
+  }
+
+  // Text-only platforms (Threads text posts, Reddit text, etc.)
+  if (textOnly && platform === 'THREADS') {
+    // Threads supports media in posts but text questions are better without
+    return { compatible: true, reason: isVideo ? 'Video not typical for text posts' : null, recommended: isImage };
+  }
+
+  // For standard feed posts: images are recommended, videos work too
+  if (platform === 'INSTAGRAM' && pType !== 'reel' && pType !== 'story') {
+    // Feed posts: images are ideal, video becomes a reel automatically
+    return { compatible: true, reason: isVideo ? 'Will auto-convert to Reel' : null, recommended: isImage };
+  }
+
+  // YouTube: prefers video
+  if (platform === 'YOUTUBE') {
+    if (isImage) return { compatible: true, reason: 'YouTube is primarily video', recommended: false };
+    return { compatible: true, reason: null, recommended: true };
+  }
+
+  // Pinterest: images strongly preferred
+  if (platform === 'PINTEREST') {
+    return { compatible: true, reason: isVideo ? 'Images perform better on Pinterest' : null, recommended: isImage };
+  }
+
+  // Medium/DevTo: images for article headers, no video
+  if (platform === 'MEDIUM' || platform === 'DEVTO') {
+    if (isVideo) return { compatible: false, reason: 'Articles use images only', recommended: false };
+    return { compatible: true, reason: null, recommended: true };
+  }
+
+  // Default: both types work
+  return { compatible: true, reason: null, recommended: true };
+}
+
+/**
+ * Format a duration in seconds to MM:SS
+ */
+function formatDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+/**
+ * Get a human-friendly file size label from filename extension
+ */
+function getMediaLabel(media: MediaItem): string {
+  const name = media.filename;
+  // Trim to just the name part without extension, max 20 chars
+  const base = name.replace(/\.[^.]+$/, '');
+  return base.length > 20 ? base.substring(0, 18) + '...' : base;
+}
 
 // ── Platform Post Preview Component ──
 
@@ -427,53 +530,14 @@ function AutopilotPostCard({
 
           {/* Media Selector */}
           {showMediaSelector && (
-            <div className="mt-2 rounded-md border bg-muted/30 p-2 space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs font-medium">Change Media</Label>
-                {post.mediaId && (
-                  <button
-                    onClick={() => { onChangeMedia(post.id, null); setShowMediaSelector(false); }}
-                    className="text-[10px] text-destructive hover:underline"
-                  >
-                    Remove media
-                  </button>
-                )}
-              </div>
-              <div className="grid grid-cols-6 gap-1.5 max-h-[120px] overflow-y-auto">
-                {availableMedia.map(m => (
-                  <button
-                    key={m.id}
-                    onClick={() => { onChangeMedia(post.id, m.id); setShowMediaSelector(false); }}
-                    className={`relative aspect-square rounded border overflow-hidden hover:ring-2 hover:ring-primary transition-all ${
-                      m.id === post.mediaId ? 'ring-2 ring-primary' : 'border-muted'
-                    }`}
-                    title={m.filename}
-                  >
-                    {m.type === 'VIDEO' ? (
-                      <div className="w-full h-full bg-muted flex items-center justify-center">
-                        <span className="text-[10px] text-muted-foreground">VID</span>
-                      </div>
-                    ) : (
-                      /* eslint-disable-next-line @next/next/no-img-element */
-                      <img
-                        src={`/api/media/${m.id}`}
-                        alt={m.filename}
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                      />
-                    )}
-                    {m.id === post.mediaId && (
-                      <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
-                        <CheckCircle2 className="h-3 w-3 text-primary" />
-                      </div>
-                    )}
-                  </button>
-                ))}
-              </div>
-              {availableMedia.length === 0 && (
-                <p className="text-[10px] text-muted-foreground text-center py-2">No media in library</p>
-              )}
-            </div>
+            <MediaSelector
+              post={post}
+              platform={primaryPlatform}
+              availableMedia={availableMedia}
+              onSelect={(mediaId) => { onChangeMedia(post.id, mediaId); setShowMediaSelector(false); }}
+              onRemove={() => { onChangeMedia(post.id, null); setShowMediaSelector(false); }}
+              onClose={() => setShowMediaSelector(false)}
+            />
           )}
 
           {/* Schedule & Actions */}
@@ -502,6 +566,222 @@ function AutopilotPostCard({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Media Selector Component ──
+
+function MediaSelector({ post, platform, availableMedia, onSelect, onRemove, onClose }: {
+  post: AutopilotPost;
+  platform: string;
+  availableMedia: MediaItem[];
+  onSelect: (mediaId: string) => void;
+  onRemove: () => void;
+  onClose: () => void;
+}) {
+  const [filter, setFilter] = useState<'all' | 'compatible'>('compatible');
+
+  // Compute compatibility for each media item
+  const mediaWithCompat = useMemo(() => {
+    return availableMedia.map(m => {
+      const compat = getMediaCompatibility(m, platform, post.contentFormat, null);
+      return { ...m, ...compat };
+    });
+  }, [availableMedia, platform, post.contentFormat]);
+
+  const compatibleCount = mediaWithCompat.filter(m => m.compatible).length;
+  const incompatibleCount = mediaWithCompat.filter(m => !m.compatible).length;
+
+  const displayed = filter === 'compatible'
+    ? mediaWithCompat.filter(m => m.compatible)
+    : mediaWithCompat;
+
+  // Sort: recommended first, then compatible, then incompatible
+  const sorted = [...displayed].sort((a, b) => {
+    if (a.recommended && !b.recommended) return -1;
+    if (!a.recommended && b.recommended) return 1;
+    if (a.compatible && !b.compatible) return -1;
+    if (!a.compatible && b.compatible) return 1;
+    return 0;
+  });
+
+  return (
+    <div className="mt-2 rounded-lg border bg-card shadow-sm overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 py-2 bg-muted/40 border-b">
+        <div className="flex items-center gap-2">
+          <ImageIcon className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="text-xs font-semibold">Select Media</span>
+          <span className="text-[10px] text-muted-foreground">
+            {compatibleCount} compatible{incompatibleCount > 0 ? ` · ${incompatibleCount} incompatible` : ''}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          {post.mediaId && (
+            <button
+              onClick={onRemove}
+              className="text-[10px] text-destructive hover:underline flex items-center gap-0.5"
+            >
+              <X className="h-3 w-3" /> Remove
+            </button>
+          )}
+          <button onClick={onClose} className="p-0.5 rounded hover:bg-muted">
+            <X className="h-3.5 w-3.5 text-muted-foreground" />
+          </button>
+        </div>
+      </div>
+
+      {/* Filter tabs */}
+      {incompatibleCount > 0 && (
+        <div className="flex items-center gap-1 px-3 py-1.5 border-b bg-muted/20">
+          <button
+            onClick={() => setFilter('compatible')}
+            className={`text-[10px] px-2 py-0.5 rounded-full transition-colors ${
+              filter === 'compatible' ? 'bg-green-100 text-green-800 font-medium' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Compatible ({compatibleCount})
+          </button>
+          <button
+            onClick={() => setFilter('all')}
+            className={`text-[10px] px-2 py-0.5 rounded-full transition-colors ${
+              filter === 'all' ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            All ({availableMedia.length})
+          </button>
+        </div>
+      )}
+
+      {/* Media Grid */}
+      <div className="p-2 max-h-[220px] overflow-y-auto">
+        {sorted.length === 0 ? (
+          <div className="text-center py-4">
+            <ImageIcon className="h-6 w-6 text-muted-foreground/30 mx-auto mb-1" />
+            <p className="text-[10px] text-muted-foreground">
+              {availableMedia.length === 0
+                ? 'No media in library'
+                : 'No compatible media for this format'}
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-2">
+            {sorted.map(m => {
+              const isSelected = m.id === post.mediaId;
+              const isIncompat = !m.compatible;
+              return (
+                <button
+                  key={m.id}
+                  onClick={() => {
+                    if (!isIncompat) onSelect(m.id);
+                  }}
+                  disabled={isIncompat}
+                  className={`group relative rounded-lg overflow-hidden transition-all text-left ${
+                    isIncompat
+                      ? 'opacity-40 cursor-not-allowed grayscale'
+                      : isSelected
+                        ? 'ring-2 ring-primary shadow-md'
+                        : 'border border-muted hover:border-primary/50 hover:shadow-sm'
+                  }`}
+                  title={isIncompat ? m.reason || 'Incompatible' : m.filename}
+                >
+                  {/* Thumbnail */}
+                  <div className="aspect-square bg-muted relative">
+                    {m.type === 'VIDEO' ? (
+                      <>
+                        <video
+                          src={`/api/media/${m.id}`}
+                          preload="metadata"
+                          className="w-full h-full object-cover"
+                          muted
+                        />
+                        {/* Video overlay */}
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <div className="bg-black/50 rounded-full p-1">
+                            <Film className="h-3 w-3 text-white" />
+                          </div>
+                        </div>
+                        {/* Duration badge */}
+                        {m.duration != null && (
+                          <span className="absolute bottom-0.5 right-0.5 bg-black/70 text-white text-[8px] px-1 rounded">
+                            {formatDuration(m.duration)}
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        src={`/api/media/${m.id}`}
+                        alt={m.filename}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    )}
+
+                    {/* Selected overlay */}
+                    {isSelected && (
+                      <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
+                        <CheckCircle2 className="h-4 w-4 text-primary drop-shadow" />
+                      </div>
+                    )}
+
+                    {/* Incompatible overlay */}
+                    {isIncompat && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/10">
+                        <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+                      </div>
+                    )}
+
+                    {/* Recommended badge */}
+                    {m.recommended && !isIncompat && !isSelected && (
+                      <div className="absolute top-0.5 right-0.5">
+                        <span className="bg-green-500 text-white text-[7px] px-1 rounded-sm font-medium">
+                          FIT
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Type badge */}
+                    <span className={`absolute top-0.5 left-0.5 text-[7px] px-1 rounded-sm font-medium ${
+                      m.type === 'VIDEO' ? 'bg-violet-600 text-white' : 'bg-blue-600 text-white'
+                    }`}>
+                      {m.type === 'VIDEO' ? 'VID' : 'IMG'}
+                    </span>
+                  </div>
+
+                  {/* Filename + info */}
+                  <div className="px-1 py-0.5">
+                    <p className="text-[9px] truncate text-foreground/80 leading-tight">
+                      {getMediaLabel(m)}
+                    </p>
+                    {m.width && m.height && (
+                      <p className="text-[8px] text-muted-foreground">
+                        {m.width}x{m.height}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Incompatibility reason tooltip line */}
+                  {isIncompat && m.reason && (
+                    <div className="px-1 pb-0.5">
+                      <p className="text-[8px] text-amber-600 leading-tight truncate">{m.reason}</p>
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Format hint */}
+      {post.contentFormat && (
+        <div className="px-3 py-1.5 border-t bg-muted/20 text-[10px] text-muted-foreground">
+          Post format: <span className="font-medium text-foreground/70">{post.contentFormat}</span>
+          {' · '}Platform: <span className="font-medium text-foreground/70">{platform}</span>
+        </div>
+      )}
     </div>
   );
 }

@@ -68,7 +68,7 @@ export default async function AutopilotPage({
       products: { where: { isActive: true }, select: { id: true, name: true } },
       media: {
         where: { generationStatus: { not: 'PENDING' } },
-        select: { id: true, type: true, filename: true },
+        select: { id: true, type: true, filename: true, mimeType: true, width: true, height: true, duration: true },
         orderBy: { createdAt: 'desc' },
         take: 200,
       },
@@ -181,6 +181,10 @@ export default async function AutopilotPage({
     id: m.id,
     type: m.type,
     filename: m.filename,
+    mimeType: m.mimeType,
+    width: m.width,
+    height: m.height,
+    duration: m.duration,
   }));
 
   // Platform algorithm recommendations — v2 with full data
@@ -770,7 +774,7 @@ function AutopilotPostManagerWrapper({
   botId: string;
   botPageId: string;
   platformNames: Record<string, string>;
-  availableMedia: Array<{ id: string; type: string; filename: string }>;
+  availableMedia: Array<{ id: string; type: string; filename: string; mimeType: string; width: number | null; height: number | null; duration: number | null }>;
 }) {
   async function handleApprovePost(formData: FormData) {
     'use server';
