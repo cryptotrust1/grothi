@@ -18,13 +18,13 @@ import { POST_LANGUAGES } from '@/lib/constants';
 
 /** All audience profile fields as defined in the strategy page */
 const AUDIENCE_PROFILE_FIELDS = [
-  'audienceName', 'summary', 'ageRange', 'gender', 'location', 'languages',
-  'occupation', 'incomeLevel', 'education', 'companySize',
+  'audienceName', 'summary', 'transformation', 'ageRange', 'gender', 'location', 'languages',
+  'occupation', 'incomeLevel', 'education',
   'interests', 'values', 'lifestyle', 'onlineBehavior', 'contentPreferences',
   'painPoint1', 'painPoint2', 'painPoint3',
   'desire1', 'desire2', 'desire3',
   'followMotivation', 'aspirationalIdentity', 'biggestFear',
-  'buyingTriggers', 'followReasons', 'decisionFactors', 'purchaseStage',
+  'buyingTriggers', 'decisionFactors', 'purchaseStage',
   'trustBarriers', 'priceSensitivity',
   'wordsTheyUse', 'wordsToAvoid', 'commonQuestions', 'objections',
   'communicationStyle', 'emotionalHooks', 'avoidTopics',
@@ -62,7 +62,11 @@ function buildAudiencePromptSection(ap: Record<string, unknown>): string[] {
 
   const parts: string[] = ['=== TARGET AUDIENCE PROFILE ==='];
 
+  if (ap.audienceName) parts.push(`Audience name: ${ap.audienceName}`);
   if (ap.summary) parts.push(`Audience summary: ${ap.summary}`);
+  if (ap.transformation) parts.push(`TRANSFORMATION: ${ap.transformation} — Every piece of content should move them along this journey.`);
+
+  // Demographics
   if (ap.ageRange) parts.push(`Age range: ${ap.ageRange}`);
   if (ap.gender) parts.push(`Gender: ${ap.gender}`);
   if (ap.location) parts.push(`Location: ${ap.location}`);
@@ -71,32 +75,69 @@ function buildAudiencePromptSection(ap: Record<string, unknown>): string[] {
   if (ap.incomeLevel) parts.push(`Income level: ${ap.incomeLevel}`);
   if (ap.education) parts.push(`Education: ${ap.education}`);
 
+  // Psychographics
   if (ap.interests) parts.push(`\nInterests & Hobbies: ${ap.interests}`);
   if (ap.values) parts.push(`Core values: ${ap.values}`);
   if (ap.lifestyle) parts.push(`Lifestyle: ${ap.lifestyle}`);
   if (ap.onlineBehavior) parts.push(`Online behavior: ${ap.onlineBehavior}`);
-  if (ap.socialPlatforms) parts.push(`Primary social platforms: ${ap.socialPlatforms}`);
   if (ap.contentPreferences) parts.push(`Content preferences: ${ap.contentPreferences}`);
+  if (ap.followMotivation) parts.push(`Primary reason they follow accounts: ${ap.followMotivation}`);
 
-  if (ap.painPoints) parts.push(`\nPAIN POINTS (problems they face): ${ap.painPoints}`);
-  if (ap.desires) parts.push(`DESIRES (what they want to achieve): ${ap.desires}`);
-  if (ap.fears) parts.push(`FEARS (what they want to avoid): ${ap.fears}`);
+  // Core psychology
+  if (ap.painPoints) parts.push(`\nPAIN POINTS (problems they face — address these directly): ${ap.painPoints}`);
+  if (ap.desires) parts.push(`DESIRES (what they want to achieve — speak to these aspirations): ${ap.desires}`);
+  if (ap.biggestFear) parts.push(`BIGGEST FEAR (what keeps them up at night): ${ap.biggestFear}`);
+  if (ap.aspirationalIdentity) parts.push(`ASPIRATIONAL IDENTITY (who they want to become): ${ap.aspirationalIdentity}`);
   if (ap.objections) parts.push(`OBJECTIONS (why they hesitate to buy/follow): ${ap.objections}`);
+  if (ap.commonQuestions) parts.push(`QUESTIONS THEY ASK (use these as content inspiration): ${ap.commonQuestions}`);
 
-  if (ap.buyingTriggers) parts.push(`\nBUYING TRIGGERS: ${ap.buyingTriggers}`);
-  if (ap.followReasons) parts.push(`WHY THEY FOLLOW: ${ap.followReasons}`);
-  if (ap.decisionFactors) parts.push(`DECISION FACTORS: ${ap.decisionFactors}`);
+  // Vocabulary
+  if (ap.wordsTheyUse) parts.push(`\nWORDS & PHRASES TO USE (their actual vocabulary): ${ap.wordsTheyUse}`);
+  if (ap.wordsToAvoid) parts.push(`WORDS & PHRASES TO AVOID (will make content feel inauthentic): ${ap.wordsToAvoid}`);
 
+  // Buying psychology
+  if (ap.buyingTriggers) parts.push(`\nBUYING TRIGGERS (what makes them take action): ${ap.buyingTriggers}`);
+  if (ap.decisionFactors) parts.push(`DECISION STYLE: ${ap.decisionFactors}`);
+  if (ap.purchaseStage) parts.push(`PURCHASE STAGE: ${ap.purchaseStage}`);
+  if (ap.priceSensitivity) parts.push(`PRICE SENSITIVITY: ${ap.priceSensitivity}`);
+  if (ap.trustBarriers) parts.push(`TRUST BARRIERS: ${ap.trustBarriers}`);
+
+  // Competitive context
   if (ap.brandRelationship) parts.push(`\nRelationship with brand: ${ap.brandRelationship}`);
   if (ap.competitors) parts.push(`Competitors they follow: ${ap.competitors}`);
   if (ap.influencers) parts.push(`Influencers they trust: ${ap.influencers}`);
 
+  // Communication strategy
   if (ap.communicationStyle) parts.push(`\nHow to communicate with them: ${ap.communicationStyle}`);
   if (ap.emotionalHooks) parts.push(`Emotional hooks that work: ${ap.emotionalHooks}`);
   if (ap.avoidTopics) parts.push(`Topics/approaches to AVOID: ${ap.avoidTopics}`);
 
+  // Purchase stage mapping
+  if (ap.purchaseStage) {
+    const stageDirectives: Record<string, string> = {
+      unaware: 'Audience is UNAWARE of their problem. Focus on curiosity-driven content.',
+      problem_aware: 'Audience KNOWS they have a problem but not the solution.',
+      exploring: 'Audience is EXPLORING solutions. Provide educational content.',
+      comparing: 'Audience is COMPARING options. Use social proof and differentiators.',
+      ready_to_buy: 'Audience is READY TO BUY. Use clear CTAs and urgency.',
+      existing_customer: 'Audience is ALREADY A CUSTOMER. Focus on community and loyalty.',
+    };
+    const directive = stageDirectives[ap.purchaseStage as string];
+    if (directive) {
+      parts.push(`\nCONTENT STRATEGY FOR PURCHASE STAGE: ${directive}`);
+    }
+  }
+
   parts.push('');
   parts.push('INSTRUCTIONS: Use this audience profile to create content that deeply resonates with these specific people.');
+  parts.push('Address their pain points, speak to their desires, use their vocabulary (not corporate language), and trigger the psychological factors that drive them to engage, follow, and buy.');
+  if (ap.wordsTheyUse) {
+    parts.push(`CRITICAL: Naturally incorporate their language: ${(ap.wordsTheyUse as string).split(',').slice(0, 5).map(w => `"${w.trim()}"`).join(', ')}`);
+  }
+  if (ap.wordsToAvoid) {
+    parts.push(`NEVER use these words/phrases: ${ap.wordsToAvoid}`);
+  }
+  parts.push('');
 
   return parts;
 }
@@ -309,7 +350,7 @@ describe('Audience profile parsing', () => {
     expect(profile).not.toHaveProperty('desires');
   });
 
-  test('collects all 40 possible fields', () => {
+  test('collects all possible fields', () => {
     const form = new Map<string, string>();
     for (const field of AUDIENCE_PROFILE_FIELDS) {
       form.set(`ap_${field}`, `value_for_${field}`);
@@ -318,6 +359,19 @@ describe('Audience profile parsing', () => {
     const profile = parseAudienceProfile(form);
     // All base fields + 2 merged fields (painPoints, desires)
     expect(Object.keys(profile).length).toBe(AUDIENCE_PROFILE_FIELDS.length + 2);
+  });
+
+  test('includes transformation field in collected data', () => {
+    const form = new Map<string, string>();
+    form.set('ap_transformation', 'FROM overwhelmed solopreneur TO confident brand owner');
+
+    const profile = parseAudienceProfile(form);
+    expect(profile.transformation).toBe('FROM overwhelmed solopreneur TO confident brand owner');
+  });
+
+  test('does not include removed companySize or followReasons fields', () => {
+    expect(AUDIENCE_PROFILE_FIELDS).not.toContain('companySize');
+    expect(AUDIENCE_PROFILE_FIELDS).not.toContain('followReasons');
   });
 
   test('ignores fields not prefixed with ap_', () => {
@@ -453,13 +507,17 @@ describe('Audience profile AI prompt injection', () => {
   test('includes buying psychology fields', () => {
     const ap = {
       buyingTriggers: 'Free trial, case studies',
-      followReasons: 'Valuable tips, industry news',
       decisionFactors: 'ROI, ease of use',
+      purchaseStage: 'exploring',
+      priceSensitivity: 'moderate',
+      trustBarriers: 'Skeptical of AI tools',
     };
     const joined = buildAudiencePromptSection(ap).join('\n');
-    expect(joined).toContain('BUYING TRIGGERS: Free trial');
-    expect(joined).toContain('WHY THEY FOLLOW: Valuable tips');
-    expect(joined).toContain('DECISION FACTORS: ROI');
+    expect(joined).toContain('BUYING TRIGGERS (what makes them take action): Free trial');
+    expect(joined).toContain('DECISION STYLE: ROI');
+    expect(joined).toContain('PURCHASE STAGE: exploring');
+    expect(joined).toContain('PRICE SENSITIVITY: moderate');
+    expect(joined).toContain('TRUST BARRIERS: Skeptical');
   });
 
   test('includes communication fields', () => {
@@ -489,9 +547,10 @@ describe('Audience profile AI prompt injection', () => {
   test('ends with AI instruction', () => {
     const ap = { summary: 'Test audience' };
     const parts = buildAudiencePromptSection(ap);
-    const lastNonEmpty = parts.filter(p => p.length > 0).pop();
-    expect(lastNonEmpty).toContain('INSTRUCTIONS');
-    expect(lastNonEmpty).toContain('deeply resonates');
+    const joined = parts.join('\n');
+    expect(joined).toContain('INSTRUCTIONS');
+    expect(joined).toContain('deeply resonates');
+    expect(joined).toContain('vocabulary');
   });
 
   test('skips missing fields without placeholder text', () => {
@@ -508,7 +567,9 @@ describe('Audience profile AI prompt injection', () => {
 
   test('handles full profile with all fields', () => {
     const ap = {
+      audienceName: 'Tech Entrepreneurs',
       summary: 'Tech-savvy entrepreneurs aged 25-34',
+      transformation: 'FROM overwhelmed solopreneur TO confident brand owner',
       ageRange: '25-34',
       gender: 'mixed',
       location: 'Global',
@@ -521,13 +582,20 @@ describe('Audience profile AI prompt injection', () => {
       lifestyle: 'remote first',
       onlineBehavior: 'Active on Twitter and LinkedIn',
       contentPreferences: 'short tips, data-driven',
+      followMotivation: 'learn new skills, stay updated',
       painPoints: 'No time; Low engagement; Too many platforms',
       desires: 'Grow audience; Automate marketing; Build brand',
-      fears: 'Falling behind competitors',
+      biggestFear: 'Falling behind competitors',
+      aspirationalIdentity: 'Successful entrepreneur with passive income',
       objections: 'Tried tools before that failed',
+      commonQuestions: 'How do I grow my followers?',
+      wordsTheyUse: 'side hustle, passive income, scale',
+      wordsToAvoid: 'get rich quick, guru',
       buyingTriggers: 'Free trial, social proof',
-      followReasons: 'Actionable tips, industry news',
-      decisionFactors: 'ROI, reviews',
+      decisionFactors: 'research',
+      purchaseStage: 'exploring',
+      priceSensitivity: 'moderate',
+      trustBarriers: 'Skeptical of AI tools',
       brandRelationship: 'Evaluating',
       competitors: 'Buffer, Hootsuite',
       influencers: 'Gary Vee',
@@ -536,18 +604,99 @@ describe('Audience profile AI prompt injection', () => {
       avoidTopics: 'politics',
     };
     const parts = buildAudiencePromptSection(ap);
-    // Should have at least 20 lines for a full profile
-    expect(parts.length).toBeGreaterThanOrEqual(20);
+    // Should have at least 25 lines for a full profile
+    expect(parts.length).toBeGreaterThanOrEqual(25);
 
     const joined = parts.join('\n');
     // Verify all sections present
     expect(joined).toContain('TARGET AUDIENCE PROFILE');
+    expect(joined).toContain('Audience name: Tech Entrepreneurs');
     expect(joined).toContain('Audience summary');
+    expect(joined).toContain('TRANSFORMATION');
     expect(joined).toContain('Age range');
     expect(joined).toContain('PAIN POINTS');
     expect(joined).toContain('DESIRES');
+    expect(joined).toContain('BIGGEST FEAR');
+    expect(joined).toContain('ASPIRATIONAL IDENTITY');
+    expect(joined).toContain('WORDS & PHRASES TO USE');
+    expect(joined).toContain('WORDS & PHRASES TO AVOID');
     expect(joined).toContain('BUYING TRIGGERS');
+    expect(joined).toContain('PURCHASE STAGE');
+    expect(joined).toContain('CONTENT STRATEGY FOR PURCHASE STAGE');
     expect(joined).toContain('INSTRUCTIONS');
+    // Vocabulary enforcement
+    expect(joined).toContain('CRITICAL: Naturally incorporate');
+    expect(joined).toContain('NEVER use these words');
+  });
+
+  test('includes vocabulary in prompt when present', () => {
+    const ap = {
+      wordsTheyUse: 'side hustle, content game, growth hacking',
+      wordsToAvoid: 'get rich quick, guru, easy money',
+    };
+    const joined = buildAudiencePromptSection(ap).join('\n');
+    expect(joined).toContain('WORDS & PHRASES TO USE');
+    expect(joined).toContain('side hustle');
+    expect(joined).toContain('WORDS & PHRASES TO AVOID');
+    expect(joined).toContain('get rich quick');
+    // Enforcement instructions
+    expect(joined).toContain('CRITICAL: Naturally incorporate');
+    expect(joined).toContain('NEVER use these words');
+  });
+
+  test('includes transformation statement when present', () => {
+    const ap = {
+      transformation: 'FROM frustrated marketer TO automated growth machine',
+    };
+    const joined = buildAudiencePromptSection(ap).join('\n');
+    expect(joined).toContain('TRANSFORMATION: FROM frustrated marketer');
+    expect(joined).toContain('Every piece of content should move them along this journey');
+  });
+
+  test('purchase stage exploring generates educational content directive', () => {
+    const ap = { purchaseStage: 'exploring' };
+    const joined = buildAudiencePromptSection(ap).join('\n');
+    expect(joined).toContain('CONTENT STRATEGY FOR PURCHASE STAGE');
+    expect(joined).toContain('EXPLORING solutions');
+    expect(joined).toContain('educational content');
+  });
+
+  test('purchase stage ready_to_buy generates urgency directive', () => {
+    const ap = { purchaseStage: 'ready_to_buy' };
+    const joined = buildAudiencePromptSection(ap).join('\n');
+    expect(joined).toContain('READY TO BUY');
+    expect(joined).toContain('CTA');
+  });
+
+  test('purchase stage unaware generates curiosity directive', () => {
+    const ap = { purchaseStage: 'unaware' };
+    const joined = buildAudiencePromptSection(ap).join('\n');
+    expect(joined).toContain('UNAWARE');
+    expect(joined).toContain('curiosity');
+  });
+
+  test('includes biggestFear and aspirationalIdentity in prompt', () => {
+    const ap = {
+      biggestFear: 'Falling behind competitors who use AI',
+      aspirationalIdentity: 'Industry thought leader with 100K followers',
+    };
+    const joined = buildAudiencePromptSection(ap).join('\n');
+    expect(joined).toContain('BIGGEST FEAR');
+    expect(joined).toContain('Falling behind competitors');
+    expect(joined).toContain('ASPIRATIONAL IDENTITY');
+    expect(joined).toContain('thought leader');
+  });
+
+  test('includes followMotivation and commonQuestions in prompt', () => {
+    const ap = {
+      followMotivation: 'learn new skills, stay updated on trends',
+      commonQuestions: 'How do I grow followers? Is AI content detectable?',
+    };
+    const joined = buildAudiencePromptSection(ap).join('\n');
+    expect(joined).toContain('Primary reason they follow accounts');
+    expect(joined).toContain('learn new skills');
+    expect(joined).toContain('QUESTIONS THEY ASK');
+    expect(joined).toContain('How do I grow followers');
   });
 });
 
