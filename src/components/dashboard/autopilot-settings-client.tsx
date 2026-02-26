@@ -24,6 +24,7 @@ interface AutopilotSettingsProps {
     schedulingMode: string;
     customStartDate: string;
     customEndDate: string;
+    intensity: string;
   };
   saveAction: (formData: FormData) => Promise<void>;
   savePromptAction: (formData: FormData) => Promise<void>;
@@ -163,7 +164,31 @@ export function AutopilotSettingsClient({
         </div>
 
         {/* Second row */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {/* Post Intensity */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5">
+              <Label>Post Intensity</Label>
+              <HelpTip text="Controls how many posts per day the autopilot generates. Recommended follows platform best practices. Higher intensity = more posts = more credits used." />
+            </div>
+            <select
+              name="intensity"
+              defaultValue={defaults.intensity || 'recommended'}
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              <option value="low">Low (~1-2 posts/day)</option>
+              <option value="recommended">Recommended (Optimal)</option>
+              <option value="high">High (~4-6 posts/day)</option>
+              <option value="extreme">Extreme (~8-12 posts/day)</option>
+            </select>
+            <p className="text-[10px] text-muted-foreground">
+              {defaults.intensity === 'low' && 'Minimal posting — best for niche audiences or premium content'}
+              {(defaults.intensity === 'recommended' || !defaults.intensity) && 'Balanced — follows platform algorithm research for best reach'}
+              {defaults.intensity === 'high' && 'Aggressive — more content visibility, higher credit usage'}
+              {defaults.intensity === 'extreme' && 'Maximum output — high credit cost, risk of audience fatigue'}
+            </p>
+          </div>
+
           {/* Media Source */}
           <div className="space-y-2">
             <div className="flex items-center gap-1.5">

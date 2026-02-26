@@ -14,6 +14,13 @@ import { db } from '@/lib/db';
 import { healthCheckAllConnections as fbHealthCheck } from '@/lib/facebook';
 import { healthCheckAllConnections as igHealthCheck } from '@/lib/instagram';
 import { healthCheckAllConnections as threadsHealthCheck } from '@/lib/threads';
+import { sendLowCreditWarningEmail, sendAIBudgetWarningEmail } from '@/lib/email';
+
+/** Credits threshold below which we send admin warning (~$2 at $0.01/credit) */
+const LOW_CREDIT_THRESHOLD = 200;
+
+/** Estimated Anthropic API cost per content generation (~$0.006) */
+const EST_COST_PER_GENERATION = 0.006;
 
 export async function POST(request: NextRequest) {
   const cronError = validateCronSecret(request.headers.get('authorization'));
@@ -58,12 +65,106 @@ export async function POST(request: NextRequest) {
     });
     console.log(`[health-check] Reset daily counters for ${resetResult.count} connections`);
 
+    // ── Credit Monitoring ──
+    // Check all users with active autopilot bots for low credit balances
+    const adminEmail = process.env.ADMIN_ALERT_EMAIL || process.env.CONTACT_NOTIFY_EMAIL || 'info@grothi.com';
+    let creditWarningsSent = 0;
+
+    try {
+      // Find users with active autopilot bots whose credits are below threshold
+      const usersWithAutopilot = await db.bot.findMany({
+        where: { autonomousEnabled: true },
+        select: {
+          id: true,
+          userId: true,
+          user: { select: { id: true, email: true, name: true } },
+        },
+        distinct: ['userId'],
+      });
+
+      for (const botData of usersWithAutopilot) {
+        const balance = await db.creditBalance.findUnique({
+          where: { userId: botData.userId },
+        });
+        const currentBalance = balance?.balance ?? 0;
+
+        if (currentBalance < LOW_CREDIT_THRESHOLD) {
+          // Count active bots and pending posts for context
+          const activeBots = await db.bot.count({
+            where: { userId: botData.userId, autonomousEnabled: true },
+          });
+          const pendingPosts = await db.scheduledPost.count({
+            where: {
+              bot: { userId: botData.userId },
+              source: 'AUTOPILOT',
+              status: { in: ['DRAFT', 'SCHEDULED'] },
+            },
+          });
+
+          await sendLowCreditWarningEmail(adminEmail, {
+            userId: botData.userId,
+            userEmail: botData.user.email,
+            userName: botData.user.name || botData.user.email,
+            currentBalance,
+            threshold: LOW_CREDIT_THRESHOLD,
+            activeBots,
+            pendingPosts,
+          });
+          creditWarningsSent++;
+          console.log(`[health-check] Low credit warning sent for ${botData.user.email} (${currentBalance} credits)`);
+        }
+      }
+    } catch (e) {
+      console.error('[health-check] Credit monitoring failed:', e instanceof Error ? e.message : e);
+    }
+
+    // ── AI Service Budget Check ──
+    // Estimate daily AI cost based on recent generation activity
+    let aiBudgetWarning = false;
+    try {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      const generationsToday = await db.botActivity.count({
+        where: {
+          action: 'GENERATE_CONTENT',
+          createdAt: { gte: todayStart },
+          success: true,
+        },
+      });
+
+      const estimatedDailyCost = generationsToday * EST_COST_PER_GENERATION;
+
+      // Warn if daily cost exceeds $2 or if we're on track for >$5/day (at current rate)
+      const hoursElapsed = Math.max(1, (Date.now() - todayStart.getTime()) / (1000 * 60 * 60));
+      const projectedDailyCost = (estimatedDailyCost / hoursElapsed) * 24;
+
+      if (projectedDailyCost > 5.0) {
+        await sendAIBudgetWarningEmail(adminEmail, {
+          service: 'Anthropic Claude API',
+          estimatedBalanceUsd: -1, // Unknown — we track cost not balance
+          warningThresholdUsd: 2.0,
+          totalPostsToday: generationsToday,
+          estimatedCostToday: estimatedDailyCost,
+        });
+        aiBudgetWarning = true;
+        console.log(`[health-check] AI budget warning: $${estimatedDailyCost.toFixed(4)} spent today, projected $${projectedDailyCost.toFixed(2)}/day`);
+      }
+    } catch (e) {
+      console.error('[health-check] AI budget check failed:', e instanceof Error ? e.message : e);
+    }
+
     return NextResponse.json({
       dailyCountersReset: true,
       connectionsReset: resetResult.count,
       facebook: fbResult,
       instagram: igResult,
       threads: threadsResult,
+      creditMonitoring: {
+        warningsSent: creditWarningsSent,
+        threshold: LOW_CREDIT_THRESHOLD,
+      },
+      aiBudgetWarning,
     });
   } catch (error) {
     console.error('[health-check] Unhandled error:', error instanceof Error ? error.message : error);

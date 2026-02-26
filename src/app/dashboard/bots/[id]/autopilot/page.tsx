@@ -67,8 +67,10 @@ export default async function AutopilotPage({
       contentPlans: true,
       products: { where: { isActive: true }, select: { id: true, name: true } },
       media: {
-        select: { id: true, type: true },
-        take: 1,
+        where: { generationStatus: { not: 'PENDING' } },
+        select: { id: true, type: true, filename: true },
+        orderBy: { createdAt: 'desc' },
+        take: 200,
       },
     },
   });
@@ -174,6 +176,13 @@ export default async function AutopilotPage({
     error: p.error,
   }));
 
+  // Serialize media library for the client component (media selector)
+  const serializedMedia = bot.media.map(m => ({
+    id: m.id,
+    type: m.type,
+    filename: m.filename,
+  }));
+
   // Platform algorithm recommendations — v2 with full data
   const platformRecommendations = connectedPlatforms.map(p => {
     const algo = PLATFORM_ALGORITHM[p];
@@ -205,109 +214,145 @@ export default async function AutopilotPage({
 
   async function handleToggleAutopilot() {
     'use server';
-    const currentUser = await requireAuth();
-    const currentBot = await db.bot.findFirst({ where: { id, userId: currentUser.id } });
-    if (!currentBot) redirect('/dashboard/bots');
+    try {
+      const currentUser = await requireAuth();
+      const currentBot = await db.bot.findFirst({ where: { id, userId: currentUser.id } });
+      if (!currentBot) redirect('/dashboard/bots');
 
-    await db.bot.update({
-      where: { id },
-      data: { autonomousEnabled: !currentBot.autonomousEnabled },
-    });
+      await db.bot.update({
+        where: { id },
+        data: { autonomousEnabled: !currentBot.autonomousEnabled },
+      });
 
-    const action = currentBot.autonomousEnabled ? 'disabled' : 'enabled';
-    redirect(`/dashboard/bots/${id}/autopilot?success=Autopilot ${action}`);
+      const action = currentBot.autonomousEnabled ? 'disabled' : 'enabled';
+      redirect(`/dashboard/bots/${id}/autopilot?success=Autopilot ${action}`);
+    } catch (error: unknown) {
+      if (error && typeof error === 'object' && 'digest' in error) throw error;
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[autopilot] Toggle error:', msg);
+      redirect(`/dashboard/bots/${id}/autopilot?error=${encodeURIComponent('Failed to toggle autopilot: ' + msg)}`);
+    }
   }
 
   async function handleApproveAll() {
     'use server';
-    const currentUser = await requireAuth();
-    const currentBot = await db.bot.findFirst({ where: { id, userId: currentUser.id } });
-    if (!currentBot) redirect('/dashboard/bots');
+    try {
+      const currentUser = await requireAuth();
+      const currentBot = await db.bot.findFirst({ where: { id, userId: currentUser.id } });
+      if (!currentBot) redirect('/dashboard/bots');
 
-    // Only approve posts that have real content (not placeholders or generating)
-    // Also fix stale scheduledAt — if a post was scheduled in the past, bump it to 5 min from now
-    const approvablePosts = await db.scheduledPost.findMany({
-      where: {
-        botId: id,
-        source: 'AUTOPILOT',
-        status: 'DRAFT',
-        content: {
-          not: { startsWith: '[AUTOPILOT]' },
+      // Only approve posts that have real content (not placeholders or generating)
+      // Also fix stale scheduledAt — if a post was scheduled in the past, bump it to 5 min from now
+      const approvablePosts = await db.scheduledPost.findMany({
+        where: {
+          botId: id,
+          source: 'AUTOPILOT',
+          status: 'DRAFT',
+          content: {
+            not: { startsWith: '[AUTOPILOT]' },
+          },
+          NOT: { content: { startsWith: '[GENERATING]' } },
         },
-        NOT: { content: { startsWith: '[GENERATING]' } },
-      },
-      select: { id: true, scheduledAt: true },
-    });
-
-    const nowDate = new Date();
-    const fiveMinFromNow = new Date(nowDate.getTime() + 5 * 60 * 1000);
-    let approvedCount = 0;
-
-    for (const post of approvablePosts) {
-      const newScheduledAt = post.scheduledAt && post.scheduledAt > nowDate
-        ? post.scheduledAt
-        : fiveMinFromNow;
-      await db.scheduledPost.update({
-        where: { id: post.id },
-        data: { status: 'SCHEDULED', scheduledAt: newScheduledAt },
+        select: { id: true, scheduledAt: true },
       });
-      approvedCount++;
-    }
 
-    redirect(`/dashboard/bots/${id}/autopilot?success=${approvedCount} posts approved and scheduled`);
+      if (approvablePosts.length === 0) {
+        redirect(`/dashboard/bots/${id}/autopilot?error=${encodeURIComponent('No posts ready for approval. AI is still generating content for placeholder posts.')}`);
+      }
+
+      const nowDate = new Date();
+      const fiveMinFromNow = new Date(nowDate.getTime() + 5 * 60 * 1000);
+      let approvedCount = 0;
+
+      for (const post of approvablePosts) {
+        const newScheduledAt = post.scheduledAt && post.scheduledAt > nowDate
+          ? post.scheduledAt
+          : fiveMinFromNow;
+        await db.scheduledPost.update({
+          where: { id: post.id },
+          data: { status: 'SCHEDULED', scheduledAt: newScheduledAt },
+        });
+        approvedCount++;
+      }
+
+      redirect(`/dashboard/bots/${id}/autopilot?success=${approvedCount} posts approved and scheduled`);
+    } catch (error: unknown) {
+      if (error && typeof error === 'object' && 'digest' in error) throw error;
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[autopilot] Approve all error:', msg);
+      redirect(`/dashboard/bots/${id}/autopilot?error=${encodeURIComponent('Failed to approve posts: ' + msg)}`);
+    }
   }
 
   async function handleRetryFailed() {
     'use server';
-    const currentUser = await requireAuth();
-    const currentBot = await db.bot.findFirst({ where: { id, userId: currentUser.id } });
-    if (!currentBot) redirect('/dashboard/bots');
+    try {
+      const currentUser = await requireAuth();
+      const currentBot = await db.bot.findFirst({ where: { id, userId: currentUser.id } });
+      if (!currentBot) redirect('/dashboard/bots');
 
-    // Split retry into two categories:
-    // 1. Posts with real content → re-schedule for publishing
-    // 2. Posts with placeholder content → reset to DRAFT so AI generates content first
-    const failedPosts = await db.scheduledPost.findMany({
-      where: { botId: id, source: 'AUTOPILOT', status: 'FAILED' },
-      select: { id: true, content: true },
-    });
-
-    const retryAt = new Date(Date.now() + 5 * 60 * 1000);
-    let retriedCount = 0;
-
-    for (const post of failedPosts) {
-      const hasPlaceholder = post.content.startsWith('[AUTOPILOT]') || post.content.startsWith('[GENERATING]');
-      await db.scheduledPost.update({
-        where: { id: post.id },
-        data: {
-          // Posts with placeholder → DRAFT so autonomous-content generates content first
-          // Posts with real content → SCHEDULED for immediate publishing retry
-          status: hasPlaceholder ? 'DRAFT' : 'SCHEDULED',
-          content: hasPlaceholder ? `[AUTOPILOT] Retry pending — regenerating content` : undefined,
-          error: null,
-          scheduledAt: retryAt,
-        },
+      // Split retry into two categories:
+      // 1. Posts with real content → re-schedule for publishing
+      // 2. Posts with placeholder content → reset to DRAFT so AI generates content first
+      const failedPosts = await db.scheduledPost.findMany({
+        where: { botId: id, source: 'AUTOPILOT', status: 'FAILED' },
+        select: { id: true, content: true },
       });
-      retriedCount++;
-    }
 
-    redirect(`/dashboard/bots/${id}/autopilot?success=${retriedCount} failed posts queued for retry`);
+      if (failedPosts.length === 0) {
+        redirect(`/dashboard/bots/${id}/autopilot?error=${encodeURIComponent('No failed posts to retry.')}`);
+      }
+
+      const retryAt = new Date(Date.now() + 5 * 60 * 1000);
+      let retriedCount = 0;
+
+      for (const post of failedPosts) {
+        const hasPlaceholder = post.content.startsWith('[AUTOPILOT]') || post.content.startsWith('[GENERATING]');
+        await db.scheduledPost.update({
+          where: { id: post.id },
+          data: {
+            // Posts with placeholder → DRAFT so autonomous-content generates content first
+            // Posts with real content → SCHEDULED for immediate publishing retry
+            status: hasPlaceholder ? 'DRAFT' : 'SCHEDULED',
+            content: hasPlaceholder ? `[AUTOPILOT] Retry pending — regenerating content` : undefined,
+            error: null,
+            scheduledAt: retryAt,
+          },
+        });
+        retriedCount++;
+      }
+
+      redirect(`/dashboard/bots/${id}/autopilot?success=${retriedCount} failed posts queued for retry`);
+    } catch (error: unknown) {
+      if (error && typeof error === 'object' && 'digest' in error) throw error;
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[autopilot] Retry error:', msg);
+      redirect(`/dashboard/bots/${id}/autopilot?error=${encodeURIComponent('Failed to retry posts: ' + msg)}`);
+    }
   }
 
   async function handleClearPlan() {
     'use server';
-    const currentUser = await requireAuth();
-    const currentBot = await db.bot.findFirst({ where: { id, userId: currentUser.id } });
-    if (!currentBot) redirect('/dashboard/bots');
+    try {
+      const currentUser = await requireAuth();
+      const currentBot = await db.bot.findFirst({ where: { id, userId: currentUser.id } });
+      if (!currentBot) redirect('/dashboard/bots');
 
-    const deleted = await db.scheduledPost.deleteMany({
-      where: {
-        botId: id,
-        source: 'AUTOPILOT',
-        status: { in: ['DRAFT', 'SCHEDULED'] },
-      },
-    });
+      const deleted = await db.scheduledPost.deleteMany({
+        where: {
+          botId: id,
+          source: 'AUTOPILOT',
+          status: { in: ['DRAFT', 'SCHEDULED'] },
+        },
+      });
 
-    redirect(`/dashboard/bots/${id}/autopilot?success=${deleted.count} pending autopilot posts cleared`);
+      redirect(`/dashboard/bots/${id}/autopilot?success=${deleted.count} pending autopilot posts cleared`);
+    } catch (error: unknown) {
+      if (error && typeof error === 'object' && 'digest' in error) throw error;
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[autopilot] Clear plan error:', msg);
+      redirect(`/dashboard/bots/${id}/autopilot?error=${encodeURIComponent('Failed to clear plan: ' + msg)}`);
+    }
   }
 
   // ── Render ──────────────────────────────────────────────────
@@ -490,6 +535,7 @@ export default async function AutopilotPage({
               schedulingMode: ((bot.reactorState as Record<string, unknown> | null)?.autopilotSchedulingMode as string) || 'DURATION',
               customStartDate: ((bot.reactorState as Record<string, unknown> | null)?.autopilotCustomStartDate as string) || '',
               customEndDate: ((bot.reactorState as Record<string, unknown> | null)?.autopilotCustomEndDate as string) || '',
+              intensity: ((bot.reactorState as Record<string, unknown> | null)?.autopilotIntensity as string) || 'recommended',
             }}
           />
         </CardContent>
@@ -644,6 +690,7 @@ export default async function AutopilotPage({
               botId={id}
               botPageId={id}
               platformNames={PLATFORM_NAMES}
+              availableMedia={serializedMedia}
             />
           </CardContent>
         </Card>
@@ -710,7 +757,7 @@ export default async function AutopilotPage({
  * Client wrapper for AutopilotPostManager that calls the API endpoints
  */
 function AutopilotPostManagerWrapper({
-  posts, botId, botPageId, platformNames,
+  posts, botId, botPageId, platformNames, availableMedia,
 }: {
   posts: Array<{
     id: string; content: string; contentType: string | null; contentFormat: string | null;
@@ -720,6 +767,7 @@ function AutopilotPostManagerWrapper({
   botId: string;
   botPageId: string;
   platformNames: Record<string, string>;
+  availableMedia: Array<{ id: string; type: string; filename: string }>;
 }) {
   async function handleApprovePost(formData: FormData) {
     'use server';
@@ -783,15 +831,51 @@ function AutopilotPostManagerWrapper({
     redirect(`/dashboard/bots/${botPageId}/autopilot?success=Post updated`);
   }
 
+  async function handleChangeMedia(formData: FormData) {
+    'use server';
+    const currentUser = await requireAuth();
+    const postId = formData.get('postId') as string;
+    const mediaId = formData.get('mediaId') as string;
+    if (!postId) redirect(`/dashboard/bots/${botPageId}/autopilot`);
+
+    const post = await db.scheduledPost.findFirst({
+      where: { id: postId, botId, bot: { userId: currentUser.id } },
+    });
+    if (!post) redirect(`/dashboard/bots/${botPageId}/autopilot?error=${encodeURIComponent('Post not found')}`);
+
+    if (post.status !== 'DRAFT' && post.status !== 'SCHEDULED') {
+      redirect(`/dashboard/bots/${botPageId}/autopilot?error=${encodeURIComponent('Cannot change media on published or failed posts')}`);
+    }
+
+    // Validate media belongs to this bot (if not removing)
+    if (mediaId) {
+      const media = await db.media.findFirst({
+        where: { id: mediaId, botId },
+      });
+      if (!media) {
+        redirect(`/dashboard/bots/${botPageId}/autopilot?error=${encodeURIComponent('Media not found in this bot\'s library')}`);
+      }
+    }
+
+    await db.scheduledPost.update({
+      where: { id: postId },
+      data: { mediaId: mediaId || null },
+    });
+
+    redirect(`/dashboard/bots/${botPageId}/autopilot?success=Media updated`);
+  }
+
   return (
     <AutopilotPostManagerClient
       posts={posts}
       botId={botId}
       botPageId={botPageId}
       platformNames={platformNames}
+      availableMedia={availableMedia}
       approveAction={handleApprovePost}
       deleteAction={handleDeletePost}
       editAction={handleEditPost}
+      changeMediaAction={handleChangeMedia}
     />
   );
 }
@@ -816,6 +900,7 @@ function AutopilotSettingsWrapper({
     schedulingMode: string;
     customStartDate: string;
     customEndDate: string;
+    intensity: string;
   };
 }) {
   async function saveSettings(formData: FormData) {
@@ -833,12 +918,14 @@ function AutopilotSettingsWrapper({
     const schedulingMode = formData.get('schedulingMode') as string || 'DURATION';
     const customStartDate = formData.get('customStartDate') as string || '';
     const customEndDate = formData.get('customEndDate') as string || '';
+    const intensity = formData.get('intensity') as string || 'recommended';
 
     const validApproval = ['REVIEW_ALL', 'AUTO_APPROVE'].includes(approvalMode) ? approvalMode : 'REVIEW_ALL';
     const validDuration = [3, 5, 7, 14, 30, 60].includes(planDuration) ? planDuration : 7;
     const validMix = ['AI_RECOMMENDED', 'CUSTOM', 'CUSTOM_PROMPT'].includes(contentMixMode) ? contentMixMode : 'AI_RECOMMENDED';
     const validMediaSource = ['LIBRARY_ONLY', 'AI_GENERATED', 'AI_MIX'].includes(mediaSource) ? mediaSource : 'AI_MIX';
     const validSchedulingMode = ['DURATION', 'CUSTOM_DATES'].includes(schedulingMode) ? schedulingMode : 'DURATION';
+    const validIntensity = ['low', 'recommended', 'high', 'extreme'].includes(intensity) ? intensity : 'recommended';
 
     const currentReactor = typeof currentBot.reactorState === 'object' && currentBot.reactorState !== null
       ? currentBot.reactorState as Record<string, unknown>
@@ -858,6 +945,7 @@ function AutopilotSettingsWrapper({
           autopilotSchedulingMode: validSchedulingMode,
           autopilotCustomStartDate: validSchedulingMode === 'CUSTOM_DATES' ? customStartDate : '',
           autopilotCustomEndDate: validSchedulingMode === 'CUSTOM_DATES' ? customEndDate : '',
+          autopilotIntensity: validIntensity,
         },
       },
     });

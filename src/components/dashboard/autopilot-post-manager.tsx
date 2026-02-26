@@ -29,14 +29,22 @@ export interface AutopilotPost {
   error: string | null;
 }
 
+export interface MediaItem {
+  id: string;
+  type: string;       // IMAGE or VIDEO
+  filename: string;
+}
+
 interface AutopilotPostManagerProps {
   posts: AutopilotPost[];
   botId: string;
   botPageId: string;
   platformNames: Record<string, string>;
+  availableMedia: MediaItem[];
   onApprove: (postId: string) => void;
   onDelete: (postId: string) => void;
   onEdit: (postId: string, content: string) => void;
+  onChangeMedia: (postId: string, mediaId: string | null) => void;
 }
 
 // ── Platform Preview Styles ──
@@ -288,19 +296,23 @@ function PlatformPostPreview({ post, platform, platformName }: {
 // ── Post Card with Preview, Edit, Delete ──
 
 function AutopilotPostCard({
-  post, platformNames, onApprove, onDelete, onEdit,
+  post, platformNames, availableMedia, onApprove, onDelete, onEdit, onChangeMedia,
 }: {
   post: AutopilotPost;
   platformNames: Record<string, string>;
+  availableMedia: MediaItem[];
   onApprove: (postId: string) => void;
   onDelete: (postId: string) => void;
   onEdit: (postId: string, content: string) => void;
+  onChangeMedia: (postId: string, mediaId: string | null) => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(post.content);
   const [showPreview, setShowPreview] = useState(false);
+  const [showMediaSelector, setShowMediaSelector] = useState(false);
 
   const isPlaceholder = post.content.startsWith('[AUTOPILOT]') || post.content.startsWith('[GENERATING]');
+  const canEdit = !isPlaceholder && (post.status === 'DRAFT' || post.status === 'SCHEDULED');
   const platforms = post.platforms || [];
   const primaryPlatform = platforms[0] || 'TWITTER';
 
@@ -351,13 +363,22 @@ function AutopilotPostCard({
           >
             <Eye className="h-3.5 w-3.5" />
           </button>
-          {!isPlaceholder && (
+          {canEdit && (
             <button
               onClick={() => { setIsEditing(!isEditing); setEditContent(post.content); }}
               className={`p-1 rounded hover:bg-muted transition-colors ${isEditing ? 'text-primary bg-primary/10' : 'text-muted-foreground'}`}
-              title="Edit"
+              title="Edit text"
             >
               <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {canEdit && availableMedia.length > 0 && (
+            <button
+              onClick={() => setShowMediaSelector(!showMediaSelector)}
+              className={`p-1 rounded hover:bg-muted transition-colors ${showMediaSelector ? 'text-primary bg-primary/10' : 'text-muted-foreground'}`}
+              title="Change media"
+            >
+              <ImageIcon className="h-3.5 w-3.5" />
             </button>
           )}
           <button
@@ -402,6 +423,57 @@ function AutopilotPostCard({
                 <p className="text-xs text-destructive mt-1">Error: {post.error}</p>
               )}
             </>
+          )}
+
+          {/* Media Selector */}
+          {showMediaSelector && (
+            <div className="mt-2 rounded-md border bg-muted/30 p-2 space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-medium">Change Media</Label>
+                {post.mediaId && (
+                  <button
+                    onClick={() => { onChangeMedia(post.id, null); setShowMediaSelector(false); }}
+                    className="text-[10px] text-destructive hover:underline"
+                  >
+                    Remove media
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-6 gap-1.5 max-h-[120px] overflow-y-auto">
+                {availableMedia.map(m => (
+                  <button
+                    key={m.id}
+                    onClick={() => { onChangeMedia(post.id, m.id); setShowMediaSelector(false); }}
+                    className={`relative aspect-square rounded border overflow-hidden hover:ring-2 hover:ring-primary transition-all ${
+                      m.id === post.mediaId ? 'ring-2 ring-primary' : 'border-muted'
+                    }`}
+                    title={m.filename}
+                  >
+                    {m.type === 'VIDEO' ? (
+                      <div className="w-full h-full bg-muted flex items-center justify-center">
+                        <span className="text-[10px] text-muted-foreground">VID</span>
+                      </div>
+                    ) : (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        src={`/api/media/${m.id}`}
+                        alt={m.filename}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    )}
+                    {m.id === post.mediaId && (
+                      <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
+                        <CheckCircle2 className="h-3 w-3 text-primary" />
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+              {availableMedia.length === 0 && (
+                <p className="text-[10px] text-muted-foreground text-center py-2">No media in library</p>
+              )}
+            </div>
           )}
 
           {/* Schedule & Actions */}
@@ -565,7 +637,7 @@ function AutopilotCalendar({ posts, platformNames }: {
 // ── Main Component ──
 
 export function AutopilotPostManager({
-  posts, botId, botPageId, platformNames, onApprove, onDelete, onEdit,
+  posts, botId, botPageId, platformNames, availableMedia, onApprove, onDelete, onEdit, onChangeMedia,
 }: AutopilotPostManagerProps) {
   const [view, setView] = useState<'list' | 'calendar'>('list');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -646,9 +718,11 @@ export function AutopilotPostManager({
                 key={post.id}
                 post={post}
                 platformNames={platformNames}
+                availableMedia={availableMedia}
                 onApprove={onApprove}
                 onDelete={handleDelete}
                 onEdit={onEdit}
+                onChangeMedia={onChangeMedia}
               />
             ))
           )}

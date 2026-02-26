@@ -571,6 +571,95 @@ export async function sendContactConfirmationEmail(to: string, name: string): Pr
   );
 }
 
+// ============ ADMIN ALERTS ============
+
+/**
+ * Send low credit warning email to admin.
+ * Triggered when user credit balance falls below threshold.
+ */
+export async function sendLowCreditWarningEmail(
+  adminEmail: string,
+  data: {
+    userId: string;
+    userEmail: string;
+    userName: string;
+    currentBalance: number;
+    threshold: number;
+    activeBots: number;
+    pendingPosts: number;
+  }
+): Promise<{ success: boolean }> {
+  const html = baseLayout(`
+    <h2 style="color: #dc2626;">Low Credit Alert</h2>
+    <p>A user's credit balance has dropped below the warning threshold.</p>
+    <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; margin: 16px 0;">
+      <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+        <tr><td style="padding: 4px 8px; font-weight: bold;">User:</td><td style="padding: 4px 8px;">${escapeHtml(data.userName)} (${escapeHtml(data.userEmail)})</td></tr>
+        <tr><td style="padding: 4px 8px; font-weight: bold;">Current Balance:</td><td style="padding: 4px 8px; color: #dc2626; font-weight: bold;">${data.currentBalance} credits (~$${(data.currentBalance * 0.01).toFixed(2)})</td></tr>
+        <tr><td style="padding: 4px 8px; font-weight: bold;">Threshold:</td><td style="padding: 4px 8px;">${data.threshold} credits (~$${(data.threshold * 0.01).toFixed(2)})</td></tr>
+        <tr><td style="padding: 4px 8px; font-weight: bold;">Active Bots:</td><td style="padding: 4px 8px;">${data.activeBots}</td></tr>
+        <tr><td style="padding: 4px 8px; font-weight: bold;">Pending Posts:</td><td style="padding: 4px 8px;">${data.pendingPosts}</td></tr>
+      </table>
+    </div>
+    <p style="font-size: 13px; color: #6b7280;">
+      Autopilot posts will fail if the user runs out of credits.
+      Consider reaching out to the user or adding bonus credits.
+    </p>
+    <p style="text-align: center; margin-top: 20px;">
+      <a href="${getAppUrl()}/admin/users/${data.userId}" style="display: inline-block; background: #6366f1; color: #fff; padding: 10px 24px; border-radius: 6px; text-decoration: none; font-weight: 600;">
+        View User in Admin
+      </a>
+    </p>
+  `);
+
+  return sendTransactionalEmail(
+    adminEmail,
+    `[Grothi Alert] Low credits: ${data.userName} (${data.currentBalance} cr)`,
+    html,
+    `Low credit alert for ${data.userName} (${data.userEmail}). Balance: ${data.currentBalance} credits. Threshold: ${data.threshold} credits.`
+  );
+}
+
+/**
+ * Send system AI service budget warning to admin.
+ * Triggered when Anthropic API usage approaches limits.
+ */
+export async function sendAIBudgetWarningEmail(
+  adminEmail: string,
+  data: {
+    service: string;
+    estimatedBalanceUsd: number;
+    warningThresholdUsd: number;
+    totalPostsToday: number;
+    estimatedCostToday: number;
+  }
+): Promise<{ success: boolean }> {
+  const html = baseLayout(`
+    <h2 style="color: #f59e0b;">AI Service Budget Warning</h2>
+    <p>The estimated balance for an AI service is running low.</p>
+    <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 16px; margin: 16px 0;">
+      <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+        <tr><td style="padding: 4px 8px; font-weight: bold;">Service:</td><td style="padding: 4px 8px;">${escapeHtml(data.service)}</td></tr>
+        <tr><td style="padding: 4px 8px; font-weight: bold;">Estimated Balance:</td><td style="padding: 4px 8px; color: #f59e0b; font-weight: bold;">$${data.estimatedBalanceUsd.toFixed(2)}</td></tr>
+        <tr><td style="padding: 4px 8px; font-weight: bold;">Warning Threshold:</td><td style="padding: 4px 8px;">$${data.warningThresholdUsd.toFixed(2)}</td></tr>
+        <tr><td style="padding: 4px 8px; font-weight: bold;">Posts Generated Today:</td><td style="padding: 4px 8px;">${data.totalPostsToday}</td></tr>
+        <tr><td style="padding: 4px 8px; font-weight: bold;">Estimated Cost Today:</td><td style="padding: 4px 8px;">$${data.estimatedCostToday.toFixed(4)}</td></tr>
+      </table>
+    </div>
+    <p style="font-size: 13px; color: #6b7280;">
+      Autopilot content generation will fail if the AI service budget is exhausted.
+      Top up your Anthropic account or adjust autopilot intensity.
+    </p>
+  `);
+
+  return sendTransactionalEmail(
+    adminEmail,
+    `[Grothi Alert] AI budget low: ${data.service} (~$${data.estimatedBalanceUsd.toFixed(2)})`,
+    html,
+    `AI budget warning: ${data.service} balance ~$${data.estimatedBalanceUsd.toFixed(2)}. Threshold: $${data.warningThresholdUsd.toFixed(2)}.`
+  );
+}
+
 // ============ HELPERS ============
 
 function escapeHtml(str: string): string {
