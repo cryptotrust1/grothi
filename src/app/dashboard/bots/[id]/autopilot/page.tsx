@@ -6,14 +6,12 @@ import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { AlertMessage } from '@/components/ui/alert-message';
-import { HelpTip } from '@/components/ui/help-tip';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
-  Zap, Bot, Clock, CheckCircle2,
+  Zap, Clock, CheckCircle2,
   AlertCircle, Eye, Trash2, RefreshCw, Info, Sparkles,
   BarChart3, Target, Shield,
 } from 'lucide-react';
@@ -26,7 +24,7 @@ import {
   getBestContentFormat,
 } from '@/lib/platform-algorithm';
 import { AutopilotPostManagerClient } from '@/components/dashboard/autopilot-post-manager-client';
-import { AutopilotCustomPromptClient } from '@/components/dashboard/autopilot-custom-prompt-client';
+import { AutopilotSettingsClient } from '@/components/dashboard/autopilot-settings-client';
 
 export const metadata: Metadata = { title: 'Autopilot', robots: { index: false } };
 
@@ -218,43 +216,6 @@ export default async function AutopilotPage({
 
     const action = currentBot.autonomousEnabled ? 'disabled' : 'enabled';
     redirect(`/dashboard/bots/${id}/autopilot?success=Autopilot ${action}`);
-  }
-
-  async function handleUpdateSettings(formData: FormData) {
-    'use server';
-    const currentUser = await requireAuth();
-    const currentBot = await db.bot.findFirst({ where: { id, userId: currentUser.id } });
-    if (!currentBot) redirect('/dashboard/bots');
-
-    const approvalMode = formData.get('approvalMode') as string;
-    const planDuration = parseInt(formData.get('planDuration') as string, 10);
-    const contentMixMode = formData.get('contentMixMode') as string;
-    const productRotation = formData.get('productRotation') === 'on';
-
-    const validApproval = ['REVIEW_ALL', 'AUTO_APPROVE'].includes(approvalMode) ? approvalMode : 'REVIEW_ALL';
-    const validDuration = [7, 14, 30].includes(planDuration) ? planDuration : 7;
-    const validMix = ['AI_RECOMMENDED', 'CUSTOM', 'CUSTOM_PROMPT'].includes(contentMixMode) ? contentMixMode : 'AI_RECOMMENDED';
-    const customPrompt = formData.get('customPrompt') as string || '';
-
-    const currentReactor = typeof currentBot.reactorState === 'object' && currentBot.reactorState !== null
-      ? currentBot.reactorState as Record<string, unknown>
-      : {};
-
-    await db.bot.update({
-      where: { id },
-      data: {
-        approvalMode: validApproval as 'REVIEW_ALL' | 'AUTO_APPROVE',
-        planDuration: validDuration,
-        contentMixMode: validMix,
-        autopilotProductRotation: productRotation,
-        reactorState: {
-          ...currentReactor,
-          autopilotCustomPrompt: validMix === 'CUSTOM_PROMPT' ? customPrompt : undefined,
-        },
-      },
-    });
-
-    redirect(`/dashboard/bots/${id}/autopilot?success=Autopilot settings saved`);
   }
 
   async function handleApproveAll() {
@@ -503,7 +464,7 @@ export default async function AutopilotPage({
         </Card>
       </div>
 
-      {/* Settings */}
+      {/* Settings — client component so Custom Prompt chat appears instantly */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -514,85 +475,20 @@ export default async function AutopilotPage({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form action={handleUpdateSettings} className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {/* Approval Mode */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <Label>Approval Mode</Label>
-                  <HelpTip text="REVIEW ALL: Every autopilot post is created as a draft for your review before scheduling. AUTO APPROVE: Posts are automatically scheduled for publishing without manual review." />
-                </div>
-                <select
-                  name="approvalMode"
-                  defaultValue={bot.approvalMode}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="REVIEW_ALL">Review All Posts</option>
-                  <option value="AUTO_APPROVE">Auto-Approve</option>
-                </select>
-                <p className="text-xs text-muted-foreground">
-                  {bot.approvalMode === 'REVIEW_ALL'
-                    ? 'You review every post before it goes live'
-                    : 'Posts are scheduled automatically'}
-                </p>
-              </div>
-
-              {/* Plan Duration */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <Label>Plan Duration</Label>
-                  <HelpTip text="How far ahead the autopilot plans content. 7 days is recommended for most users. 30 days gives maximum coverage but generates more posts." />
-                </div>
-                <select
-                  name="planDuration"
-                  defaultValue={bot.planDuration}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="7">7 Days</option>
-                  <option value="14">14 Days</option>
-                  <option value="30">30 Days</option>
-                </select>
-              </div>
-
-              {/* Content Mix */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <Label>Content Mix</Label>
-                  <HelpTip text="AI RECOMMENDED: Uses platform algorithm research for optimal content mix. CUSTOM (from Strategy): Uses your Content Strategy settings. CUSTOM PROMPT: You write exact instructions via AI chat — overrides all other settings." />
-                </div>
-                <select
-                  name="contentMixMode"
-                  defaultValue={bot.contentMixMode}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="AI_RECOMMENDED">AI Recommended</option>
-                  <option value="CUSTOM">Custom (from Strategy)</option>
-                  <option value="CUSTOM_PROMPT">Custom Prompt (AI Chat)</option>
-                </select>
-              </div>
-
-              {/* Product Rotation */}
-              <div className="space-y-2">
-                <Label>Product Rotation</Label>
-                <label className="flex items-center gap-2 h-10 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    name="productRotation"
-                    defaultChecked={bot.autopilotProductRotation}
-                    className="h-4 w-4 rounded border-input"
-                  />
-                  <span className="text-sm">Auto-promote products</span>
-                </label>
-                <p className="text-xs text-muted-foreground">
-                  {hasProducts
-                    ? `Rotate ${bot.products?.length ?? 0} product(s) in promotional posts`
-                    : 'No products added yet'}
-                </p>
-              </div>
-            </div>
-
-            <Button type="submit" size="sm">Save Settings</Button>
-          </form>
+          <AutopilotSettingsWrapper
+            botId={id}
+            platforms={connectedPlatforms}
+            defaults={{
+              approvalMode: bot.approvalMode,
+              planDuration: bot.planDuration,
+              contentMixMode: bot.contentMixMode,
+              productRotation: bot.autopilotProductRotation,
+              productCount: bot.products?.length ?? 0,
+              hasProducts,
+              savedPrompt: ((bot.reactorState as Record<string, unknown> | null)?.autopilotCustomPrompt as string) || '',
+              mediaSource: ((bot.reactorState as Record<string, unknown> | null)?.autopilotMediaSource as string) || 'AI_MIX',
+            }}
+          />
         </CardContent>
       </Card>
 
@@ -716,27 +612,6 @@ export default async function AutopilotPage({
           )}
         </CardContent>
       </Card>
-
-      {/* Custom Prompt AI Chat (shown when Content Mix = CUSTOM_PROMPT) */}
-      {bot.contentMixMode === 'CUSTOM_PROMPT' && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-violet-600" /> Custom Autopilot Instructions
-            </CardTitle>
-            <CardDescription>
-              Tell the AI exactly what content to create. These instructions override strategy and brand settings.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <AutopilotCustomPromptWrapper
-              botId={id}
-              platforms={connectedPlatforms}
-              savedPrompt={((bot.reactorState as Record<string, unknown> | null)?.autopilotCustomPrompt as string) || ''}
-            />
-          </CardContent>
-        </Card>
-      )}
 
       {/* All Autopilot Posts — with platform previews, edit/delete, calendar */}
       {serializedPosts.length > 0 && (
@@ -919,16 +794,65 @@ function AutopilotPostManagerWrapper({
 }
 
 /**
- * Client wrapper for AutopilotCustomPrompt that saves the prompt via server action
+ * Client wrapper for Autopilot Settings — passes server actions for saving settings + prompt
  */
-function AutopilotCustomPromptWrapper({
-  botId, platforms, savedPrompt,
+function AutopilotSettingsWrapper({
+  botId, platforms, defaults,
 }: {
   botId: string;
   platforms: string[];
-  savedPrompt: string;
+  defaults: {
+    approvalMode: string;
+    planDuration: number;
+    contentMixMode: string;
+    productRotation: boolean;
+    productCount: number;
+    hasProducts: boolean;
+    savedPrompt: string;
+    mediaSource: string;
+  };
 }) {
-  async function handleSavePrompt(formData: FormData) {
+  async function saveSettings(formData: FormData) {
+    'use server';
+    const currentUser = await requireAuth();
+    const currentBot = await db.bot.findFirst({ where: { id: botId, userId: currentUser.id } });
+    if (!currentBot) redirect('/dashboard/bots');
+
+    const approvalMode = formData.get('approvalMode') as string;
+    const planDuration = parseInt(formData.get('planDuration') as string, 10);
+    const contentMixMode = formData.get('contentMixMode') as string;
+    const productRotation = formData.get('productRotation') === 'on';
+    const mediaSource = formData.get('mediaSource') as string || 'AI_MIX';
+    const customPrompt = formData.get('customPrompt') as string || '';
+
+    const validApproval = ['REVIEW_ALL', 'AUTO_APPROVE'].includes(approvalMode) ? approvalMode : 'REVIEW_ALL';
+    const validDuration = [3, 5, 7, 14, 30, 60].includes(planDuration) ? planDuration : 7;
+    const validMix = ['AI_RECOMMENDED', 'CUSTOM', 'CUSTOM_PROMPT'].includes(contentMixMode) ? contentMixMode : 'AI_RECOMMENDED';
+    const validMediaSource = ['LIBRARY_ONLY', 'AI_GENERATED', 'AI_MIX'].includes(mediaSource) ? mediaSource : 'AI_MIX';
+
+    const currentReactor = typeof currentBot.reactorState === 'object' && currentBot.reactorState !== null
+      ? currentBot.reactorState as Record<string, unknown>
+      : {};
+
+    await db.bot.update({
+      where: { id: botId },
+      data: {
+        approvalMode: validApproval as 'REVIEW_ALL' | 'AUTO_APPROVE',
+        planDuration: validDuration,
+        contentMixMode: validMix,
+        autopilotProductRotation: productRotation,
+        reactorState: {
+          ...currentReactor,
+          autopilotCustomPrompt: validMix === 'CUSTOM_PROMPT' ? customPrompt : (currentReactor.autopilotCustomPrompt || ''),
+          autopilotMediaSource: validMediaSource,
+        },
+      },
+    });
+
+    redirect(`/dashboard/bots/${botId}/autopilot?success=Autopilot settings saved`);
+  }
+
+  async function savePrompt(formData: FormData) {
     'use server';
     const currentUser = await requireAuth();
     const currentBot = await db.bot.findFirst({ where: { id: botId, userId: currentUser.id } });
@@ -953,11 +877,12 @@ function AutopilotCustomPromptWrapper({
   }
 
   return (
-    <AutopilotCustomPromptClient
+    <AutopilotSettingsClient
       botId={botId}
       platforms={platforms}
-      savedPrompt={savedPrompt}
-      saveAction={handleSavePrompt}
+      defaults={defaults}
+      saveAction={saveSettings}
+      savePromptAction={savePrompt}
     />
   );
 }
