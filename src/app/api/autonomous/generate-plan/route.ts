@@ -215,7 +215,6 @@ export async function POST(request: NextRequest) {
         if (postingHours.length === 0) continue;
 
         // Distribute posts across available time slots
-        const totalPosts = dailyTexts + dailyImages + dailyVideos + dailyStories;
         const postSlots: Array<{ type: 'text' | 'image' | 'video' | 'story'; hour: number }> = [];
 
         // Build ordered list of post types
@@ -234,9 +233,18 @@ export async function POST(request: NextRequest) {
           postSlots.push({ type: types[i], hour: postingHours[i % postingHours.length] });
         }
 
-        // Track promo count per platform for limit enforcement
-        const platformPromoCount = slots.filter(s => s.platform === platform && s.productId).length;
-        const platformTotalCount = slots.filter(s => s.platform === platform).length;
+        // Track promo count per platform PER DAY for accurate limit enforcement
+        const dayStart = new Date(date);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(date);
+        dayEnd.setHours(23, 59, 59, 999);
+        const todaySlots = slots.filter(s =>
+          s.platform === platform &&
+          s.scheduledAt >= dayStart &&
+          s.scheduledAt <= dayEnd
+        );
+        const platformPromoCount = todaySlots.filter(s => s.productId).length;
+        const platformTotalCount = todaySlots.length;
 
         // Get minimum post interval for this platform
         const minInterval = getMinPostInterval(platform);
@@ -251,7 +259,7 @@ export async function POST(request: NextRequest) {
           }
 
           const scheduledAt = new Date(date);
-          scheduledAt.setHours(slot.hour, Math.floor(Math.random() * 30), 0, 0);
+          scheduledAt.setHours(slot.hour, Math.floor(Math.random() * 60), 0, 0);
 
           // Select content type — use RL insights if available
           const platformBestTypes = algo.bestContentTypes.filter(t =>
@@ -331,24 +339,74 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Sort slots by scheduled time
-    slots.sort((a, b) => a.scheduledAt.getTime() - b.scheduledAt.getTime());
+    // Deduplicate: remove slots with identical platform + hour (same day)
+    // Two posts at the exact same time on the same platform hurts algorithm reach
+    const seenSlotKeys = new Set<string>();
+    const deduplicatedSlots: PlanSlot[] = [];
+    for (const slot of slots) {
+      const key = `${slot.platform}:${slot.scheduledAt.toISOString().slice(0, 13)}`; // platform:YYYY-MM-DDTHH
+      if (seenSlotKeys.has(key)) continue;
+      seenSlotKeys.add(key);
+      deduplicatedSlots.push(slot);
+    }
+
+    // Shuffle content types per platform to avoid consecutive repeats
+    // (e.g., 3 educational posts in a row looks spammy to the algorithm)
+    const slotsByPlatform = new Map<string, PlanSlot[]>();
+    for (const slot of deduplicatedSlots) {
+      const existing = slotsByPlatform.get(slot.platform) || [];
+      existing.push(slot);
+      slotsByPlatform.set(slot.platform, existing);
+    }
+    const platformKeys = Array.from(slotsByPlatform.keys());
+    for (const pKey of platformKeys) {
+      const platformSlots = slotsByPlatform.get(pKey)!;
+      // Sort by time first
+      platformSlots.sort((a: PlanSlot, b: PlanSlot) => a.scheduledAt.getTime() - b.scheduledAt.getTime());
+      // Detect consecutive same contentType and swap with next different one
+      for (let i = 1; i < platformSlots.length - 1; i++) {
+        if (platformSlots[i].contentType === platformSlots[i - 1].contentType) {
+          // Find the next different content type to swap with
+          for (let j = i + 1; j < platformSlots.length; j++) {
+            if (platformSlots[j].contentType !== platformSlots[i].contentType) {
+              // Swap content types and tones (keep scheduled times)
+              const tmpType = platformSlots[i].contentType;
+              const tmpTone = platformSlots[i].toneStyle;
+              platformSlots[i].contentType = platformSlots[j].contentType;
+              platformSlots[i].toneStyle = platformSlots[j].toneStyle;
+              platformSlots[j].contentType = tmpType;
+              platformSlots[j].toneStyle = tmpTone;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // Sort all slots by scheduled time
+    deduplicatedSlots.sort((a, b) => a.scheduledAt.getTime() - b.scheduledAt.getTime());
+
+    // Use the deduplicated slots from here
+    const finalSlots = deduplicatedSlots;
 
     // Determine initial status based on approval mode
     const initialStatus = bot.approvalMode === 'AUTO_APPROVE' ? 'SCHEDULED' : 'DRAFT';
 
-    // Create all scheduled posts
-    const createdPosts = await db.$transaction(
-      slots.map(slot => {
-        // Generate placeholder content - the actual AI content will be generated
-        // by the autonomous planner cron job
-        const platformName = PLATFORM_NAMES[slot.platform] || slot.platform;
-        const contentTypeLabel = CONTENT_TYPES.find(ct => ct.value === slot.contentType)?.label || slot.contentType;
-        const formatNote = slot.contentFormat ? ` [Format: ${slot.contentFormat}]` : '';
-        const placeholderContent = `[AUTOPILOT] ${contentTypeLabel} for ${platformName}${formatNote} — AI content generation pending`;
+    // Create all scheduled posts in batches to prevent transaction timeouts
+    const BATCH_CREATE_SIZE = 50;
+    let createdCount = 0;
 
-        return db.scheduledPost.create({
-          data: {
+    for (let batchStart = 0; batchStart < finalSlots.length; batchStart += BATCH_CREATE_SIZE) {
+      const batch = finalSlots.slice(batchStart, batchStart + BATCH_CREATE_SIZE);
+
+      await db.scheduledPost.createMany({
+        data: batch.map(slot => {
+          const platformName = PLATFORM_NAMES[slot.platform] || slot.platform;
+          const contentTypeLabel = CONTENT_TYPES.find(ct => ct.value === slot.contentType)?.label || slot.contentType;
+          const formatNote = slot.contentFormat ? ` [Format: ${slot.contentFormat}]` : '';
+          const placeholderContent = `[AUTOPILOT] ${contentTypeLabel} for ${platformName}${formatNote} — AI content generation pending`;
+
+          return {
             botId,
             status: initialStatus as 'DRAFT' | 'SCHEDULED',
             content: placeholderContent,
@@ -363,10 +421,12 @@ export async function POST(request: NextRequest) {
             contentFormat: slot.contentFormat,
             source: 'AUTOPILOT' as PostSource,
             autoSchedule: bot.approvalMode === 'AUTO_APPROVE',
-          },
-        });
-      })
-    );
+          };
+        }),
+      });
+
+      createdCount += batch.length;
+    }
 
     // Update bot's last plan generation time
     await db.bot.update({
@@ -376,7 +436,7 @@ export async function POST(request: NextRequest) {
 
     // Group results by platform for response
     const platformBreakdown: Record<string, number> = {};
-    for (const slot of slots) {
+    for (const slot of finalSlots) {
       const name = PLATFORM_NAMES[slot.platform] || slot.platform;
       platformBreakdown[name] = (platformBreakdown[name] || 0) + 1;
     }
@@ -384,12 +444,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       plan: {
-        totalPosts: createdPosts.length,
+        totalPosts: createdCount,
         duration,
         status: initialStatus,
         platformBreakdown,
-        startDate: slots[0]?.scheduledAt,
-        endDate: slots[slots.length - 1]?.scheduledAt,
+        startDate: finalSlots[0]?.scheduledAt,
+        endDate: finalSlots[finalSlots.length - 1]?.scheduledAt,
       },
     });
   } catch (error) {

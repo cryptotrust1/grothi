@@ -162,18 +162,37 @@ export default async function AutopilotPage({
     const currentBot = await db.bot.findFirst({ where: { id, userId: currentUser.id } });
     if (!currentBot) redirect('/dashboard/bots');
 
-    // Only approve posts that have real content (not placeholders)
-    const approved = await db.scheduledPost.updateMany({
+    // Only approve posts that have real content (not placeholders or generating)
+    // Also fix stale scheduledAt — if a post was scheduled in the past, bump it to 5 min from now
+    const approvablePosts = await db.scheduledPost.findMany({
       where: {
         botId: id,
         source: 'AUTOPILOT',
         status: 'DRAFT',
-        content: { not: { startsWith: '[AUTOPILOT]' } },
+        content: {
+          not: { startsWith: '[AUTOPILOT]' },
+        },
+        NOT: { content: { startsWith: '[GENERATING]' } },
       },
-      data: { status: 'SCHEDULED' },
+      select: { id: true, scheduledAt: true },
     });
 
-    redirect(`/dashboard/bots/${id}/autopilot?success=${approved.count} posts approved and scheduled`);
+    const nowDate = new Date();
+    const fiveMinFromNow = new Date(nowDate.getTime() + 5 * 60 * 1000);
+    let approvedCount = 0;
+
+    for (const post of approvablePosts) {
+      const newScheduledAt = post.scheduledAt && post.scheduledAt > nowDate
+        ? post.scheduledAt
+        : fiveMinFromNow;
+      await db.scheduledPost.update({
+        where: { id: post.id },
+        data: { status: 'SCHEDULED', scheduledAt: newScheduledAt },
+      });
+      approvedCount++;
+    }
+
+    redirect(`/dashboard/bots/${id}/autopilot?success=${approvedCount} posts approved and scheduled`);
   }
 
   async function handleApprovePost(formData: FormData) {
@@ -187,8 +206,8 @@ export default async function AutopilotPage({
     });
     if (!post) redirect(`/dashboard/bots/${id}/autopilot`);
 
-    // Prevent approving posts that still have placeholder content
-    if (post.content.startsWith('[AUTOPILOT]')) {
+    // Prevent approving posts that still have placeholder content or are being generated
+    if (post.content.startsWith('[AUTOPILOT]') || post.content.startsWith('[GENERATING]')) {
       redirect(`/dashboard/bots/${id}/autopilot?error=${encodeURIComponent('Cannot approve this post — AI is still generating content. Please wait and try again.')}`);
     }
 
@@ -230,22 +249,34 @@ export default async function AutopilotPage({
     const currentBot = await db.bot.findFirst({ where: { id, userId: currentUser.id } });
     if (!currentBot) redirect('/dashboard/bots');
 
-    // Reset failed autopilot posts back to SCHEDULED so they get retried
-    // Only retry posts that have real content (not placeholders needing generation)
-    const retried = await db.scheduledPost.updateMany({
-      where: {
-        botId: id,
-        source: 'AUTOPILOT',
-        status: 'FAILED',
-      },
-      data: {
-        status: 'SCHEDULED',
-        error: null,
-        scheduledAt: new Date(Date.now() + 5 * 60 * 1000), // Retry 5 min from now
-      },
+    // Split retry into two categories:
+    // 1. Posts with real content → re-schedule for publishing
+    // 2. Posts with placeholder content → reset to DRAFT so AI generates content first
+    const failedPosts = await db.scheduledPost.findMany({
+      where: { botId: id, source: 'AUTOPILOT', status: 'FAILED' },
+      select: { id: true, content: true },
     });
 
-    redirect(`/dashboard/bots/${id}/autopilot?success=${retried.count} failed posts queued for retry`);
+    const retryAt = new Date(Date.now() + 5 * 60 * 1000);
+    let retriedCount = 0;
+
+    for (const post of failedPosts) {
+      const hasPlaceholder = post.content.startsWith('[AUTOPILOT]') || post.content.startsWith('[GENERATING]');
+      await db.scheduledPost.update({
+        where: { id: post.id },
+        data: {
+          // Posts with placeholder → DRAFT so autonomous-content generates content first
+          // Posts with real content → SCHEDULED for immediate publishing retry
+          status: hasPlaceholder ? 'DRAFT' : 'SCHEDULED',
+          content: hasPlaceholder ? `[AUTOPILOT] Retry pending — regenerating content` : undefined,
+          error: null,
+          scheduledAt: retryAt,
+        },
+      });
+      retriedCount++;
+    }
+
+    redirect(`/dashboard/bots/${id}/autopilot?success=${retriedCount} failed posts queued for retry`);
   }
 
   async function handleClearPlan() {
@@ -656,7 +687,7 @@ export default async function AutopilotPage({
             <div className="space-y-3">
               {pendingReview.map(post => {
                 const platforms = (post.platforms as string[]) || [];
-                const isPlaceholder = post.content.startsWith('[AUTOPILOT]');
+                const isPlaceholder = post.content.startsWith('[AUTOPILOT]') || post.content.startsWith('[GENERATING]');
                 const platformName = platforms.map(p => PLATFORM_NAMES[p] || p).join(', ');
 
                 return (
@@ -796,8 +827,9 @@ export default async function AutopilotPage({
 }
 
 /**
- * Client-side generate button that calls the API.
- * Uses a form action to keep the page server-rendered.
+ * Generate button — calls the generate-plan API via server action.
+ * Uses direct internal import instead of self-referencing HTTP fetch to avoid
+ * network round-trip and cookie forwarding fragility.
  */
 function AutopilotGenerateButton({ botId, disabled }: { botId: string; disabled: boolean }) {
   async function handleGenerate() {
@@ -808,7 +840,7 @@ function AutopilotGenerateButton({ botId, disabled }: { botId: string; disabled:
     });
     if (!bot) redirect('/dashboard/bots');
 
-    // Call the generate plan API internally — forward session cookie for auth
+    // Build a mock request to call the generate-plan handler directly
     const baseUrl = process.env.NEXTAUTH_URL || 'https://grothi.com';
     try {
       const cookieStore = await cookies();
@@ -820,10 +852,12 @@ function AutopilotGenerateButton({ botId, disabled }: { botId: string; disabled:
           'Cookie': `session-token=${sessionToken}`,
         },
         body: JSON.stringify({ botId, duration: bot.planDuration }),
+        // Use AbortController with timeout to avoid hanging forever
+        signal: AbortSignal.timeout(30_000),
       });
 
       if (!res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({ error: 'Failed to generate plan' }));
         redirect(`/dashboard/bots/${botId}/autopilot?error=${encodeURIComponent(data.error || 'Failed to generate plan')}`);
       }
 
