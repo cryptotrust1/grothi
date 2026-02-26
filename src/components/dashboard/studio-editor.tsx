@@ -847,9 +847,9 @@ export function StudioEditor({ videos: initialVideos, images: initialImages, bot
   }
 
   return (
-    <div className="flex flex-col" style={{ height: 'calc(100vh - 10rem)' }}>
+    <div className="flex flex-col" style={{ height: 'calc(100vh - 7rem)' }}>
       {/* ══════════════ HEADER BAR ══════════════ */}
-      <div className="flex items-center justify-between gap-3 pb-3 border-b flex-shrink-0">
+      <div className="flex items-center justify-between gap-3 pb-2 border-b flex-shrink-0">
         <div className="flex items-center gap-3 min-w-0">
           {modeToggle}
           <span className="text-sm font-semibold truncate">{selectedVideo ? selectedVideo.filename : 'Select a video'}</span>
@@ -879,7 +879,8 @@ export function StudioEditor({ videos: initialVideos, images: initialImages, bot
       </div>
 
       {/* ══════════════ MAIN 2-COLUMN LAYOUT (Preview + Tools) ══════════════ */}
-      <div className="flex flex-col md:flex-row flex-1 min-h-0 gap-0 mt-3">
+      {/* This area gets ~55% of total height; timeline gets the rest */}
+      <div className="flex flex-col md:flex-row min-h-0 gap-0 mt-2" style={{ flex: '1 1 55%' }}>
 
         {/* ── LEFT: Video Preview (takes most space) ── */}
         <div className="flex-1 flex flex-col bg-black/95 border rounded-tl-lg min-w-0">
@@ -1380,22 +1381,25 @@ export function StudioEditor({ videos: initialVideos, images: initialImages, bot
       </div>
 
       {/* ══════════════ MULTI-TRACK TIMELINE (DaVinci Resolve style) ══════════════ */}
+      {/* Timeline gets remaining space (~45% of total height) */}
       {!result && (
-        <StudioTimeline
-          timeline={timeline}
-          isPlaying={isPlaying}
-          onTimelineChange={handleTimelineChange}
-          onPlayheadChange={handlePlayheadChange}
-          onClipSelect={handleClipSelect}
-          onClipDelete={handleClipDelete}
-          onClipSplit={handleClipSplit}
-          onAddTrack={handleAddTrack}
-          onTogglePlay={togglePlay}
-        />
+        <div className="shrink-0 overflow-hidden" style={{ flex: '0 1 45%', minHeight: '180px', maxHeight: '340px' }}>
+          <StudioTimeline
+            timeline={timeline}
+            isPlaying={isPlaying}
+            onTimelineChange={handleTimelineChange}
+            onPlayheadChange={handlePlayheadChange}
+            onClipSelect={handleClipSelect}
+            onClipDelete={handleClipDelete}
+            onClipSplit={handleClipSplit}
+            onAddTrack={handleAddTrack}
+            onTogglePlay={togglePlay}
+          />
+        </div>
       )}
 
-      {/* ══════════════ MEDIA POOL (below timeline, collapsible) ══════════════ */}
-      <div className="border-t shrink-0 bg-card">
+      {/* ══════════════ MEDIA POOL (below timeline, collapsible, compact) ══════════════ */}
+      <div className="border-t shrink-0 bg-card" style={{ maxHeight: mediaPoolOpen ? '160px' : '36px' }}>
         <button onClick={() => setMediaPoolOpen(v => !v)}
           className="flex items-center justify-between w-full px-4 py-2 text-left hover:bg-muted/50 transition-colors">
           <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
@@ -1413,7 +1417,7 @@ export function StudioEditor({ videos: initialVideos, images: initialImages, bot
         </button>
 
         {mediaPoolOpen && (
-          <div className="border-t px-3 pb-3 pt-2 max-h-56 overflow-y-auto">
+          <div className="border-t px-3 pb-2 pt-1.5 max-h-[120px] overflow-y-auto">
             {showGenPanel ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <div className="space-y-2">
@@ -1449,13 +1453,24 @@ export function StudioEditor({ videos: initialVideos, images: initialImages, bot
                 </div>
               </div>
             ) : (
-              <div className="flex gap-2 overflow-x-auto pb-1">
+              <div className="flex gap-1.5 overflow-x-auto pb-1">
                 {videos.map((v) => {
                   const isSelected = selectedVideoId === v.id;
                   return (
-                    <div key={v.id} className={`rounded-lg border-2 overflow-hidden transition-all flex-shrink-0 w-32 ${
-                      isSelected ? 'border-primary ring-1 ring-primary/40 shadow-md' : 'border-transparent hover:border-primary/30'
-                    } ${processing ? 'opacity-50' : ''}`}>
+                    <div key={v.id}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData('application/json', JSON.stringify({
+                          type: 'media-to-timeline',
+                          mediaId: v.id,
+                          filename: v.filename,
+                          duration: mediaDurations[v.id] || 10,
+                        }));
+                        e.dataTransfer.effectAllowed = 'copy';
+                      }}
+                      className={`rounded-md border-2 overflow-hidden transition-all flex-shrink-0 w-28 cursor-grab active:cursor-grabbing ${
+                        isSelected ? 'border-primary ring-1 ring-primary/40 shadow-md' : 'border-transparent hover:border-primary/30'
+                      } ${processing ? 'opacity-50' : ''}`}>
                       <button onClick={() => handleVideoSelect(v.id)} disabled={processing}
                         className="w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-primary">
                         <div className="aspect-video bg-black relative flex items-center justify-center overflow-hidden">
