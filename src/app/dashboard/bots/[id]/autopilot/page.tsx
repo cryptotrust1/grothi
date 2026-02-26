@@ -528,6 +528,9 @@ export default async function AutopilotPage({
               planDuration: bot.planDuration,
               contentMixMode: bot.contentMixMode,
               productRotation: bot.autopilotProductRotation,
+              productRotationMode: ((bot.reactorState as Record<string, unknown> | null)?.autopilotProductRotationMode as string) || 'all',
+              selectedProductIds: ((bot.reactorState as Record<string, unknown> | null)?.autopilotSelectedProductIds as string[]) || [],
+              products: (bot.products || []).map(p => ({ id: p.id, name: p.name })),
               productCount: bot.products?.length ?? 0,
               hasProducts,
               savedPrompt: ((bot.reactorState as Record<string, unknown> | null)?.autopilotCustomPrompt as string) || '',
@@ -893,6 +896,9 @@ function AutopilotSettingsWrapper({
     planDuration: number;
     contentMixMode: string;
     productRotation: boolean;
+    productRotationMode: string;
+    selectedProductIds: string[];
+    products: Array<{ id: string; name: string }>;
     productCount: number;
     hasProducts: boolean;
     savedPrompt: string;
@@ -919,6 +925,8 @@ function AutopilotSettingsWrapper({
     const customStartDate = formData.get('customStartDate') as string || '';
     const customEndDate = formData.get('customEndDate') as string || '';
     const intensity = formData.get('intensity') as string || 'recommended';
+    const productRotationMode = formData.get('productRotationMode') as string || 'all';
+    const selectedProductIdsRaw = formData.get('selectedProductIds') as string || '[]';
 
     const validApproval = ['REVIEW_ALL', 'AUTO_APPROVE'].includes(approvalMode) ? approvalMode : 'REVIEW_ALL';
     const validDuration = [3, 5, 7, 14, 30, 60].includes(planDuration) ? planDuration : 7;
@@ -926,6 +934,16 @@ function AutopilotSettingsWrapper({
     const validMediaSource = ['LIBRARY_ONLY', 'AI_GENERATED', 'AI_MIX'].includes(mediaSource) ? mediaSource : 'AI_MIX';
     const validSchedulingMode = ['DURATION', 'CUSTOM_DATES'].includes(schedulingMode) ? schedulingMode : 'DURATION';
     const validIntensity = ['low', 'recommended', 'high', 'extreme'].includes(intensity) ? intensity : 'recommended';
+    const validProductRotationMode = ['all', 'selected'].includes(productRotationMode) ? productRotationMode : 'all';
+
+    // Parse selected product IDs — validate as array of strings
+    let parsedSelectedProductIds: string[] = [];
+    try {
+      const parsed = JSON.parse(selectedProductIdsRaw);
+      if (Array.isArray(parsed)) {
+        parsedSelectedProductIds = parsed.filter((id: unknown) => typeof id === 'string' && id.length > 0);
+      }
+    } catch { /* invalid JSON — keep empty */ }
 
     const currentReactor = typeof currentBot.reactorState === 'object' && currentBot.reactorState !== null
       ? currentBot.reactorState as Record<string, unknown>
@@ -946,6 +964,8 @@ function AutopilotSettingsWrapper({
           autopilotCustomStartDate: validSchedulingMode === 'CUSTOM_DATES' ? customStartDate : '',
           autopilotCustomEndDate: validSchedulingMode === 'CUSTOM_DATES' ? customEndDate : '',
           autopilotIntensity: validIntensity,
+          autopilotProductRotationMode: validProductRotationMode,
+          autopilotSelectedProductIds: validProductRotationMode === 'selected' ? parsedSelectedProductIds : [],
         },
       },
     });

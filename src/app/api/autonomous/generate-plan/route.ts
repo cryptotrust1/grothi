@@ -199,8 +199,12 @@ export async function POST(request: NextRequest) {
     const imageMedia = bot.media.filter(m => m.type === 'IMAGE');
     const videoMedia = bot.media.filter(m => m.type === 'VIDEO');
 
-    // Build product rotation pool
-    const products = bot.products;
+    // Build product rotation pool — filter by user selection if applicable
+    const productRotationMode = (reactorState.autopilotProductRotationMode as string) || 'all';
+    const selectedProductIds = (reactorState.autopilotSelectedProductIds as string[]) || [];
+    const products = productRotationMode === 'selected' && selectedProductIds.length > 0
+      ? bot.products.filter(p => selectedProductIds.includes(p.id))
+      : bot.products;
     let productIndex = 0;
 
     // Generate plan slots
