@@ -247,6 +247,43 @@ export const TIMEZONES = [
   'Pacific/Auckland',
 ];
 
+// ============ POST LANGUAGES ============
+export const POST_LANGUAGES = [
+  { value: 'en', label: 'English' },
+  { value: 'sk', label: 'Slovak (Slovenčina)' },
+  { value: 'cs', label: 'Czech (Čeština)' },
+  { value: 'de', label: 'German (Deutsch)' },
+  { value: 'es', label: 'Spanish (Español)' },
+  { value: 'fr', label: 'French (Français)' },
+  { value: 'it', label: 'Italian (Italiano)' },
+  { value: 'pt', label: 'Portuguese (Português)' },
+  { value: 'nl', label: 'Dutch (Nederlands)' },
+  { value: 'pl', label: 'Polish (Polski)' },
+  { value: 'hu', label: 'Hungarian (Magyar)' },
+  { value: 'ro', label: 'Romanian (Română)' },
+  { value: 'bg', label: 'Bulgarian (Български)' },
+  { value: 'hr', label: 'Croatian (Hrvatski)' },
+  { value: 'sl', label: 'Slovenian (Slovenščina)' },
+  { value: 'uk', label: 'Ukrainian (Українська)' },
+  { value: 'ru', label: 'Russian (Русский)' },
+  { value: 'tr', label: 'Turkish (Türkçe)' },
+  { value: 'ar', label: 'Arabic (العربية)' },
+  { value: 'zh', label: 'Chinese (中文)' },
+  { value: 'ja', label: 'Japanese (日本語)' },
+  { value: 'ko', label: 'Korean (한국어)' },
+  { value: 'hi', label: 'Hindi (हिन्दी)' },
+  { value: 'sv', label: 'Swedish (Svenska)' },
+  { value: 'da', label: 'Danish (Dansk)' },
+  { value: 'fi', label: 'Finnish (Suomi)' },
+  { value: 'no', label: 'Norwegian (Norsk)' },
+  { value: 'el', label: 'Greek (Ελληνικά)' },
+  { value: 'he', label: 'Hebrew (עברית)' },
+  { value: 'th', label: 'Thai (ไทย)' },
+  { value: 'vi', label: 'Vietnamese (Tiếng Việt)' },
+  { value: 'id', label: 'Indonesian (Bahasa Indonesia)' },
+  { value: 'ms', label: 'Malay (Bahasa Melayu)' },
+] as const;
+
 // ============ SCHEDULE PRESETS ============
 export const SCHEDULE_PRESETS = [
   { value: '', label: 'Custom' },

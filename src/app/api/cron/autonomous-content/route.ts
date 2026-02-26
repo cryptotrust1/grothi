@@ -203,6 +203,11 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
+      // Extract language and audience profile from reactor state
+      const botReactor = (post.bot.reactorState as Record<string, unknown>) || {};
+      const postLanguage = (botReactor.postLanguage as string) || 'en';
+      const audienceProfile = (botReactor.audienceProfile as Record<string, unknown>) || {};
+
       // Generate content
       const content = await generateContent(apiKey, {
         platform,
@@ -215,6 +220,8 @@ export async function POST(request: NextRequest) {
         media: post.media,
         rssContext: rssContext || undefined,
         customHashtags: customHashtags || undefined,
+        postLanguage,
+        audienceProfile,
       });
 
       if (!content) {
@@ -327,6 +334,8 @@ async function generateContent(
     } | null;
     rssContext?: RssContext;
     customHashtags?: string;
+    postLanguage?: string;
+    audienceProfile?: Record<string, unknown>;
   }
 ): Promise<{ text: string; platformContent?: Record<string, unknown> } | null> {
   const algo = PLATFORM_ALGORITHM[params.platform];
@@ -352,8 +361,74 @@ async function generateContent(
     '',
   ];
 
+  // Add language directive (CRITICAL — must be early in the prompt for strongest adherence)
+  if (params.postLanguage && params.postLanguage !== 'en') {
+    const langNames: Record<string, string> = {
+      sk: 'Slovak', cs: 'Czech', de: 'German', es: 'Spanish', fr: 'French',
+      it: 'Italian', pt: 'Portuguese', nl: 'Dutch', pl: 'Polish', hu: 'Hungarian',
+      ro: 'Romanian', bg: 'Bulgarian', hr: 'Croatian', sl: 'Slovenian', uk: 'Ukrainian',
+      ru: 'Russian', tr: 'Turkish', ar: 'Arabic', zh: 'Chinese', ja: 'Japanese',
+      ko: 'Korean', hi: 'Hindi', sv: 'Swedish', da: 'Danish', fi: 'Finnish',
+      no: 'Norwegian', el: 'Greek', he: 'Hebrew', th: 'Thai', vi: 'Vietnamese',
+      id: 'Indonesian', ms: 'Malay',
+    };
+    const langName = langNames[params.postLanguage] || params.postLanguage;
+    systemParts.push(
+      `=== LANGUAGE REQUIREMENT (MANDATORY) ===`,
+      `You MUST write the ENTIRE post in ${langName} (${params.postLanguage}). Every word, hashtag description, and call-to-action must be in ${langName}.`,
+      `Do NOT mix languages. Do NOT write in English unless the user's language IS English.`,
+      '',
+    );
+  }
+
   if (params.bot.brandKnowledge) {
     systemParts.push(`=== BRAND KNOWLEDGE ===`, params.bot.brandKnowledge, '');
+  }
+
+  // Add audience profile if available
+  if (params.audienceProfile && Object.keys(params.audienceProfile).length > 0) {
+    const ap = params.audienceProfile;
+    const profileParts: string[] = ['=== TARGET AUDIENCE PROFILE ==='];
+
+    if (ap.summary) profileParts.push(`Audience summary: ${ap.summary}`);
+    if (ap.ageRange) profileParts.push(`Age range: ${ap.ageRange}`);
+    if (ap.gender) profileParts.push(`Gender: ${ap.gender}`);
+    if (ap.location) profileParts.push(`Location: ${ap.location}`);
+    if (ap.languages) profileParts.push(`Languages spoken: ${ap.languages}`);
+    if (ap.occupation) profileParts.push(`Occupation/Industry: ${ap.occupation}`);
+    if (ap.incomeLevel) profileParts.push(`Income level: ${ap.incomeLevel}`);
+    if (ap.education) profileParts.push(`Education: ${ap.education}`);
+
+    if (ap.interests) profileParts.push(`\nInterests & Hobbies: ${ap.interests}`);
+    if (ap.values) profileParts.push(`Core values: ${ap.values}`);
+    if (ap.lifestyle) profileParts.push(`Lifestyle: ${ap.lifestyle}`);
+    if (ap.onlineBehavior) profileParts.push(`Online behavior: ${ap.onlineBehavior}`);
+    if (ap.socialPlatforms) profileParts.push(`Primary social platforms: ${ap.socialPlatforms}`);
+    if (ap.contentPreferences) profileParts.push(`Content preferences: ${ap.contentPreferences}`);
+
+    if (ap.painPoints) profileParts.push(`\nPAIN POINTS (problems they face): ${ap.painPoints}`);
+    if (ap.desires) profileParts.push(`DESIRES (what they want to achieve): ${ap.desires}`);
+    if (ap.fears) profileParts.push(`FEARS (what they want to avoid): ${ap.fears}`);
+    if (ap.objections) profileParts.push(`OBJECTIONS (why they hesitate to buy/follow): ${ap.objections}`);
+
+    if (ap.buyingTriggers) profileParts.push(`\nBUYING TRIGGERS: ${ap.buyingTriggers}`);
+    if (ap.followReasons) profileParts.push(`WHY THEY FOLLOW: ${ap.followReasons}`);
+    if (ap.decisionFactors) profileParts.push(`DECISION FACTORS: ${ap.decisionFactors}`);
+
+    if (ap.brandRelationship) profileParts.push(`\nRelationship with brand: ${ap.brandRelationship}`);
+    if (ap.competitors) profileParts.push(`Competitors they follow: ${ap.competitors}`);
+    if (ap.influencers) profileParts.push(`Influencers they trust: ${ap.influencers}`);
+
+    if (ap.communicationStyle) profileParts.push(`\nHow to communicate with them: ${ap.communicationStyle}`);
+    if (ap.emotionalHooks) profileParts.push(`Emotional hooks that work: ${ap.emotionalHooks}`);
+    if (ap.avoidTopics) profileParts.push(`Topics/approaches to AVOID: ${ap.avoidTopics}`);
+
+    profileParts.push('');
+    profileParts.push('INSTRUCTIONS: Use this audience profile to create content that deeply resonates with these specific people.');
+    profileParts.push('Address their pain points, speak to their desires, use language they relate to, and trigger the psychological factors that drive them to engage, follow, and buy.');
+    profileParts.push('');
+
+    systemParts.push(...profileParts);
   }
 
   systemParts.push(

@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Info, Lightbulb, FileText, ImageIcon, Film, Smartphone, CheckCircle2, AlertCircle, ExternalLink, Brain, Target } from 'lucide-react';
+import { Info, Lightbulb, FileText, ImageIcon, Film, Smartphone, CheckCircle2, AlertCircle, ExternalLink, Brain, Target, Users, Heart, ShieldAlert, MessageCircle, TrendingUp } from 'lucide-react';
 import { HelpTip } from '@/components/ui/help-tip';
 import { PLATFORM_NAMES, TONE_STYLES, HASHTAG_PATTERNS, CONTENT_TYPES, VIDEO_STYLES, VIDEO_LENGTHS, VIDEO_FORMATS } from '@/lib/constants';
 import { PLATFORM_DEFAULTS } from '@/lib/platform-defaults';
@@ -49,6 +49,9 @@ export default async function ContentStrategyPage({
   const toneStyles = (reactorState.toneStyles as string[]) || ['professional', 'casual'];
   const hashtagPatterns = (reactorState.hashtagPatterns as string[]) || ['moderate'];
 
+  // Audience profile
+  const audienceProfile = (reactorState.audienceProfile as Record<string, string>) || {};
+
   // ── Server Actions ────────────────────────────────────────────
 
   async function handleSaveGlobalStrategy(formData: FormData) {
@@ -86,6 +89,58 @@ export default async function ContentStrategyPage({
     });
 
     redirect(`/dashboard/bots/${id}/strategy?success=Global content settings saved`);
+  }
+
+  async function handleSaveAudienceProfile(formData: FormData) {
+    'use server';
+
+    const currentUser = await requireAuth();
+    const currentBot = await db.bot.findFirst({ where: { id, userId: currentUser.id } });
+    if (!currentBot) redirect('/dashboard/bots');
+
+    const currentReactor = (currentBot.reactorState as Record<string, unknown>) || {};
+
+    // Collect all audience profile fields — trimmed, empty strings become absent
+    const fields = [
+      'audienceName', 'summary', 'ageRange', 'gender', 'location', 'languages',
+      'occupation', 'incomeLevel', 'education', 'companySize',
+      'interests', 'values', 'lifestyle', 'onlineBehavior', 'contentPreferences',
+      'painPoint1', 'painPoint2', 'painPoint3',
+      'desire1', 'desire2', 'desire3',
+      'followMotivation', 'aspirationalIdentity', 'biggestFear',
+      'buyingTriggers', 'followReasons', 'decisionFactors', 'purchaseStage',
+      'trustBarriers', 'priceSensitivity',
+      'wordsTheyUse', 'wordsToAvoid', 'commonQuestions', 'objections',
+      'communicationStyle', 'emotionalHooks', 'avoidTopics',
+      'competitors', 'influencers', 'brandRelationship',
+    ] as const;
+
+    const profile: Record<string, string> = {};
+    for (const field of fields) {
+      const val = ((formData.get(`ap_${field}`) as string) || '').trim();
+      if (val.length > 0) {
+        // Limit each field to 2000 chars for security
+        profile[field] = val.slice(0, 2000);
+      }
+    }
+
+    // Merge pain points and desires into combined fields for AI consumption
+    const painPoints = [profile.painPoint1, profile.painPoint2, profile.painPoint3].filter(Boolean).join('; ');
+    const desires = [profile.desire1, profile.desire2, profile.desire3].filter(Boolean).join('; ');
+    if (painPoints) profile.painPoints = painPoints;
+    if (desires) profile.desires = desires;
+
+    await db.bot.update({
+      where: { id },
+      data: {
+        reactorState: {
+          ...currentReactor,
+          audienceProfile: profile,
+        },
+      },
+    });
+
+    redirect(`/dashboard/bots/${id}/strategy?success=Audience profile saved`);
   }
 
   async function handleSaveStrategy(formData: FormData) {
@@ -335,6 +390,312 @@ export default async function ContentStrategyPage({
               </div>
             </label>
             <Button type="submit" size="sm">Save Global Settings</Button>
+          </CardContent>
+        </Card>
+      </form>
+
+      <Separator />
+
+      {/* ── Target Audience Profile ── */}
+      <form action={handleSaveAudienceProfile}>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><Users className="h-5 w-5" /> Target Audience Profile</CardTitle>
+            <CardDescription>
+              Define your ideal audience so the AI creates content that deeply resonates. The more specific you are, the better the AI targets your followers and potential customers.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+
+            {/* Tier 1: Essential — always visible */}
+            <div className="rounded-lg bg-amber-50/50 border border-amber-200 p-3 text-sm">
+              <p className="font-medium text-amber-900 flex items-center gap-1.5"><TrendingUp className="h-4 w-4" /> These fields have the highest impact on content quality</p>
+              <p className="text-xs text-amber-700 mt-1">Pain points and audience vocabulary are the most important — they drive 80% of content relevance.</p>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Audience Name</Label>
+                <input type="text" name="ap_audienceName" defaultValue={audienceProfile.audienceName || ''} placeholder='e.g. "Tech-Savvy Entrepreneurs"' className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm" />
+              </div>
+              <div className="space-y-2">
+                <Label>Industry / Niche</Label>
+                <input type="text" name="ap_occupation" defaultValue={audienceProfile.occupation || ''} placeholder="e.g. SaaS, crypto, fitness, fashion" className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm" />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Audience Summary</Label>
+              <textarea name="ap_summary" defaultValue={audienceProfile.summary || ''} placeholder="Describe your ideal follower/customer in 2-3 sentences. Who are they? What do they do? What matters to them?" className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground" />
+            </div>
+
+            {/* Pain Points — the highest-impact field */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <ShieldAlert className="h-4 w-4 text-red-500" />
+                <Label>Top 3 Pain Points</Label>
+                <HelpTip text="The specific problems your audience faces. This is the #1 factor that drives content relevance. Be as specific as possible — 'I waste 3 hours per week on manual social media posting' is better than 'social media is hard'." />
+              </div>
+              <input type="text" name="ap_painPoint1" defaultValue={audienceProfile.painPoint1 || ''} placeholder="1. Biggest pain point (e.g. 'I waste 3 hours/day posting manually to 5 platforms')" className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm" />
+              <input type="text" name="ap_painPoint2" defaultValue={audienceProfile.painPoint2 || ''} placeholder="2. Second pain point (e.g. 'I don't know what to post — I run out of ideas')" className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm" />
+              <input type="text" name="ap_painPoint3" defaultValue={audienceProfile.painPoint3 || ''} placeholder="3. Third pain point (e.g. 'My posts get no engagement, I feel invisible')" className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm" />
+            </div>
+
+            {/* Desires / Goals */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Heart className="h-4 w-4 text-pink-500" />
+                <Label>Top 3 Goals & Desires</Label>
+                <HelpTip text="What your audience wants to achieve. What does success look like for them? What's their dream outcome?" />
+              </div>
+              <input type="text" name="ap_desire1" defaultValue={audienceProfile.desire1 || ''} placeholder="1. Primary goal (e.g. 'Grow to 10K followers and monetize my audience')" className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm" />
+              <input type="text" name="ap_desire2" defaultValue={audienceProfile.desire2 || ''} placeholder="2. Secondary goal (e.g. 'Build a personal brand that attracts clients')" className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm" />
+              <input type="text" name="ap_desire3" defaultValue={audienceProfile.desire3 || ''} placeholder="3. Third goal (e.g. 'Save time and automate repetitive marketing tasks')" className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm" />
+            </div>
+
+            {/* Audience Language — critical for authentic voice */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <MessageCircle className="h-4 w-4 text-blue-500" />
+                <Label>Audience Vocabulary</Label>
+                <HelpTip text="The exact words and phrases your audience uses. This is injected directly into AI content to make it sound authentic and relatable. Think about how they talk in DMs, comments, and reviews." />
+              </div>
+              <div className="space-y-2">
+                <textarea name="ap_wordsTheyUse" defaultValue={audienceProfile.wordsTheyUse || ''} placeholder="Words/phrases they use: e.g. 'side hustle', 'passive income', 'scale my business', 'content game', 'engagement rate'" className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground" />
+                <textarea name="ap_wordsToAvoid" defaultValue={audienceProfile.wordsToAvoid || ''} placeholder="Words/phrases to AVOID: e.g. 'get rich quick', 'guru', 'easy money', 'guaranteed results'" className="flex min-h-[50px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground" />
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Tier 2: Demographics & Psychographics */}
+            <div>
+              <h3 className="text-sm font-semibold mb-3">Demographics & Identity</h3>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="space-y-1">
+                  <Label className="text-xs">Age Range</Label>
+                  <select name="ap_ageRange" defaultValue={audienceProfile.ageRange || ''} className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm">
+                    <option value="">Not specified</option>
+                    <option value="13-17">13-17 (Gen Alpha)</option>
+                    <option value="18-24">18-24 (Gen Z)</option>
+                    <option value="25-34">25-34 (Millennials)</option>
+                    <option value="35-44">35-44 (Millennials/Gen X)</option>
+                    <option value="45-54">45-54 (Gen X)</option>
+                    <option value="55-64">55-64 (Boomers)</option>
+                    <option value="65+">65+ (Seniors)</option>
+                    <option value="18-34">18-34 (Young adults)</option>
+                    <option value="25-44">25-44 (Core working age)</option>
+                    <option value="35-55">35-55 (Established professionals)</option>
+                    <option value="all">All ages</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Gender</Label>
+                  <select name="ap_gender" defaultValue={audienceProfile.gender || ''} className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm">
+                    <option value="">Not specified</option>
+                    <option value="mostly_male">Mostly male</option>
+                    <option value="mostly_female">Mostly female</option>
+                    <option value="mixed">Mixed / All genders</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Income Level</Label>
+                  <select name="ap_incomeLevel" defaultValue={audienceProfile.incomeLevel || ''} className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm">
+                    <option value="">Not specified</option>
+                    <option value="budget">Budget-conscious</option>
+                    <option value="middle">Middle income</option>
+                    <option value="affluent">Affluent</option>
+                    <option value="premium">Premium / Luxury</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Education</Label>
+                  <select name="ap_education" defaultValue={audienceProfile.education || ''} className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm">
+                    <option value="">Not specified</option>
+                    <option value="high_school">High school</option>
+                    <option value="some_college">Some college</option>
+                    <option value="bachelor">Bachelor&apos;s degree</option>
+                    <option value="master">Master&apos;s / MBA</option>
+                    <option value="phd">PhD / Doctorate</option>
+                    <option value="mixed">Mixed levels</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 mt-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Location / Region</Label>
+                  <input type="text" name="ap_location" defaultValue={audienceProfile.location || ''} placeholder="e.g. USA, Europe, Slovakia, worldwide" className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Languages Spoken</Label>
+                  <input type="text" name="ap_languages" defaultValue={audienceProfile.languages || ''} placeholder="e.g. English, Slovak, German" className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm" />
+                </div>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Psychographics & Behavior */}
+            <div>
+              <h3 className="text-sm font-semibold mb-3">Psychographics & Online Behavior</h3>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Interests & Hobbies</Label>
+                  <textarea name="ap_interests" defaultValue={audienceProfile.interests || ''} placeholder="What are they passionate about? e.g. technology, crypto, fitness, travel, self-improvement" className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Values & Beliefs</Label>
+                  <textarea name="ap_values" defaultValue={audienceProfile.values || ''} placeholder="What values drive their decisions? e.g. innovation, freedom, security, sustainability, community" className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Lifestyle</Label>
+                  <textarea name="ap_lifestyle" defaultValue={audienceProfile.lifestyle || ''} placeholder="How do they live? e.g. busy entrepreneurs, remote workers, college students, parents" className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Online Behavior</Label>
+                  <textarea name="ap_onlineBehavior" defaultValue={audienceProfile.onlineBehavior || ''} placeholder="How do they use social media? e.g. scroll during commute, research products, lurk in communities" className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground" />
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 mt-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Why They Follow Accounts</Label>
+                  <select name="ap_followMotivation" defaultValue={audienceProfile.followMotivation || ''} className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm">
+                    <option value="">Not specified</option>
+                    <option value="learn">To learn something new / get tips</option>
+                    <option value="stay_updated">To stay updated on industry/news</option>
+                    <option value="entertainment">To be entertained / have fun</option>
+                    <option value="connection">To feel connected / part of community</option>
+                    <option value="deals">To get deals and offers</option>
+                    <option value="inspiration">To be inspired / motivated</option>
+                    <option value="identity">Identity alignment / "this is who I am"</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Content Preferences</Label>
+                  <input type="text" name="ap_contentPreferences" defaultValue={audienceProfile.contentPreferences || ''} placeholder="e.g. short tips, long guides, memes, data-driven, behind-the-scenes" className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm" />
+                </div>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Buying Psychology */}
+            <div>
+              <h3 className="text-sm font-semibold mb-3">Buying Psychology & Decision Making</h3>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Aspirational Identity</Label>
+                  <textarea name="ap_aspirationalIdentity" defaultValue={audienceProfile.aspirationalIdentity || ''} placeholder="Who do they want to become? e.g. 'A successful entrepreneur with passive income and freedom to travel'" className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Biggest Fear / Frustration</Label>
+                  <textarea name="ap_biggestFear" defaultValue={audienceProfile.biggestFear || ''} placeholder="What keeps them up at night? e.g. 'Falling behind competitors', 'Wasting money on things that don't work'" className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground" />
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-3 mt-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Purchase Stage</Label>
+                  <select name="ap_purchaseStage" defaultValue={audienceProfile.purchaseStage || ''} className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm">
+                    <option value="">Mixed / Unknown</option>
+                    <option value="unaware">Unaware of the problem</option>
+                    <option value="problem_aware">Aware of the problem</option>
+                    <option value="exploring">Exploring solutions</option>
+                    <option value="comparing">Comparing options</option>
+                    <option value="ready_to_buy">Ready to buy</option>
+                    <option value="existing_customer">Already a customer</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Decision Style</Label>
+                  <select name="ap_decisionFactors" defaultValue={audienceProfile.decisionFactors || ''} className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm">
+                    <option value="">Not specified</option>
+                    <option value="impulsive">Impulsive — decides fast</option>
+                    <option value="research">Research-heavy — compares everything</option>
+                    <option value="peer">Peer-influenced — asks friends</option>
+                    <option value="authority">Authority-influenced — trusts experts</option>
+                    <option value="price">Price-driven — cheapest wins</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Price Sensitivity</Label>
+                  <select name="ap_priceSensitivity" defaultValue={audienceProfile.priceSensitivity || ''} className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm">
+                    <option value="">Not specified</option>
+                    <option value="very_sensitive">Very price-sensitive</option>
+                    <option value="moderate">Moderate — wants value</option>
+                    <option value="low">Low — quality matters more</option>
+                    <option value="not_a_factor">Price is not a factor</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 mt-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Trust Barriers (why they hesitate)</Label>
+                  <textarea name="ap_trustBarriers" defaultValue={audienceProfile.trustBarriers || ''} placeholder="e.g. 'Skeptical of automation tools', 'Need to see real results first', 'Worried about looking inauthentic'" className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Buying Triggers (what makes them act)</Label>
+                  <textarea name="ap_buyingTriggers" defaultValue={audienceProfile.buyingTriggers || ''} placeholder="e.g. 'Free trial', 'Case study with real numbers', 'Recommendation from trusted influencer', 'Limited-time offer'" className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground" />
+                </div>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Communication Strategy */}
+            <div>
+              <h3 className="text-sm font-semibold mb-3">Communication & Competitive Context</h3>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Common Questions They Ask</Label>
+                  <textarea name="ap_commonQuestions" defaultValue={audienceProfile.commonQuestions || ''} placeholder="Questions your audience frequently asks, e.g. 'How do I grow my followers?', 'Is AI content detectable?'" className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Their Objections (in their own words)</Label>
+                  <textarea name="ap_objections" defaultValue={audienceProfile.objections || ''} placeholder="e.g. 'I don't have time for this', 'I've tried tools before and they didn't work', 'It's too expensive'" className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">How to Communicate With Them</Label>
+                  <textarea name="ap_communicationStyle" defaultValue={audienceProfile.communicationStyle || ''} placeholder="e.g. 'Be direct, no fluff. Use data and examples. Avoid hype language. Show don't tell.'" className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Emotional Hooks That Work</Label>
+                  <textarea name="ap_emotionalHooks" defaultValue={audienceProfile.emotionalHooks || ''} placeholder="e.g. 'FOMO — competitors are ahead', 'Freedom — work from anywhere', 'Authority — expert-backed'" className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground" />
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-3 mt-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Competitors They Follow</Label>
+                  <input type="text" name="ap_competitors" defaultValue={audienceProfile.competitors || ''} placeholder="e.g. Buffer, Hootsuite, Later" className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Influencers They Trust</Label>
+                  <input type="text" name="ap_influencers" defaultValue={audienceProfile.influencers || ''} placeholder="e.g. Gary Vee, Alex Hormozi" className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Topics/Approaches to Avoid</Label>
+                  <input type="text" name="ap_avoidTopics" defaultValue={audienceProfile.avoidTopics || ''} placeholder="e.g. politics, religion, clickbait" className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm" />
+                </div>
+              </div>
+            </div>
+
+            {/* How This Works explainer */}
+            <div className="rounded-lg bg-blue-50/50 border border-blue-200 p-4 text-sm space-y-2">
+              <p className="font-medium text-blue-900 flex items-center gap-1.5"><Brain className="h-4 w-4" /> How Audience Intelligence works</p>
+              <ul className="text-xs text-blue-700 space-y-1 list-disc list-inside">
+                <li><strong>Pain points</strong> drive problem-aware content that makes people stop scrolling</li>
+                <li><strong>Audience vocabulary</strong> makes AI-generated content sound authentic and relatable</li>
+                <li><strong>Desires & aspirations</strong> create emotional resonance and inspire action</li>
+                <li><strong>Buying psychology</strong> helps the AI craft posts that move people from awareness to purchase</li>
+                <li><strong>Follow motivation</strong> determines the ideal content mix (educational vs entertaining vs inspirational)</li>
+                <li>The AI uses all of this to address objections, speak their language, and trigger the right emotions</li>
+              </ul>
+            </div>
+
+            <Button type="submit" size="sm">Save Audience Profile</Button>
           </CardContent>
         </Card>
       </form>
