@@ -46,20 +46,24 @@ export interface TimelineState {
   selectedClipId: string | null;
   selectedTrackId: string | null;
   snapEnabled: boolean;
+  activeTool: TimelineTool;  // Current tool: select, razor, trim
 }
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
-export const MIN_ZOOM = 20;   // 20px per second (zoomed out)
-export const MAX_ZOOM = 200;  // 200px per second (zoomed in)
-export const DEFAULT_ZOOM = 60;
+export const MIN_ZOOM = 10;   // 10px per second (zoomed way out)
+export const MAX_ZOOM = 400;  // 400px per second (zoomed way in, frame-level)
+export const DEFAULT_ZOOM = 80;
 
-export const DEFAULT_TRACK_HEIGHT = 48;
-export const TEXT_TRACK_HEIGHT = 36;
-export const RULER_HEIGHT = 28;
-export const TRACK_HEADER_WIDTH = 56;
+export const DEFAULT_TRACK_HEIGHT = 56;
+export const TEXT_TRACK_HEIGHT = 40;
+export const RULER_HEIGHT = 32;
+export const TRACK_HEADER_WIDTH = 120;
 
-export const SNAP_THRESHOLD_PX = 6; // Snap within 6 pixels
+export const SNAP_THRESHOLD_PX = 8; // Snap within 8 pixels
+
+/** Tool modes for the timeline (like DaVinci Resolve toolbar) */
+export type TimelineTool = 'select' | 'razor' | 'trim';
 
 export const TRACK_COLORS: Record<TrackType, { bg: string; clip: string; clipSelected: string; border: string }> = {
   video: {
@@ -106,6 +110,7 @@ export function createDefaultTimeline(): TimelineState {
     selectedClipId: null,
     selectedTrackId: null,
     snapEnabled: true,
+    activeTool: 'select',
   };
 }
 
@@ -222,12 +227,17 @@ export function splitClipAtTime(clip: TimelineClip, splitTime: number): [Timelin
   return [first, second];
 }
 
-/** Format seconds as M:SS or H:MM:SS */
-export function formatTimelineTime(seconds: number): string {
-  if (!isFinite(seconds) || seconds < 0) return '0:00';
+/** Format seconds as timecode: MM:SS or HH:MM:SS (with optional frames) */
+export function formatTimelineTime(seconds: number, showFrames = false): string {
+  if (!isFinite(seconds) || seconds < 0) return '00:00';
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = Math.floor(seconds % 60);
+  const f = Math.floor((seconds % 1) * 30); // 30fps frames
+  if (showFrames) {
+    if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}:${f.toString().padStart(2, '0')}`;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}:${f.toString().padStart(2, '0')}`;
+  }
   if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
