@@ -4,7 +4,6 @@ import { cookies } from 'next/headers';
 import { notFound, redirect } from 'next/navigation';
 import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { getCachedPostCounts } from '@/lib/counts-cache';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -79,31 +78,76 @@ export default async function AutopilotPage({
     .filter(p => p.status === 'CONNECTED')
     .map(p => p.platform);
 
-  // Count autopilot posts by status (cached)
+  // Count autopilot posts by status
+  // Wrapped in try-catch: if 'source' column is missing (migration not yet applied),
+  // fall back to counting ALL posts for this bot
   const now = new Date();
-  const postCounts = await getCachedPostCounts(id, 'AUTOPILOT');
-  const draftCount = postCounts.DRAFT;
-  const scheduledCount = postCounts.SCHEDULED;
-  const publishedCount = postCounts.PUBLISHED;
-  const failedCount = postCounts.FAILED;
+  let draftCount = 0, scheduledCount = 0, publishedCount = 0, failedCount = 0;
+  try {
+    [draftCount, scheduledCount, publishedCount, failedCount] = await Promise.all([
+      db.scheduledPost.count({ where: { botId: id, source: 'AUTOPILOT', status: 'DRAFT' } }),
+      db.scheduledPost.count({ where: { botId: id, source: 'AUTOPILOT', status: 'SCHEDULED' } }),
+      db.scheduledPost.count({ where: { botId: id, source: 'AUTOPILOT', status: 'PUBLISHED' } }),
+      db.scheduledPost.count({ where: { botId: id, source: 'AUTOPILOT', status: 'FAILED' } }),
+    ]);
+  } catch {
+    // Fallback: count all posts (source column may not exist yet)
+    [draftCount, scheduledCount, publishedCount, failedCount] = await Promise.all([
+      db.scheduledPost.count({ where: { botId: id, status: 'DRAFT' } }),
+      db.scheduledPost.count({ where: { botId: id, status: 'SCHEDULED' } }),
+      db.scheduledPost.count({ where: { botId: id, status: 'PUBLISHED' } }),
+      db.scheduledPost.count({ where: { botId: id, status: 'FAILED' } }),
+    ]);
+  }
 
   // Get pending review posts (DRAFT autopilot posts)
-  const pendingReview = await db.scheduledPost.findMany({
-    where: { botId: id, source: 'AUTOPILOT', status: 'DRAFT' },
-    orderBy: { scheduledAt: 'asc' },
-    take: 20,
-    select: {
-      id: true,
-      content: true,
-      contentType: true,
-      contentFormat: true,
-      platforms: true,
-      scheduledAt: true,
-      mediaId: true,
-      productId: true,
-      product: { select: { name: true } },
-    },
-  });
+  let pendingReview: Array<{
+    id: string;
+    content: string;
+    contentType: string | null;
+    contentFormat: string | null;
+    platforms: unknown;
+    scheduledAt: Date | null;
+    mediaId: string | null;
+    productId: string | null;
+    product: { name: string } | null;
+  }> = [];
+  try {
+    pendingReview = await db.scheduledPost.findMany({
+      where: { botId: id, source: 'AUTOPILOT', status: 'DRAFT' },
+      orderBy: { scheduledAt: 'asc' },
+      take: 20,
+      select: {
+        id: true,
+        content: true,
+        contentType: true,
+        contentFormat: true,
+        platforms: true,
+        scheduledAt: true,
+        mediaId: true,
+        productId: true,
+        product: { select: { name: true } },
+      },
+    });
+  } catch {
+    // Fallback: query without source filter
+    pendingReview = await db.scheduledPost.findMany({
+      where: { botId: id, status: 'DRAFT' },
+      orderBy: { scheduledAt: 'asc' },
+      take: 20,
+      select: {
+        id: true,
+        content: true,
+        contentType: true,
+        contentFormat: true,
+        platforms: true,
+        scheduledAt: true,
+        mediaId: true,
+        productId: true,
+        product: { select: { name: true } },
+      },
+    });
+  }
 
   // Platform algorithm recommendations — v2 with full data
   const platformRecommendations = connectedPlatforms.map(p => {
@@ -321,7 +365,7 @@ export default async function AutopilotPage({
 
   const isAutopilotActive = bot.autonomousEnabled;
   const hasMedia = bot.media.length > 0;
-  const hasProducts = bot.products.length > 0;
+  const hasProducts = (bot.products?.length ?? 0) > 0;
   const hasPlatforms = connectedPlatforms.length > 0;
   const totalPending = draftCount + scheduledCount;
 
@@ -552,7 +596,7 @@ export default async function AutopilotPage({
                 </label>
                 <p className="text-xs text-muted-foreground">
                   {hasProducts
-                    ? `Rotate ${bot.products.length} product(s) in promotional posts`
+                    ? `Rotate ${bot.products?.length ?? 0} product(s) in promotional posts`
                     : 'No products added yet'}
                 </p>
               </div>
