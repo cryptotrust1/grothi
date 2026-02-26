@@ -733,6 +733,8 @@ model ScheduledPost {
 
   // Instagram post type: 'feed' | 'reel' | 'story' | 'carousel' | null (auto-detect)
   postType    String?
+  // Best content format from platform algorithm (e.g. 'Reels (15-60s)', 'Carousel', 'Thread')
+  contentFormat String?
   // Additional media IDs for carousel posts (JSON string array)
   mediaIds    Json?
 

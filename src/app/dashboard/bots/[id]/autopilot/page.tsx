@@ -75,6 +75,7 @@ export default async function AutopilotPage({
       id: true,
       content: true,
       contentType: true,
+      contentFormat: true,
       platforms: true,
       scheduledAt: true,
       mediaId: true,
@@ -186,9 +187,19 @@ export default async function AutopilotPage({
     });
     if (!post) redirect(`/dashboard/bots/${id}/autopilot`);
 
+    // Prevent approving posts that still have placeholder content
+    if (post.content.startsWith('[AUTOPILOT]')) {
+      redirect(`/dashboard/bots/${id}/autopilot?error=${encodeURIComponent('Cannot approve this post — AI is still generating content. Please wait and try again.')}`);
+    }
+
+    // Ensure post has a future scheduledAt, or set it to 5 minutes from now
+    const scheduledAt = post.scheduledAt && post.scheduledAt > new Date()
+      ? post.scheduledAt
+      : new Date(Date.now() + 5 * 60 * 1000);
+
     await db.scheduledPost.update({
       where: { id: postId },
-      data: { status: 'SCHEDULED' },
+      data: { status: 'SCHEDULED', scheduledAt },
     });
 
     redirect(`/dashboard/bots/${id}/autopilot?success=Post approved and scheduled`);
@@ -200,11 +211,41 @@ export default async function AutopilotPage({
     const postId = formData.get('postId') as string;
     if (!postId) redirect(`/dashboard/bots/${id}/autopilot`);
 
+    // Verify the post belongs to this bot and this user before deleting
+    const post = await db.scheduledPost.findFirst({
+      where: { id: postId, botId: id, bot: { userId: currentUser.id } },
+    });
+    if (!post) redirect(`/dashboard/bots/${id}/autopilot`);
+
     await db.scheduledPost.delete({
       where: { id: postId },
     });
 
     redirect(`/dashboard/bots/${id}/autopilot?success=Post removed`);
+  }
+
+  async function handleRetryFailed() {
+    'use server';
+    const currentUser = await requireAuth();
+    const currentBot = await db.bot.findFirst({ where: { id, userId: currentUser.id } });
+    if (!currentBot) redirect('/dashboard/bots');
+
+    // Reset failed autopilot posts back to SCHEDULED so they get retried
+    // Only retry posts that have real content (not placeholders needing generation)
+    const retried = await db.scheduledPost.updateMany({
+      where: {
+        botId: id,
+        source: 'AUTOPILOT',
+        status: 'FAILED',
+      },
+      data: {
+        status: 'SCHEDULED',
+        error: null,
+        scheduledAt: new Date(Date.now() + 5 * 60 * 1000), // Retry 5 min from now
+      },
+    });
+
+    redirect(`/dashboard/bots/${id}/autopilot?success=${retried.count} failed posts queued for retry`);
   }
 
   async function handleClearPlan() {
@@ -346,6 +387,13 @@ export default async function AutopilotPage({
                 </Button>
               </form>
             )}
+            {failedCount > 0 && (
+              <form action={handleRetryFailed}>
+                <Button type="submit" variant="outline" className="w-full gap-2" size="sm">
+                  <RefreshCw className="h-4 w-4" /> Retry Failed ({failedCount})
+                </Button>
+              </form>
+            )}
             {totalPending > 0 && (
               <ConfirmDialog
                 title="Clear All Pending Posts"
@@ -359,6 +407,13 @@ export default async function AutopilotPage({
                   </Button>
                 }
               />
+            )}
+            {bot.lastPlanGeneratedAt && (
+              <p className="text-xs text-muted-foreground text-center pt-1">
+                Last plan: {new Date(bot.lastPlanGeneratedAt).toLocaleDateString('en-US', {
+                  month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+                })}
+              </p>
             )}
           </CardContent>
         </Card>
@@ -617,6 +672,11 @@ export default async function AutopilotPage({
                           {post.contentType && (
                             <Badge variant="outline" className="text-xs">
                               {post.contentType}
+                            </Badge>
+                          )}
+                          {post.contentFormat && (
+                            <Badge variant="outline" className="text-xs text-green-700 border-green-300 bg-green-50">
+                              {post.contentFormat}
                             </Badge>
                           )}
                           {post.product && (
