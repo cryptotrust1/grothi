@@ -7,9 +7,10 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Info, Lightbulb, FileText, ImageIcon, Film, Smartphone, CheckCircle2, AlertCircle, ExternalLink } from 'lucide-react';
+import { Separator } from '@/components/ui/separator';
+import { Info, Lightbulb, FileText, ImageIcon, Film, Smartphone, CheckCircle2, AlertCircle, ExternalLink, Brain, Target } from 'lucide-react';
 import { HelpTip } from '@/components/ui/help-tip';
-import { PLATFORM_NAMES, TONE_STYLES, HASHTAG_PATTERNS, VIDEO_STYLES, VIDEO_LENGTHS, VIDEO_FORMATS } from '@/lib/constants';
+import { PLATFORM_NAMES, TONE_STYLES, HASHTAG_PATTERNS, CONTENT_TYPES, VIDEO_STYLES, VIDEO_LENGTHS, VIDEO_FORMATS } from '@/lib/constants';
 import { PLATFORM_DEFAULTS } from '@/lib/platform-defaults';
 
 export const metadata: Metadata = { title: 'Content Strategy', robots: { index: false } };
@@ -40,7 +41,51 @@ export default async function ContentStrategyPage({
     bot.contentPlans.map(p => [p.platform, p])
   );
 
+  // Global content strategy settings from reactorState
+  const reactorState = (bot.reactorState as Record<string, unknown>) || {};
+  const contentTypes = (reactorState.contentTypes as string[]) || ['educational', 'engagement'];
+  const selfLearning = (reactorState.selfLearning as boolean) ?? true;
+  const toneStyles = (reactorState.toneStyles as string[]) || ['professional', 'casual'];
+  const hashtagPatterns = (reactorState.hashtagPatterns as string[]) || ['moderate'];
+
   // ── Server Actions ────────────────────────────────────────────
+
+  async function handleSaveGlobalStrategy(formData: FormData) {
+    'use server';
+
+    const currentUser = await requireAuth();
+    const currentBot = await db.bot.findFirst({ where: { id, userId: currentUser.id } });
+    if (!currentBot) redirect('/dashboard/bots');
+
+    const currentReactor = (currentBot.reactorState as Record<string, unknown>) || {};
+
+    const selectedTypes = CONTENT_TYPES
+      .map((ct) => ct.value)
+      .filter((v) => formData.get(`ct_${v}`) === 'on');
+
+    const selectedTones = TONE_STYLES
+      .map((t) => t.value)
+      .filter((v) => formData.get(`tone_${v}`) === 'on');
+
+    const selectedHashtags = HASHTAG_PATTERNS
+      .map((h) => h.value)
+      .filter((v) => formData.get(`ht_${v}`) === 'on');
+
+    await db.bot.update({
+      where: { id },
+      data: {
+        reactorState: {
+          ...currentReactor,
+          contentTypes: selectedTypes.length > 0 ? selectedTypes : ['educational'],
+          toneStyles: selectedTones.length > 0 ? selectedTones : ['professional'],
+          hashtagPatterns: selectedHashtags.length > 0 ? selectedHashtags : ['moderate'],
+          selfLearning: formData.get('selfLearning') === 'on',
+        },
+      },
+    });
+
+    redirect(`/dashboard/bots/${id}/strategy?success=Global content settings saved`);
+  }
 
   async function handleSaveStrategy(formData: FormData) {
     'use server';
@@ -213,6 +258,82 @@ export default async function ContentStrategyPage({
           </div>
         </CardContent>
       </Card>
+
+      {/* ── Global Content Settings ── */}
+      <form action={handleSaveGlobalStrategy}>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><Target className="h-5 w-5" /> Global Content Settings</CardTitle>
+            <CardDescription>Content types, tones, and hashtags used across all platforms. Per-platform overrides below take priority.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label className="mb-3 block">Content Types</Label>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {CONTENT_TYPES.map((ct) => (
+                  <label key={ct.value} className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+                    <input type="checkbox" name={`ct_${ct.value}`} defaultChecked={contentTypes.includes(ct.value)} className="mt-0.5 h-4 w-4 rounded border-input" />
+                    <div>
+                      <p className="text-sm font-medium">{ct.label}</p>
+                      <p className="text-xs text-muted-foreground">{ct.desc}</p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <Separator />
+            <div>
+              <Label className="mb-3 block">Tone Styles</Label>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {TONE_STYLES.map((t) => (
+                  <label key={t.value} className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+                    <input type="checkbox" name={`tone_${t.value}`} defaultChecked={toneStyles.includes(t.value)} className="mt-0.5 h-4 w-4 rounded border-input" />
+                    <div>
+                      <p className="text-sm font-medium">{t.label}</p>
+                      <p className="text-xs text-muted-foreground">{t.desc}</p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <Separator />
+            <div>
+              <Label className="mb-3 block">Hashtag Strategy</Label>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {HASHTAG_PATTERNS.map((h) => (
+                  <label key={h.value} className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+                    <input type="checkbox" name={`ht_${h.value}`} defaultChecked={hashtagPatterns.includes(h.value)} className="mt-0.5 h-4 w-4 rounded border-input" />
+                    <div>
+                      <p className="text-sm font-medium">{h.label}</p>
+                      <p className="text-xs text-muted-foreground">{h.desc}</p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <Separator />
+            <label className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+              <input type="checkbox" name="selfLearning" defaultChecked={selfLearning} className="mt-0.5 h-4 w-4 rounded border-input" />
+              <div>
+                <p className="text-sm font-medium flex items-center gap-1.5"><Brain className="h-4 w-4" /> Self-Learning AI <HelpTip text="When enabled, the bot uses reinforcement learning to continuously improve its content strategy. It analyzes engagement metrics from each post and automatically adjusts timing, tone, hashtags, and content types to maximize performance on each platform." /></p>
+                <p className="text-xs text-muted-foreground">
+                  Uses reinforcement learning to optimize content. Learns from engagement metrics and adapts posting times,
+                  content types, hashtags, and tone per platform. Used by Autopilot and the AI Suggestion button.
+                </p>
+              </div>
+            </label>
+            <Button type="submit" size="sm">Save Global Settings</Button>
+          </CardContent>
+        </Card>
+      </form>
+
+      <Separator />
+
+      {/* ── Per-Platform Strategy ── */}
+      <div>
+        <h2 className="text-lg font-semibold mb-1">Per-Platform Content Plan</h2>
+        <p className="text-sm text-muted-foreground mb-4">Set daily quotas and override tones/hashtags for each connected platform.</p>
+      </div>
 
       {/* Apply defaults button */}
       {connectedPlatforms.length > 0 && (

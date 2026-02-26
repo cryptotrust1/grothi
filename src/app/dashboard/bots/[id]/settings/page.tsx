@@ -9,11 +9,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Rss, Clock, Brain, Trash2, Target, Key, BarChart3, Link2 } from 'lucide-react';
+import { Rss, Clock, Trash2, Target, Key, BarChart3, ArrowRight } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { HelpTip } from '@/components/ui/help-tip';
 import { AlertMessage } from '@/components/ui/alert-message';
-import { SCHEDULE_PRESETS, TIMEZONES, CONTENT_TYPES, TONE_STYLES, HASHTAG_PATTERNS, GOAL_OPTIONS, SAFETY_LEVEL_OPTIONS } from '@/lib/constants';
+import { SCHEDULE_PRESETS, TIMEZONES, GOAL_OPTIONS, SAFETY_LEVEL_OPTIONS } from '@/lib/constants';
 import { parseKeywords } from '@/lib/utils';
 
 export const metadata: Metadata = { title: 'Bot Settings', robots: { index: false } };
@@ -34,12 +34,8 @@ export default async function BotSettingsPage({
 
   const rssFeeds = Array.isArray(bot.rssFeeds) ? (bot.rssFeeds as string[]) : [];
   const reactorState = (bot.reactorState as Record<string, unknown>) || {};
-  const contentTypes = (reactorState.contentTypes as string[]) || ['educational', 'engagement'];
-  const selfLearning = (reactorState.selfLearning as boolean) ?? true;
   const maxPostsPerDay = (reactorState.maxPostsPerDay as number) || 10;
   const maxRepliesPerDay = (reactorState.maxRepliesPerDay as number) || 20;
-  const toneStyles = (reactorState.toneStyles as string[]) || ['professional', 'casual'];
-  const hashtagPatterns = (reactorState.hashtagPatterns as string[]) || ['moderate'];
   const keywords = Array.isArray(bot.keywords) ? (bot.keywords as string[]) : [];
 
   async function handleUpdate(formData: FormData) {
@@ -54,18 +50,6 @@ export default async function BotSettingsPage({
       .split('\n')
       .map((f) => f.trim())
       .filter((f) => f.length > 0 && (f.startsWith('http://') || f.startsWith('https://')));
-
-    const selectedTypes = CONTENT_TYPES
-      .map((ct) => ct.value)
-      .filter((v) => formData.get(`ct_${v}`) === 'on');
-
-    const selectedTones = TONE_STYLES
-      .map((t) => t.value)
-      .filter((v) => formData.get(`tone_${v}`) === 'on');
-
-    const selectedHashtags = HASHTAG_PATTERNS
-      .map((h) => h.value)
-      .filter((v) => formData.get(`ht_${v}`) === 'on');
 
     const currentReactor = (currentBot.reactorState as Record<string, unknown>) || {};
 
@@ -111,10 +95,6 @@ export default async function BotSettingsPage({
         rssFeeds: feeds,
         reactorState: {
           ...currentReactor,
-          contentTypes: selectedTypes.length > 0 ? selectedTypes : ['educational'],
-          toneStyles: selectedTones.length > 0 ? selectedTones : ['professional'],
-          hashtagPatterns: selectedHashtags.length > 0 ? selectedHashtags : ['moderate'],
-          selfLearning: formData.get('selfLearning') === 'on',
           maxPostsPerDay,
           maxRepliesPerDay,
         },
@@ -340,72 +320,20 @@ export default async function BotSettingsPage({
           </CardContent>
         </Card>
 
-        {/* Content Strategy */}
-        <Card className="mt-6">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Brain className="h-5 w-5" /> Content Strategy</CardTitle>
-            <CardDescription>Choose content types and enable AI self-learning</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label className="mb-3 block">Content Types to Generate</Label>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {CONTENT_TYPES.map((ct) => (
-                  <label key={ct.value} className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50">
-                    <input type="checkbox" name={`ct_${ct.value}`} defaultChecked={contentTypes.includes(ct.value)} className="mt-0.5 h-4 w-4 rounded border-input" />
-                    <div>
-                      <p className="text-sm font-medium">{ct.label}</p>
-                      <p className="text-xs text-muted-foreground">{ct.desc}</p>
-                    </div>
-                  </label>
-                ))}
-              </div>
-            </div>
-            <Separator />
-            <div>
-              <Label className="mb-3 block">Tone Styles (AI will rotate between selected)</Label>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {TONE_STYLES.map((t) => (
-                  <label key={t.value} className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50">
-                    <input type="checkbox" name={`tone_${t.value}`} defaultChecked={toneStyles.includes(t.value)} className="mt-0.5 h-4 w-4 rounded border-input" />
-                    <div>
-                      <p className="text-sm font-medium">{t.label}</p>
-                      <p className="text-xs text-muted-foreground">{t.desc}</p>
-                    </div>
-                  </label>
-                ))}
-              </div>
-              <p className="text-xs text-muted-foreground mt-2">The RL engine learns which tones perform best on each platform and adapts over time.</p>
-            </div>
-            <Separator />
-            <div>
-              <Label className="mb-3 block">Hashtag Strategy (AI will test and optimize)</Label>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {HASHTAG_PATTERNS.map((h) => (
-                  <label key={h.value} className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50">
-                    <input type="checkbox" name={`ht_${h.value}`} defaultChecked={hashtagPatterns.includes(h.value)} className="mt-0.5 h-4 w-4 rounded border-input" />
-                    <div>
-                      <p className="text-sm font-medium">{h.label}</p>
-                      <p className="text-xs text-muted-foreground">{h.desc}</p>
-                    </div>
-                  </label>
-                ))}
-              </div>
-              <p className="text-xs text-muted-foreground mt-2">The engine explores different hashtag strategies and converges on what drives the most engagement per platform.</p>
-            </div>
-            <Separator />
-            <label className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/50">
-              <input type="checkbox" name="selfLearning" defaultChecked={selfLearning} className="mt-0.5 h-4 w-4 rounded border-input" />
+        {/* Content Strategy Link */}
+        <Card className="mt-6 bg-muted/30">
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium flex items-center gap-1.5">Content Reactor - Self-Learning AI <HelpTip text="When enabled, the bot uses reinforcement learning to continuously improve its content strategy. It analyzes engagement metrics from each post and automatically adjusts timing, tone, hashtags, and content types to maximize performance on each platform." /></p>
-                <p className="text-xs text-muted-foreground">
-                  Uses reinforcement learning (epsilon-greedy exploration) to optimize content. Learns from engagement
-                  metrics: likes (1pt), comments (3pt), shares (5pt), saves (2pt). Adapts posting times, content types, hashtags,
-                  and tone per platform independently. Platform-specific bonuses: dwell time on LinkedIn, watch time on TikTok/YouTube,
-                  saves on Instagram/Pinterest, shares on Twitter/Facebook. Each bot learns its own optimal strategy.
-                </p>
+                <p className="font-medium">Content Strategy & AI Learning</p>
+                <p className="text-xs text-muted-foreground">Content types, tones, hashtags, per-platform plans, and self-learning settings are managed in the dedicated Content Strategy page.</p>
               </div>
-            </label>
+              <Link href={`/dashboard/bots/${id}/strategy`}>
+                <Button variant="outline" size="sm" className="gap-1.5">
+                  Content Strategy <ArrowRight className="h-3.5 w-3.5" />
+                </Button>
+              </Link>
+            </div>
           </CardContent>
         </Card>
 

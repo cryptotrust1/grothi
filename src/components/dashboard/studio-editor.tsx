@@ -507,18 +507,17 @@ export function StudioEditor({ videos: initialVideos, images: initialImages, bot
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mediaId: selectedVideoId, botId,
-          platforms: ['TIKTOK'],
+          mode: 'subtitle',
+          videoDuration,
           videoDescription: videos.find(v => v.id === selectedVideoId)?.filename?.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'AI suggestion failed');
-      const captionText = data.captions?.TIKTOK || Object.values(data.captions || {})[0] || '';
-      if (!captionText) return;
-      const sentences = captionText.split(/[.!?\n]+/).filter((s: string) => s.trim().length > 2);
-      if (sentences.length === 0) return;
-      const segDur = Math.min(videoDuration / sentences.length, 5);
-      const newSubs = sentences.slice(0, 10).map((text: string, i: number) => ({
+      const subtitleLines: string[] = data.subtitles || [];
+      if (subtitleLines.length === 0) return;
+      const segDur = Math.min(videoDuration / subtitleLines.length, 5);
+      const newSubs = subtitleLines.slice(0, 10).map((text: string, i: number) => ({
         id: genSubId(),
         text: text.trim(),
         startTime: Math.round(i * segDur * 10) / 10,

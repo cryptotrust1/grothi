@@ -126,14 +126,17 @@ export async function POST(request: NextRequest) {
       planByPlatform.set(plan.platform, plan);
     }
 
-    // Get RL insights for best-performing content dimensions
-    const rlInsights = getRLInsights(bot.rlArmStates);
-
     // Get reactor state
     const reactorState = (bot.reactorState as Record<string, unknown>) || {};
     const contentTypes = (reactorState.contentTypes as string[]) || ['educational', 'engagement'];
     const toneStyles = (reactorState.toneStyles as string[]) || ['professional', 'casual'];
     const hashtagPatterns = (reactorState.hashtagPatterns as string[]) || ['moderate'];
+    const selfLearning = (reactorState.selfLearning as boolean) ?? true;
+
+    // Get RL insights for best-performing content dimensions — only if self-learning is enabled
+    const rlInsights = selfLearning
+      ? getRLInsights(bot.rlArmStates)
+      : { bestTone: {} as Record<string, string>, bestContentType: {} as Record<string, string>, bestTimeSlot: {} as Record<string, number> };
 
     // Build available media pools
     const imageMedia = bot.media.filter(m => m.type === 'IMAGE');
