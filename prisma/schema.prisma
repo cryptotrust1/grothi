@@ -1167,6 +1167,7 @@ model EmailCampaign {
   // Content
   htmlContent String  @db.Text
   textContent String? @db.Text
+  designJson  String? @db.Text  // JSON design data for the drag-and-drop email designer
 
   // A/B Testing
   subjectB      String?
