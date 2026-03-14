@@ -3,7 +3,8 @@
 import { useState, useRef } from 'react';
 import EmailDesigner from './email-designer';
 import type { EmailDesign } from '@/lib/email-designer-types';
-import { EMAIL_STARTER_TEMPLATES } from '@/lib/email-designer-templates';
+import { EMAIL_STARTER_TEMPLATES, TEMPLATE_CATEGORIES } from '@/lib/email-designer-templates';
+import type { TemplateCategory } from '@/lib/email-designer-templates';
 
 // ============ TYPES ============
 
@@ -117,65 +118,11 @@ export default function CampaignCreator({
 
   // Template Picker overlay
   if (showTemplatePicker) {
-    return (
-      <div className="max-w-4xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setShowTemplatePicker(false)}
-              className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1"
-            >
-              <span className="text-lg">&larr;</span> Back
-            </button>
-            <h1 className="text-xl font-semibold">Choose a Template</h1>
-          </div>
-        </div>
-
-        {/* Blank design option */}
-        <div className="mb-6">
-          <button
-            onClick={openDesignerBlank}
-            className="w-full text-left border-2 border-dashed border-gray-300 rounded-xl p-6 hover:border-indigo-400 hover:bg-indigo-50/30 transition-all group"
-          >
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-lg bg-gray-100 group-hover:bg-indigo-100 flex items-center justify-center text-2xl text-gray-400 group-hover:text-indigo-500">+</div>
-              <div>
-                <p className="font-semibold text-gray-900">Start from scratch</p>
-                <p className="text-sm text-gray-500">Build your email with the drag-and-drop designer</p>
-              </div>
-            </div>
-          </button>
-        </div>
-
-        {/* Template grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {EMAIL_STARTER_TEMPLATES.map((template) => (
-            <button
-              key={template.id}
-              onClick={() => openDesignerWithTemplate(template.design())}
-              className="text-left border rounded-xl overflow-hidden hover:border-indigo-400 hover:shadow-md transition-all group"
-            >
-              {/* Template preview */}
-              <div className="h-48 bg-gray-50 border-b flex items-center justify-center overflow-hidden p-4">
-                <div
-                  className="w-full max-w-[200px] transform scale-[0.35] origin-top"
-                  style={{ height: 500 }}
-                >
-                  <TemplateMiniPreview design={template.design()} />
-                </div>
-              </div>
-              <div className="p-4">
-                <p className="font-medium text-gray-900 group-hover:text-indigo-600">{template.name}</p>
-                <p className="text-xs text-gray-500 mt-1">{template.description}</p>
-                <span className="inline-block mt-2 text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
-                  {template.category}
-                </span>
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
-    );
+    return <TemplatePicker
+      onSelectTemplate={openDesignerWithTemplate}
+      onSelectBlank={openDesignerBlank}
+      onBack={() => setShowTemplatePicker(false)}
+    />;
   }
 
   return (
@@ -445,6 +392,138 @@ export default function CampaignCreator({
           Unsubscribe link added automatically.
         </p>
       </div>
+    </div>
+  );
+}
+
+// ============ TEMPLATE PICKER ============
+
+function TemplatePicker({
+  onSelectTemplate,
+  onSelectBlank,
+  onBack,
+}: {
+  onSelectTemplate: (design: EmailDesign) => void;
+  onSelectBlank: () => void;
+  onBack: () => void;
+}) {
+  const [activeCategory, setActiveCategory] = useState<TemplateCategory>('all');
+
+  const filteredTemplates = activeCategory === 'all'
+    ? EMAIL_STARTER_TEMPLATES
+    : EMAIL_STARTER_TEMPLATES.filter(t => t.category === activeCategory);
+
+  return (
+    <div className="max-w-5xl mx-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onBack}
+            className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+            Back
+          </button>
+          <h1 className="text-xl font-semibold text-gray-900">Choose a Template</h1>
+        </div>
+        <span className="text-sm text-gray-400">{EMAIL_STARTER_TEMPLATES.length} templates</span>
+      </div>
+
+      {/* Category Tabs */}
+      <div className="flex gap-1.5 overflow-x-auto pb-3 mb-4 -mx-1 px-1 scrollbar-hide">
+        {TEMPLATE_CATEGORIES.map(({ id, label }) => {
+          const count = id === 'all'
+            ? EMAIL_STARTER_TEMPLATES.length
+            : EMAIL_STARTER_TEMPLATES.filter(t => t.category === id).length;
+          if (id !== 'all' && count === 0) return null;
+          return (
+            <button
+              key={id}
+              onClick={() => setActiveCategory(id)}
+              className={`px-3.5 py-1.5 text-sm rounded-full whitespace-nowrap transition-all shrink-0 ${
+                activeCategory === id
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {label} <span className={`${activeCategory === id ? 'text-indigo-200' : 'text-gray-400'}`}>({count})</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Blank design option */}
+      <button
+        onClick={onSelectBlank}
+        className="w-full text-left border-2 border-dashed border-gray-300 rounded-xl p-5 mb-5 hover:border-indigo-400 hover:bg-indigo-50/30 transition-all group"
+      >
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-gray-100 group-hover:bg-indigo-100 flex items-center justify-center text-2xl text-gray-400 group-hover:text-indigo-500 transition-colors">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
+          </div>
+          <div>
+            <p className="font-semibold text-gray-900">Start from scratch</p>
+            <p className="text-sm text-gray-500">Build your email with the drag-and-drop designer</p>
+          </div>
+        </div>
+      </button>
+
+      {/* Template grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+        {filteredTemplates.map((template) => (
+          <button
+            key={template.id}
+            onClick={() => onSelectTemplate(template.design())}
+            className="text-left bg-white border rounded-xl overflow-hidden hover:shadow-lg hover:border-indigo-300 transition-all group relative"
+          >
+            {/* Template preview area */}
+            <div
+              className="h-56 border-b flex items-center justify-center overflow-hidden relative"
+              style={{ backgroundColor: template.design().globalStyles.backgroundColor || '#f4f4f7' }}
+            >
+              <div
+                className="w-[200px] transform scale-[0.32] origin-top pointer-events-none"
+                style={{ height: 550 }}
+              >
+                <TemplateMiniPreview design={template.design()} />
+              </div>
+              {/* Hover overlay */}
+              <div className="absolute inset-0 bg-indigo-600/0 group-hover:bg-indigo-600/10 transition-all flex items-center justify-center">
+                <span className="opacity-0 group-hover:opacity-100 transition-opacity bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-lg shadow-lg">
+                  Use Template
+                </span>
+              </div>
+            </div>
+            {/* Template info */}
+            <div className="p-4">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span
+                  className="w-2.5 h-2.5 rounded-full shrink-0"
+                  style={{ backgroundColor: template.color }}
+                />
+                <p className="font-semibold text-gray-900 group-hover:text-indigo-600 transition-colors truncate">{template.name}</p>
+              </div>
+              <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed">{template.description}</p>
+              <span
+                className="inline-block mt-2 text-xs px-2.5 py-0.5 rounded-full font-medium"
+                style={{
+                  backgroundColor: `${template.color}15`,
+                  color: template.color,
+                }}
+              >
+                {TEMPLATE_CATEGORIES.find(c => c.id === template.category)?.label || template.category}
+              </span>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {filteredTemplates.length === 0 && (
+        <div className="text-center py-12 text-gray-400">
+          <p>No templates in this category yet.</p>
+        </div>
+      )}
     </div>
   );
 }
