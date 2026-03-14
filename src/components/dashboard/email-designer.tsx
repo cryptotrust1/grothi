@@ -356,9 +356,9 @@ export default function EmailDesigner({ initialDesign, brandName, onSave, onClos
 
       // If same column, adjust index
       let adjustedIndex = insertIndex;
-      if (data.sourceSectionId === sectionId && data.sourceColumnId === columnId) {
-        const origIdx = sourceColumn!.blocks.findIndex(b => b.id === data.sourceBlockId);
-        if (origIdx < insertIndex) adjustedIndex--;
+      if (data.sourceSectionId === sectionId && data.sourceColumnId === columnId && sourceColumn) {
+        const origIdx = sourceColumn.blocks.findIndex(b => b.id === data.sourceBlockId);
+        if (origIdx >= 0 && origIdx < insertIndex) adjustedIndex--;
       }
 
       // Add to target
@@ -419,6 +419,12 @@ export default function EmailDesigner({ initialDesign, brandName, onSave, onClos
 
   // ============ KEYBOARD ============
 
+  // Use refs for values used in keyboard handler to avoid stale closures
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const deleteBlockRef = useRef(deleteBlock);
+  deleteBlockRef.current = deleteBlock;
+
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
@@ -429,8 +435,9 @@ export default function EmailDesigner({ initialDesign, brandName, onSave, onClos
         e.preventDefault();
         redo();
       }
-      if (e.key === 'Delete' && selected && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
-        deleteBlock(selected.sectionId, selected.columnId, selected.blockId);
+      const sel = selectedRef.current;
+      if (e.key === 'Delete' && sel && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
+        deleteBlockRef.current(sel.sectionId, sel.columnId, sel.blockId);
       }
       if (e.key === 'Escape') {
         setSelected(null);
@@ -438,7 +445,7 @@ export default function EmailDesigner({ initialDesign, brandName, onSave, onClos
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selected, undo, redo]);
+  }, [undo, redo]);
 
   // ============ RENDER ============
 
@@ -705,40 +712,7 @@ function ContentPanel({
         </div>
       </div>
 
-      {/* Pre-designed sections */}
-      <div>
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Quick Add</h3>
-        <div className="space-y-1.5">
-          <QuickAddButton
-            label="Header with Logo"
-            description="Brand header section"
-            onClick={() => {/* Will be handled by addPredesignedSection */}}
-          />
-          <QuickAddButton
-            label="Hero with CTA"
-            description="Image + heading + button"
-            onClick={() => {}}
-          />
-          <QuickAddButton
-            label="Footer"
-            description="Unsubscribe + social links"
-            onClick={() => {}}
-          />
-        </div>
-      </div>
     </div>
-  );
-}
-
-function QuickAddButton({ label, description, onClick }: { label: string; description: string; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="w-full text-left px-3 py-2 bg-white border rounded-lg hover:border-indigo-300 hover:shadow-sm transition-all"
-    >
-      <div className="text-xs font-medium text-gray-700">{label}</div>
-      <div className="text-xs text-gray-400">{description}</div>
-    </button>
   );
 }
 

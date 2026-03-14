@@ -317,7 +317,7 @@ export default function CampaignCreator({
                   <label className="text-xs text-gray-500 block mb-1">Test sample size</label>
                   <select
                     value={state.abTestPercent}
-                    onChange={(e) => setState(s => ({ ...s, abTestPercent: parseInt(e.target.value) }))}
+                    onChange={(e) => setState(s => ({ ...s, abTestPercent: parseInt(e.target.value, 10) || 20 }))}
                     className="border rounded-lg px-3 py-1.5 text-sm"
                   >
                     <option value={10}>10% (5% per variant)</option>
