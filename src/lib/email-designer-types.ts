@@ -199,6 +199,11 @@ export function createDefaultBlock(type: EmailBlockType): EmailBlock {
       ], align: 'center', iconSize: 32, iconStyle: 'color', paddingTop: 15, paddingBottom: 15 };
     case 'html':
       return { type: 'html', id, content: '<!-- Your custom HTML here -->', paddingTop: 10, paddingBottom: 10, paddingLeft: 20, paddingRight: 20 };
+    default: {
+      // Exhaustive check - TypeScript will catch unhandled types
+      const _exhaustive: never = type;
+      return { type: 'text', id, content: `<p>Unknown block type: ${_exhaustive}</p>`, align: 'left', fontSize: 16, color: '', lineHeight: 1.6, paddingTop: 10, paddingBottom: 10, paddingLeft: 20, paddingRight: 20 };
+    }
   }
 }
 

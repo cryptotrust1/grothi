@@ -93,7 +93,7 @@ function renderSocialBlock(block: SocialBlock, gs: EmailGlobalStyles): string {
   const icons = block.networks
     .filter(n => n.url)
     .map(n => {
-      const info = SOCIAL_ICONS[n.platform] || { color: '#666', letter: n.platform[0].toUpperCase() };
+      const info = SOCIAL_ICONS[n.platform] || { color: '#666', letter: (n.platform && n.platform.length > 0) ? n.platform[0].toUpperCase() : '?' };
       const iconColor = block.iconStyle === 'dark' ? '#333333' : block.iconStyle === 'light' ? '#ffffff' : info.color;
       const bgColor = block.iconStyle === 'light' ? '#333333' : 'transparent';
       return `<td style="padding:0 6px;">
@@ -127,6 +127,7 @@ function renderBlock(block: EmailBlock, gs: EmailGlobalStyles): string {
     case 'spacer': return renderSpacerBlock(block);
     case 'social': return renderSocialBlock(block, gs);
     case 'html': return renderHtmlBlock(block);
+    default: return `<td style="padding:10px;color:#999;font-size:12px;">Unknown block</td>`;
   }
 }
 

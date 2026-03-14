@@ -132,7 +132,7 @@ export default async function NewCampaignPage({
       }))}
       emailAccount={{
         fromName: bot.emailAccount.fromName,
-        fromEmail: bot.emailAccount.email || bot.emailAccount.smtpUser,
+        fromEmail: bot.emailAccount.email || bot.emailAccount.smtpUser || '',
       }}
       createCampaignAction={createCampaign}
       error={sp.error}
