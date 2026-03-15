@@ -17,6 +17,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { validateCronSecret } from '@/lib/api-helpers';
+import { withCronLock } from '@/lib/cron-lock';
 import { db } from '@/lib/db';
 import { deductCredits, getActionCost, hasEnoughCredits, addCredits } from '@/lib/credits';
 import {
@@ -146,6 +147,15 @@ export async function POST(request: NextRequest) {
   const cronError = validateCronSecret(request.headers.get('authorization'));
   if (cronError) return cronError;
 
+  // Prevent overlapping execution — if previous run is still going, skip this one
+  const result = await withCronLock('process-posts', () => processPostsBatch(), 5 * 60 * 1000);
+  if (result === null) {
+    return NextResponse.json({ skipped: true, message: 'Previous process-posts run still in progress' });
+  }
+  return result;
+}
+
+async function processPostsBatch(): Promise<NextResponse> {
   const now = new Date();
 
   // Recovery: Find posts stuck in PUBLISHING state for more than 5 minutes.
@@ -467,10 +477,15 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  return NextResponse.json({
-    processed: results.length,
-    results,
-  });
+  const responseData = { processed: results.length, results };
+
+  // Return 500 if ALL posts failed — allows monitoring tools to detect total failures
+  const allFailed = results.length > 0 && results.every(r => r.status === 'FAILED');
+  if (allFailed) {
+    return NextResponse.json(responseData, { status: 500 });
+  }
+
+  return NextResponse.json(responseData);
 }
 
 /**

@@ -12,9 +12,11 @@ export const metadata: Metadata = {
   robots: { index: false },
 };
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.NEXTAUTH_SECRET!
-);
+function getJwtSecret(): Uint8Array {
+  const secret = process.env.NEXTAUTH_SECRET;
+  if (!secret) throw new Error('NEXTAUTH_SECRET environment variable is required');
+  return new TextEncoder().encode(secret);
+}
 
 interface IGAccountInfo {
   igAccountId: string;
@@ -47,7 +49,7 @@ export default async function InstagramSelectPage({
 
   let accounts: IGAccountInfo[] = [];
   try {
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const { payload } = await jwtVerify(token, getJwtSecret());
     if (payload.botId !== botId) {
       redirect(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent('Invalid token for this bot')}`);
     }

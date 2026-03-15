@@ -17,6 +17,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { validateCronSecret } from '@/lib/api-helpers';
+import { withCronLock } from '@/lib/cron-lock';
 
 // Allow up to 5 minutes for trend detection (processes RSS feeds for up to 20 bots)
 export const maxDuration = 300;
@@ -40,6 +41,14 @@ export async function POST(request: NextRequest) {
   const cronError = validateCronSecret(request.headers.get('authorization'));
   if (cronError) return cronError;
 
+  const result = await withCronLock('detect-trends', () => detectTrends(), 10 * 60 * 1000);
+  if (result === null) {
+    return NextResponse.json({ skipped: true, message: 'Previous detect-trends run still in progress' });
+  }
+  return result;
+}
+
+async function detectTrends(): Promise<NextResponse> {
   console.log('[detect-trends] Starting trend detection scan...');
   const startTime = Date.now();
 
