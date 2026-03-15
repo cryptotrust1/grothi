@@ -382,30 +382,42 @@ export async function POST(request: NextRequest) {
           // Mark this slot as occupied
           occupiedSlots.add(`${platform}:${scheduledAt.toISOString().slice(0, 13)}`);
 
-          // Select content type — per-platform override > RL insights > global
-          const platformContentTypesOverride = plan?.contentTypesOverride
-            ? (plan.contentTypesOverride as string[])
-            : null;
-          const effectiveContentTypes = platformContentTypesOverride || contentTypes;
-          const platformBestTypes = algo.bestContentTypes.filter(t =>
-            effectiveContentTypes.includes(t)
-          );
-          const contentType = rlInsights.bestContentType[platform]
-            || (platformBestTypes.length > 0
-              ? platformBestTypes[Math.floor(Math.random() * platformBestTypes.length)]
-              : effectiveContentTypes[Math.floor(Math.random() * effectiveContentTypes.length)]);
+          // Select content type — custom override > per-platform checkboxes > RL insights > global
+          let contentType: string;
+          if (plan?.customContentType) {
+            // User-defined custom content type takes absolute priority
+            contentType = plan.customContentType;
+          } else {
+            const platformContentTypesOverride = plan?.contentTypesOverride
+              ? (plan.contentTypesOverride as string[])
+              : null;
+            const effectiveContentTypes = platformContentTypesOverride || contentTypes;
+            const platformBestTypes = algo.bestContentTypes.filter(t =>
+              effectiveContentTypes.includes(t)
+            );
+            contentType = rlInsights.bestContentType[platform]
+              || (platformBestTypes.length > 0
+                ? platformBestTypes[Math.floor(Math.random() * platformBestTypes.length)]
+                : effectiveContentTypes[Math.floor(Math.random() * effectiveContentTypes.length)]);
+          }
 
-          // Select tone — per-platform override > RL insights > global
-          const platformTonesOverride = plan?.tonesOverride
-            ? (plan.tonesOverride as string[])
-            : null;
-          const effectiveTones = platformTonesOverride
-            || (plan?.toneOverride ? [plan.toneOverride] : toneStyles);
-          const platformTones = algo.bestTones.filter(t => effectiveTones.includes(t));
-          const toneStyle = rlInsights.bestTone[platform]
-            || (platformTones.length > 0
-              ? platformTones[Math.floor(Math.random() * platformTones.length)]
-              : effectiveTones[Math.floor(Math.random() * effectiveTones.length)]);
+          // Select tone — custom override > per-platform checkboxes > RL insights > global
+          let toneStyle: string;
+          if (plan?.customToneStyle) {
+            // User-defined custom tone takes absolute priority
+            toneStyle = plan.customToneStyle;
+          } else {
+            const platformTonesOverride = plan?.tonesOverride
+              ? (plan.tonesOverride as string[])
+              : null;
+            const effectiveTones = platformTonesOverride
+              || (plan?.toneOverride ? [plan.toneOverride] : toneStyles);
+            const platformTones = algo.bestTones.filter(t => effectiveTones.includes(t));
+            toneStyle = rlInsights.bestTone[platform]
+              || (platformTones.length > 0
+                ? platformTones[Math.floor(Math.random() * platformTones.length)]
+                : effectiveTones[Math.floor(Math.random() * effectiveTones.length)]);
+          }
 
           // Select hashtag pattern — per-platform override > global
           const platformHashtagPatternsOverride = plan?.hashtagPatternsOverride

@@ -927,6 +927,10 @@ model PlatformContentPlan {
   hashtagPatternsOverride Json? // e.g. ["moderate", "trending"]
   customHashtags         String? // User-defined hashtags for this platform, e.g. "#brand #niche"
 
+  // Custom content type & tone (free-text, overrides standard selections when non-empty)
+  customContentType  String?  // e.g. "behind-the-scenes", "client success story"
+  customToneStyle    String?  // e.g. "sarcastic but helpful", "brutally honest"
+
   // Video preferences for this platform
   videoLength   String?
   videoFormat   String?
