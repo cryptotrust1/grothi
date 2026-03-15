@@ -107,7 +107,16 @@ export async function GET(request: NextRequest) {
     const longLivedRes = await fetch(longLivedUrl.toString(), { signal: oauthController.signal });
     const longLivedData = await longLivedRes.json();
 
-    const accessToken = longLivedData.access_token || shortLivedToken;
+    // Fail if long-lived exchange returned an error — storing a short-lived token
+    // that expires in 1 hour would cause silent posting failures later.
+    if (longLivedData.error || !longLivedData.access_token) {
+      const msg = longLivedData.error?.message || 'Failed to exchange for long-lived token';
+      return NextResponse.redirect(
+        new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(msg)}`, origin)
+      );
+    }
+
+    const accessToken = longLivedData.access_token as string;
     const tokenExpiresIn = longLivedData.expires_in || 5184000; // Default 60 days
 
     // Step 3: Fetch Threads user profile using 'me' endpoint (most reliable)

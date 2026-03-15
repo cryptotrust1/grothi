@@ -66,6 +66,10 @@ export async function GET(request: NextRequest) {
   const redirectUri = `${origin}/api/oauth/pinterest/callback`;
 
   try {
+    // 30-second timeout for all OAuth API calls
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+
     // Step 1: Exchange code for tokens (Pinterest uses Basic Auth)
     const tokenRes = await fetch('https://api.pinterest.com/v5/oauth/token', {
       method: 'POST',
@@ -78,11 +82,13 @@ export async function GET(request: NextRequest) {
         code,
         redirect_uri: redirectUri,
       }).toString(),
+      signal: controller.signal,
     });
 
     const tokenData = await tokenRes.json();
 
     if (tokenData.error || !tokenData.access_token) {
+      clearTimeout(timeout);
       const msg = tokenData.message || tokenData.error || 'Failed to get access token';
       return NextResponse.redirect(
         new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(msg)}`, origin)
@@ -95,7 +101,9 @@ export async function GET(request: NextRequest) {
     // Step 2: Fetch user info
     const userRes = await fetch('https://api.pinterest.com/v5/user_account', {
       headers: { Authorization: `Bearer ${accessToken}` },
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
 
     let username = 'Pinterest User';
     if (userRes.ok) {

@@ -181,15 +181,8 @@ export async function GET(request: NextRequest) {
     const igMediaCount = profileData.media_count ?? null;
     const igBio = profileData.biography || '';
 
-    console.log('[Instagram OAuth] Profile fetched successfully:', {
-      graphUserId,
-      tokenUserId: igUserId,
-      idsMatch: graphUserId === igUserId,
-      username: igUsername,
-      accountType,
-      name: igName,
-      followers: igFollowers,
-    });
+    // Log minimal info to avoid leaking profile data in production logs
+    console.log(`[Instagram OAuth] Connected: @${igUsername} (${accountType})`);
 
     // Step 4: Save encrypted credentials
     // IMPORTANT: Use graphUserId (from /me), not igUserId (from token exchange)

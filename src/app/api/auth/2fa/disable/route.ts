@@ -52,7 +52,7 @@ export async function POST(request: Request) {
       data: {
         twoFactorEnabled: false,
         twoFactorSecret: null,
-        twoFactorRecoveryCodes: undefined,
+        twoFactorRecoveryCodes: [],
       },
     }),
     db.session.deleteMany({ where: { userId: user.id } }),

@@ -74,6 +74,10 @@ export async function GET(request: NextRequest) {
   const redirectUri = `${origin}/api/oauth/twitter/callback`;
 
   try {
+    // 30-second timeout for all OAuth API calls
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+
     // Step 1: Exchange authorization code for access + refresh tokens
     // X uses Basic Auth (client_id:client_secret) for confidential clients
     const tokenRes = await fetch('https://api.x.com/2/oauth2/token', {
@@ -88,11 +92,13 @@ export async function GET(request: NextRequest) {
         redirect_uri: redirectUri,
         code_verifier: codeVerifier,
       }).toString(),
+      signal: controller.signal,
     });
 
     const tokenData = await tokenRes.json();
 
     if (tokenData.error) {
+      clearTimeout(timeout);
       const msg = tokenData.error_description || tokenData.error || 'Failed to get access token';
       return NextResponse.redirect(
         new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(msg)}`, origin)
@@ -105,7 +111,9 @@ export async function GET(request: NextRequest) {
     // Step 2: Fetch user info to get username
     const userRes = await fetch('https://api.x.com/2/users/me', {
       headers: { Authorization: `Bearer ${accessToken}` },
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
     const userData = await userRes.json();
 
     const username = userData.data?.username || 'unknown';

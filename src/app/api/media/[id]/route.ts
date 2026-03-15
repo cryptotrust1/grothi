@@ -25,16 +25,12 @@ export async function GET(
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 
-    // Detect if request is from Meta's servers (Instagram/Facebook/Threads).
-    // Meta crawlers use user-agents like "facebookexternalhit/1.1" and "Instagram".
-    const userAgent = request.headers.get('user-agent') || '';
-    const isMetaCrawler = /facebookexternalhit|Instagram|Facebot/i.test(userAgent);
-
-    // Auth: if user is logged in, verify ownership.
-    // If no user (external access from Instagram/Threads/Facebook servers), allow access.
-    // The CUID media ID is unguessable (25+ random chars) so it acts as a secret token.
-    // This is required because Instagram Graph API fetches the image URL server-side.
-    const user = isMetaCrawler ? null : await getCurrentUser();
+    // Auth: verify ownership for logged-in users.
+    // For unauthenticated requests (e.g., Meta crawlers fetching media server-side),
+    // we allow access because the CUID media ID is unguessable (25+ random chars)
+    // and acts as a capability token. This is required because Instagram/Facebook/Threads
+    // Graph API fetches image URLs from their servers, not from user browsers.
+    const user = await getCurrentUser();
     if (user && media.bot.userId !== user.id) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
@@ -160,7 +156,7 @@ export async function GET(
 
       // No Range header — return full video with Accept-Ranges
       const buffer = await readFile(filePath);
-      const videoCacheControl = isMetaCrawler ? 'public, max-age=86400' : 'private, max-age=86400';
+      const videoCacheControl = !user ? 'public, max-age=86400' : 'private, max-age=86400';
       return new NextResponse(buffer, {
         headers: {
           'Content-Type': media.mimeType,
@@ -179,7 +175,7 @@ export async function GET(
 
     // Use public cache for Meta crawlers so Cloudflare doesn't interfere.
     // For logged-in users, keep private caching.
-    const cacheControl = isMetaCrawler ? 'public, max-age=86400' : 'private, max-age=86400';
+    const cacheControl = !user ? 'public, max-age=86400' : 'private, max-age=86400';
 
     return new NextResponse(buffer, {
       headers: {

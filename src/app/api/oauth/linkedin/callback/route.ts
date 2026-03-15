@@ -70,6 +70,10 @@ export async function GET(request: NextRequest) {
   const redirectUri = `${origin}/api/oauth/linkedin/callback`;
 
   try {
+    // 30-second timeout for all OAuth API calls
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+
     // Step 1: Exchange authorization code for access token
     const tokenRes = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
       method: 'POST',
@@ -81,11 +85,13 @@ export async function GET(request: NextRequest) {
         client_id: clientId,
         client_secret: clientSecret,
       }).toString(),
+      signal: controller.signal,
     });
 
     const tokenData = await tokenRes.json();
 
     if (tokenData.error) {
+      clearTimeout(timeout);
       const msg = tokenData.error_description || tokenData.error || 'Failed to get access token';
       return NextResponse.redirect(
         new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(msg)}`, origin)
@@ -98,7 +104,9 @@ export async function GET(request: NextRequest) {
     // Step 2: Fetch user profile info via OpenID Connect userinfo endpoint
     const userInfoRes = await fetch('https://api.linkedin.com/v2/userinfo', {
       headers: { Authorization: `Bearer ${accessToken}` },
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
 
     let profileName = 'LinkedIn User';
     let linkedInSub = '';
