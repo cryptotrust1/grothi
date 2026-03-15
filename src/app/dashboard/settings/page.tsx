@@ -1,6 +1,7 @@
 import { Metadata } from 'next';
 import { redirect } from 'next/navigation';
-import { requireAuth, hashPassword, verifyPassword } from '@/lib/auth';
+import { requireAuth, hashPassword, verifyPassword, signOut } from '@/lib/auth';
+import { passwordSchema } from '@/lib/validations';
 import { db } from '@/lib/db';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -45,8 +46,11 @@ export default async function SettingsPage({
       redirect('/dashboard/settings?error=' + encodeURIComponent('Please fill in all password fields'));
     }
 
-    if (newPassword.length < 8) {
-      redirect('/dashboard/settings?error=' + encodeURIComponent('New password must be at least 8 characters'));
+    // Apply full Zod password validation (uppercase, lowercase, number, common password check)
+    const validation = passwordSchema.safeParse(newPassword);
+    if (!validation.success) {
+      const msg = validation.error.errors[0]?.message || 'Invalid password';
+      redirect('/dashboard/settings?error=' + encodeURIComponent(msg));
     }
 
     const valid = await verifyPassword(currentPassword, currentUser.passwordHash);
@@ -60,13 +64,36 @@ export default async function SettingsPage({
       data: { passwordHash: newHash },
     });
 
-    redirect('/dashboard/settings?success=Password changed');
+    // Invalidate all existing sessions (security: revoke compromised sessions)
+    await db.session.deleteMany({ where: { userId: currentUser.id } });
+
+    // Sign out will create redirect, so we import createSession to make a fresh one
+    const { createSession } = await import('@/lib/auth');
+    await createSession(currentUser.id);
+
+    redirect('/dashboard/settings?success=Password changed. All other sessions have been signed out.');
   }
 
   async function handleDeleteAccount() {
     'use server';
 
     const currentUser = await requireAuth();
+
+    // Clean up media files from disk for all user's bots
+    try {
+      const { join } = await import('path');
+      const { rm } = await import('fs/promises');
+      const bots = await db.bot.findMany({ where: { userId: currentUser.id }, select: { id: true } });
+      for (const bot of bots) {
+        const uploadDir = join(process.cwd(), 'data', 'uploads', bot.id);
+        await rm(uploadDir, { recursive: true, force: true });
+      }
+    } catch {
+      // Best effort cleanup
+    }
+
+    // Sign out (clear cookie) before deleting user
+    await signOut();
     await db.user.delete({ where: { id: currentUser.id } });
     redirect('/');
   }

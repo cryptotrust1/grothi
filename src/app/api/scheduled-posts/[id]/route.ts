@@ -57,9 +57,20 @@ export async function PATCH(
     }
   const updates: Record<string, unknown> = {};
 
-  if (body.content !== undefined) updates.content = body.content;
+  if (body.content !== undefined) {
+    if (typeof body.content !== 'string' || (body.content as string).length > 10000) {
+      return NextResponse.json({ error: 'Content must be a string under 10,000 characters' }, { status: 400 });
+    }
+    updates.content = body.content;
+  }
   if (body.contentType !== undefined) updates.contentType = body.contentType;
-  if (body.platforms !== undefined) updates.platforms = body.platforms;
+  if (body.platforms !== undefined) {
+    const { ALL_PLATFORMS } = await import('@/lib/constants');
+    if (!Array.isArray(body.platforms) || !body.platforms.every((p: unknown) => typeof p === 'string' && (ALL_PLATFORMS as readonly string[]).includes(p as string))) {
+      return NextResponse.json({ error: 'Invalid platforms array' }, { status: 400 });
+    }
+    updates.platforms = body.platforms;
+  }
   if (body.platformContent !== undefined) updates.platformContent = body.platformContent;
   if (body.mediaId !== undefined) {
     if (body.mediaId) {

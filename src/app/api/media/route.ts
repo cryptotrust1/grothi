@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { BOT_STORAGE_LIMIT_BYTES, BOT_STORAGE_LIMIT_MB } from '@/lib/constants';
-import { writeFile, mkdir } from 'fs/promises';
+import { writeFile, mkdir, unlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, resolve } from 'path';
 import { randomUUID } from 'crypto';
@@ -217,12 +217,15 @@ export async function POST(request: NextRequest) {
     const MAX_DIMENSION = 8192; // 8K pixels
     if (isImage && width && height) {
       if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+        // Clean up the file we already wrote to disk
+        try { await unlink(filePath); } catch { /* best effort */ }
         return NextResponse.json(
           { error: `Image dimensions too large (${width}×${height}). Maximum: ${MAX_DIMENSION}×${MAX_DIMENSION} pixels.` },
           { status: 400 }
         );
       }
       if (width <= 0 || height <= 0) {
+        try { await unlink(filePath); } catch { /* best effort */ }
         return NextResponse.json(
           { error: 'Invalid image dimensions detected.' },
           { status: 400 }

@@ -170,6 +170,19 @@ export default async function BotSettingsPage({
   async function handleDelete() {
     'use server';
     const currentUser = await requireAuth();
+    const ownedBot = await db.bot.findFirst({ where: { id, userId: currentUser.id } });
+    if (!ownedBot) redirect('/dashboard/bots?error=' + encodeURIComponent('Bot not found'));
+
+    // Clean up media files from disk before DB cascade deletes records
+    try {
+      const { join } = await import('path');
+      const { rm } = await import('fs/promises');
+      const uploadDir = join(process.cwd(), 'data', 'uploads', id);
+      await rm(uploadDir, { recursive: true, force: true });
+    } catch {
+      // Best effort — files may not exist
+    }
+
     await db.bot.delete({ where: { id } });
     redirect('/dashboard/bots');
   }

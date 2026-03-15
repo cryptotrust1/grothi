@@ -21,34 +21,46 @@ const connVariant: Record<string, 'success' | 'destructive' | 'secondary' | 'war
   CONNECTED: 'success', DISCONNECTED: 'secondary', ERROR: 'destructive', SUSPENDED: 'warning',
 };
 
+const PAGE_SIZE = 50;
+
 export default async function AdminBotsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ success?: string; error?: string; q?: string; status?: string }>;
+  searchParams: Promise<{ success?: string; error?: string; q?: string; status?: string; page?: string }>;
 }) {
   await requireAdmin();
   const sp = await searchParams;
   const search = sp.q?.trim() || '';
   const statusFilter = sp.status || '';
+  const rawPage = parseInt(sp.page || '1', 10);
+  const page = isNaN(rawPage) || rawPage < 1 ? 1 : rawPage;
 
-  const bots = await db.bot.findMany({
-    where: {
-      ...(search ? {
-        OR: [
-          { name: { contains: search, mode: 'insensitive' as const } },
-          { brandName: { contains: search, mode: 'insensitive' as const } },
-          { user: { email: { contains: search, mode: 'insensitive' as const } } },
-        ],
-      } : {}),
-      ...(statusFilter ? { status: statusFilter as BotStatus } : {}),
-    },
-    include: {
-      user: { select: { id: true, email: true, name: true } },
-      platformConns: { select: { platform: true, status: true } },
-      _count: { select: { activities: true, media: true, scheduledPosts: true } },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
+  const where = {
+    ...(search ? {
+      OR: [
+        { name: { contains: search, mode: 'insensitive' as const } },
+        { brandName: { contains: search, mode: 'insensitive' as const } },
+        { user: { email: { contains: search, mode: 'insensitive' as const } } },
+      ],
+    } : {}),
+    ...(statusFilter ? { status: statusFilter as BotStatus } : {}),
+  };
+
+  const [bots, totalCount] = await Promise.all([
+    db.bot.findMany({
+      where,
+      include: {
+        user: { select: { id: true, email: true, name: true } },
+        platformConns: { select: { platform: true, status: true } },
+        _count: { select: { activities: true, media: true, scheduledPosts: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
+    }),
+    db.bot.count({ where }),
+  ]);
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
   async function handleToggleStatus(formData: FormData) {
     'use server';
@@ -172,6 +184,27 @@ export default async function AdminBotsPage({
           </div>
         </CardContent>
       </Card>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, totalCount)} of {totalCount} bots
+          </p>
+          <div className="flex gap-2">
+            {page > 1 && (
+              <Link href={`/admin/bots?page=${page - 1}${search ? `&q=${encodeURIComponent(search)}` : ''}${statusFilter ? `&status=${statusFilter}` : ''}`}>
+                <Button variant="outline" size="sm">Previous</Button>
+              </Link>
+            )}
+            {page < totalPages && (
+              <Link href={`/admin/bots?page=${page + 1}${search ? `&q=${encodeURIComponent(search)}` : ''}${statusFilter ? `&status=${statusFilter}` : ''}`}>
+                <Button variant="outline" size="sm">Next</Button>
+              </Link>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
