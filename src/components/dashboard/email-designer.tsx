@@ -126,6 +126,20 @@ export default function EmailDesigner({ initialDesign, brandName, onSave, onClos
     update({ ...design, sections });
   }
 
+  function addPrebuiltSection(section: EmailSection) {
+    // Deep clone with fresh IDs
+    const cloned: EmailSection = {
+      ...section,
+      id: generateId(),
+      columns: section.columns.map(c => ({
+        ...c,
+        id: generateId(),
+        blocks: c.blocks.map(b => ({ ...b, id: generateId() })),
+      })),
+    };
+    update({ ...design, sections: [...design.sections, cloned] });
+  }
+
   function deleteSection(sectionId: string) {
     update({ ...design, sections: design.sections.filter(s => s.id !== sectionId) });
     if (selected?.sectionId === sectionId) setSelected(null);
@@ -525,7 +539,7 @@ export default function EmailDesigner({ initialDesign, brandName, onSave, onClos
 
               <div className="flex-1 overflow-y-auto p-3">
                 {sidebarTab === 'content' ? (
-                  <ContentPanel onDragStart={handleDragStartNewBlock} onAddSection={addSection} />
+                  <ContentPanel onDragStart={handleDragStartNewBlock} onAddSection={addSection} onAddPrebuiltSection={addPrebuiltSection} globalStyles={design.globalStyles} />
                 ) : (
                   <StylePanel globalStyles={design.globalStyles} onChange={updateGlobalStyles} />
                 )}
@@ -662,15 +676,125 @@ export default function EmailDesigner({ initialDesign, brandName, onSave, onClos
 
 // ============ CONTENT PANEL ============
 
+// Pre-built section templates for Quick Add
+function getPrebuiltSections(gs: EmailGlobalStyles): { label: string; icon: string; section: EmailSection }[] {
+  return [
+    {
+      label: 'Header',
+      icon: 'H',
+      section: {
+        id: '', columns: [{
+          id: '', width: 100, blocks: [
+            { type: 'heading', id: '', content: 'Your Brand', level: 2, align: 'center', color: gs.linkColor, paddingTop: 25, paddingBottom: 5, paddingLeft: 20, paddingRight: 20 },
+            { type: 'divider', id: '', color: '#e5e7eb', thickness: 1, width: 40, style: 'solid' as const, paddingTop: 5, paddingBottom: 10 },
+          ],
+        }], backgroundColor: '', paddingTop: 0, paddingRight: 0, paddingBottom: 0, paddingLeft: 0,
+      },
+    },
+    {
+      label: 'Hero',
+      icon: 'H1',
+      section: {
+        id: '', columns: [{
+          id: '', width: 100, blocks: [
+            { type: 'heading', id: '', content: 'Your Headline Here', level: 1, align: 'center', color: '', paddingTop: 30, paddingBottom: 10, paddingLeft: 20, paddingRight: 20 },
+            { type: 'text', id: '', content: '<p>Supporting text that describes your main message. Keep it short and engaging.</p>', align: 'center', fontSize: 16, color: '#6b7280', lineHeight: 1.6, paddingTop: 0, paddingBottom: 15, paddingLeft: 40, paddingRight: 40 },
+            { type: 'button', id: '', text: 'Call to Action', url: '{{targetUrl}}', align: 'center', backgroundColor: '', textColor: '', borderRadius: gs.buttonBorderRadius, fontSize: 18, fullWidth: false, paddingTop: 5, paddingBottom: 30, paddingLeft: 20, paddingRight: 20 },
+          ],
+        }], backgroundColor: '', paddingTop: 0, paddingRight: 0, paddingBottom: 0, paddingLeft: 0,
+      },
+    },
+    {
+      label: 'Image + Text',
+      icon: 'IT',
+      section: {
+        id: '', columns: [{
+          id: '', width: 100, blocks: [
+            { type: 'image', id: '', src: '', alt: 'Featured image', width: 100, align: 'center', link: '', borderRadius: 8, paddingTop: 10, paddingBottom: 10, paddingLeft: 20, paddingRight: 20 },
+            { type: 'heading', id: '', content: 'Section Title', level: 2, align: 'left', color: '', paddingTop: 10, paddingBottom: 5, paddingLeft: 20, paddingRight: 20 },
+            { type: 'text', id: '', content: '<p>Add your content here. Tell your story and engage your readers.</p>', align: 'left', fontSize: 16, color: '', lineHeight: 1.6, paddingTop: 0, paddingBottom: 10, paddingLeft: 20, paddingRight: 20 },
+          ],
+        }], backgroundColor: '', paddingTop: 0, paddingRight: 0, paddingBottom: 0, paddingLeft: 0,
+      },
+    },
+    {
+      label: 'CTA Banner',
+      icon: 'CTA',
+      section: {
+        id: '', columns: [{
+          id: '', width: 100, blocks: [
+            { type: 'heading', id: '', content: 'Ready to get started?', level: 2, align: 'center', color: '#ffffff', paddingTop: 30, paddingBottom: 5, paddingLeft: 20, paddingRight: 20 },
+            { type: 'text', id: '', content: '<p style="color:#e0e0e0;">Join thousands of happy customers today.</p>', align: 'center', fontSize: 16, color: '#e0e0e0', lineHeight: 1.6, paddingTop: 0, paddingBottom: 10, paddingLeft: 40, paddingRight: 40 },
+            { type: 'button', id: '', text: 'Get Started', url: '{{targetUrl}}', align: 'center', backgroundColor: '#ffffff', textColor: gs.linkColor, borderRadius: gs.buttonBorderRadius, fontSize: 16, fullWidth: false, paddingTop: 5, paddingBottom: 30, paddingLeft: 20, paddingRight: 20 },
+          ],
+        }], backgroundColor: gs.linkColor, paddingTop: 0, paddingRight: 0, paddingBottom: 0, paddingLeft: 0,
+      },
+    },
+    {
+      label: 'Footer',
+      icon: 'F',
+      section: {
+        id: '', columns: [{
+          id: '', width: 100, blocks: [
+            { type: 'divider', id: '', color: '#e5e7eb', thickness: 1, width: 100, style: 'solid' as const, paddingTop: 15, paddingBottom: 10 },
+            { type: 'social', id: '', networks: [
+              { platform: 'facebook', url: '#', label: 'Facebook' },
+              { platform: 'twitter', url: '#', label: 'Twitter' },
+              { platform: 'instagram', url: '#', label: 'Instagram' },
+              { platform: 'linkedin', url: '#', label: 'LinkedIn' },
+            ], align: 'center' as const, iconSize: 28, iconStyle: 'color' as const, paddingTop: 10, paddingBottom: 10 },
+            { type: 'text', id: '', content: '<p style="font-size:12px;color:#9ca3af;">You received this email because you subscribed.<br/>{{unsubscribeLink}}</p>', align: 'center', fontSize: 12, color: '#9ca3af', lineHeight: 1.4, paddingTop: 5, paddingBottom: 20, paddingLeft: 20, paddingRight: 20 },
+          ],
+        }], backgroundColor: '', paddingTop: 0, paddingRight: 0, paddingBottom: 0, paddingLeft: 0,
+      },
+    },
+    {
+      label: 'Testimonial',
+      icon: 'Q',
+      section: {
+        id: '', columns: [{
+          id: '', width: 100, blocks: [
+            { type: 'text', id: '', content: '<p style="font-style:italic;font-size:18px;">"This product changed everything for our team. We couldn\'t be happier with the results."</p>', align: 'center', fontSize: 18, color: '', lineHeight: 1.7, paddingTop: 25, paddingBottom: 5, paddingLeft: 40, paddingRight: 40 },
+            { type: 'text', id: '', content: '<p><strong>Jane Doe</strong><br/>CEO at Company</p>', align: 'center', fontSize: 14, color: '#6b7280', lineHeight: 1.4, paddingTop: 5, paddingBottom: 25, paddingLeft: 40, paddingRight: 40 },
+          ],
+        }], backgroundColor: '#f9fafb', paddingTop: 0, paddingRight: 0, paddingBottom: 0, paddingLeft: 0,
+      },
+    },
+  ];
+}
+
 function ContentPanel({
   onDragStart,
   onAddSection,
+  onAddPrebuiltSection,
+  globalStyles,
 }: {
   onDragStart: (e: React.DragEvent, type: EmailBlockType) => void;
   onAddSection: (widths: number[]) => void;
+  onAddPrebuiltSection: (section: EmailSection) => void;
+  globalStyles: EmailGlobalStyles;
 }) {
+  const prebuiltSections = getPrebuiltSections(globalStyles);
+
   return (
     <div className="space-y-4">
+      {/* Quick Add Section Templates */}
+      <div>
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Quick Add</h3>
+        <div className="grid grid-cols-2 gap-2">
+          {prebuiltSections.map(({ label, icon, section }) => (
+            <button
+              key={label}
+              onClick={() => onAddPrebuiltSection(section)}
+              className="flex flex-col items-center gap-1 p-2.5 bg-indigo-50 border border-indigo-200 rounded-lg text-xs hover:bg-indigo-100 hover:border-indigo-300 transition-all"
+            >
+              <span className="text-xs font-bold text-indigo-600 leading-none">{icon}</span>
+              <span className="text-xs text-indigo-700">{label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div>
         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Blocks</h3>
         <div className="grid grid-cols-2 gap-2">
