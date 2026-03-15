@@ -66,6 +66,10 @@ export async function GET(request: NextRequest) {
   const redirectUri = `${origin}/api/oauth/youtube/callback`;
 
   try {
+    // 30-second timeout for all OAuth API calls
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+
     // Step 1: Exchange code for tokens
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
@@ -77,11 +81,13 @@ export async function GET(request: NextRequest) {
         redirect_uri: redirectUri,
         grant_type: 'authorization_code',
       }).toString(),
+      signal: controller.signal,
     });
 
     const tokenData = await tokenRes.json();
 
     if (tokenData.error) {
+      clearTimeout(timeout);
       const msg = tokenData.error_description || tokenData.error || 'Failed to get access token';
       return NextResponse.redirect(
         new URL(`/dashboard/bots/${botId}/platforms?error=${encodeURIComponent(msg)}`, origin)
@@ -94,8 +100,9 @@ export async function GET(request: NextRequest) {
     // Step 2: Fetch YouTube channel info
     const channelRes = await fetch(
       'https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true',
-      { headers: { Authorization: `Bearer ${accessToken}` } }
+      { headers: { Authorization: `Bearer ${accessToken}` }, signal: controller.signal }
     );
+    clearTimeout(timeout);
 
     let channelName = 'YouTube Channel';
     let channelId = '';

@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { decrypt, encrypt } from '@/lib/encryption';
+import { createRateLimiter } from '@/lib/rate-limit';
+
+/** Max 5 refresh attempts per hour per user to prevent abuse. */
+const refreshLimiter = createRateLimiter({ maxRequests: 5, windowMs: 60 * 60 * 1000 });
 
 /**
  * POST /api/oauth/threads/refresh
@@ -19,6 +23,14 @@ export async function POST(request: NextRequest) {
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const rateCheck = refreshLimiter.check(user.id);
+  if (!rateCheck.allowed) {
+    return NextResponse.json(
+      { error: 'Too many refresh attempts. Please try again later.' },
+      { status: 429 }
+    );
   }
 
   let botId: string;
@@ -53,7 +65,13 @@ export async function POST(request: NextRequest) {
 
   try {
     // Decrypt the current access token
-    const credentials = connection.encryptedCredentials as Record<string, string>;
+    const credentials = connection.encryptedCredentials as Record<string, string> | null;
+    if (!credentials?.accessToken) {
+      return NextResponse.json(
+        { error: 'No access token stored. Please reconnect Threads.' },
+        { status: 400 }
+      );
+    }
     const currentToken = decrypt(credentials.accessToken);
 
     // Refresh the long-lived token via Threads API

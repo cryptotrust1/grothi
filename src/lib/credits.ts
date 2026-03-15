@@ -460,35 +460,59 @@ export async function expireCredits(): Promise<number> {
     },
   });
 
+  if (expired.length === 0) return 0;
+
+  // Group by userId to handle each user atomically
+  const byUser: Record<string, typeof expired> = {};
+  for (const entry of expired) {
+    if (!byUser[entry.userId]) byUser[entry.userId] = [];
+    byUser[entry.userId].push(entry);
+  }
+
   let totalExpired = 0;
 
-  for (const entry of expired) {
-    await db.$transaction(async (tx) => {
-      // Zero out the entry
-      await tx.creditLedger.update({
-        where: { id: entry.id },
-        data: { remaining: 0 },
+  for (const userId of Object.keys(byUser)) {
+    const entries = byUser[userId];
+    const userTotal = entries.reduce((sum: number, e: { remaining: number }) => sum + e.remaining, 0);
+
+    try {
+      await db.$transaction(async (tx) => {
+        // Zero out all expired entries for this user
+        for (const entry of entries) {
+          await tx.creditLedger.update({
+            where: { id: entry.id },
+            data: { remaining: 0 },
+          });
+        }
+
+        // Decrement balance atomically (prevent negative by clamping)
+        const balance = await tx.creditBalance.findUnique({ where: { userId } });
+        const currentBalance = balance?.balance ?? 0;
+        const deductAmount = Math.min(userTotal, currentBalance);
+
+        if (deductAmount > 0) {
+          const updated = await tx.creditBalance.update({
+            where: { userId },
+            data: { balance: { decrement: deductAmount } },
+          });
+
+          // Log expiration with accurate balance
+          await tx.creditTransaction.create({
+            data: {
+              userId,
+              type: 'EXPIRED',
+              amount: -deductAmount,
+              balance: updated.balance,
+              description: `Credits expired: ${deductAmount} credits (${entries.length} ledger entries)`,
+            },
+          });
+        }
       });
 
-      // Decrement balance
-      await tx.creditBalance.update({
-        where: { userId: entry.userId },
-        data: { balance: { decrement: entry.remaining } },
-      });
-
-      // Log expiration
-      await tx.creditTransaction.create({
-        data: {
-          userId: entry.userId,
-          type: 'EXPIRED',
-          amount: -entry.remaining,
-          balance: 0, // Best effort — balance is approximate
-          description: `Credits expired: ${entry.remaining} ${entry.source} credits`,
-        },
-      });
-    });
-
-    totalExpired += entry.remaining;
+      totalExpired += userTotal;
+    } catch (error) {
+      console.error(`[credits] Failed to expire credits for user ${userId}:`, error instanceof Error ? error.message : error);
+    }
   }
 
   return totalExpired;

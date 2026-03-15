@@ -64,8 +64,11 @@ function cleanupRateLimits(): void {
   });
 }
 
-// Cleanup every 5 minutes
-setInterval(cleanupRateLimits, 5 * 60 * 1000);
+// Cleanup every 5 minutes (unref prevents blocking graceful shutdown)
+const cleanupTimer = setInterval(cleanupRateLimits, 5 * 60 * 1000);
+if (typeof cleanupTimer === 'object' && 'unref' in cleanupTimer) {
+  cleanupTimer.unref();
+}
 
 export async function middleware(request: NextRequest) {
   const ip = getClientIp(request.headers);
