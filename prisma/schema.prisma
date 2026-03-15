@@ -1417,3 +1417,14 @@ enum EcommercePlatform {
   SHOPIFY
   WOOCOMMERCE
 }
+
+// ============ CRON JOB LOCKING ============
+
+model CronLock {
+  id        String   @id @default(cuid())
+  jobName   String   @unique
+  lockedAt  DateTime
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}

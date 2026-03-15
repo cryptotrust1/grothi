@@ -15,6 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { validateCronSecret } from '@/lib/api-helpers';
+import { withCronLock } from '@/lib/cron-lock';
 import { db } from '@/lib/db';
 
 // Allow up to 5 minutes for AI content generation (up to 5 posts × Claude API calls)
@@ -43,6 +44,15 @@ export async function POST(request: NextRequest) {
   const cronError = validateCronSecret(request.headers.get('authorization'));
   if (cronError) return cronError;
 
+  // Prevent overlapping execution — AI generation can take >5 min
+  const result = await withCronLock('autonomous-content', () => generateAutonomousContent(), 10 * 60 * 1000);
+  if (result === null) {
+    return NextResponse.json({ skipped: true, message: 'Previous autonomous-content run still in progress' });
+  }
+  return result;
+}
+
+async function generateAutonomousContent(): Promise<NextResponse> {
   const startTime = Date.now();
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -290,12 +300,16 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({
-    processed: results.length,
-    succeeded: results.filter(r => r.success).length,
-    failed: results.filter(r => !r.success).length,
-    results,
-  });
+  const succeeded = results.filter(r => r.success).length;
+  const failed = results.filter(r => !r.success).length;
+  const responseData = { processed: results.length, succeeded, failed, results };
+
+  // Return 500 if ALL posts failed — allows monitoring tools to detect total failures
+  if (results.length > 0 && succeeded === 0) {
+    return NextResponse.json(responseData, { status: 500 });
+  }
+
+  return NextResponse.json(responseData);
 }
 
 /**
