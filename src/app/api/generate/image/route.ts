@@ -5,13 +5,14 @@ import { deductCredits } from '@/lib/credits';
 import { getModelById, getDefaultImageModel, buildModelInput, IMAGE_MODELS } from '@/lib/ai-models';
 import { PLATFORM_IMAGE_DIMENSIONS } from '@/lib/replicate';
 import { BOT_STORAGE_LIMIT_BYTES, BOT_STORAGE_LIMIT_MB } from '@/lib/constants';
-import { aiGenerationLimiter } from '@/lib/rate-limit';
+import { aiGenerationLimiter, globalAILimiter } from '@/lib/rate-limit';
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, resolve } from 'path';
 import { randomUUID } from 'crypto';
 import { generateFilePath } from '@/lib/media-validation';
 import { getCachedStorageUsage, addToStorageCache } from '@/lib/storage-cache';
+import { PlatformType } from '@prisma/client';
 
 export const maxDuration = 120;
 
@@ -23,11 +24,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Rate limit per user (60 AI requests/hour — prevents credit-draining abuse)
+  // Rate limit per user per endpoint
   const rateCheck = aiGenerationLimiter.check(`image:${user.id}`);
   if (!rateCheck.allowed) {
     return NextResponse.json(
       { error: `Too many AI requests. Try again in ${Math.ceil(rateCheck.retryAfterMs / 1000)} seconds.` },
+      { status: 429 }
+    );
+  }
+  // Global AI rate limit across ALL AI endpoints
+  const globalCheck = globalAILimiter.check(user.id);
+  if (!globalCheck.allowed) {
+    return NextResponse.json(
+      { error: `AI usage limit reached. Try again in ${Math.ceil(globalCheck.retryAfterMs / 1000)} seconds.` },
       { status: 429 }
     );
   }
@@ -77,8 +86,9 @@ export async function POST(request: NextRequest) {
     // Check Replicate API token
     const replicateToken = process.env.REPLICATE_API_TOKEN;
     if (!replicateToken) {
+      console.error('[generate/image] REPLICATE_API_TOKEN not configured');
       return NextResponse.json({
-        error: 'Image generation not configured. REPLICATE_API_TOKEN is missing from environment variables. Add it to your .env file and restart the server. Get a token at https://replicate.com/account/api-tokens',
+        error: 'Image generation service is not available. Please contact support.',
       }, { status: 503 });
     }
 
@@ -254,7 +264,7 @@ export async function POST(request: NextRequest) {
     await db.botActivity.create({
       data: {
         botId,
-        platform: (platform as any) || 'INSTAGRAM',
+        platform: (platform as PlatformType) || 'INSTAGRAM',
         action: 'GENERATE_IMAGE',
         content: `[${model.name}] ${fullPrompt.slice(0, 480)}`,
         success: true,

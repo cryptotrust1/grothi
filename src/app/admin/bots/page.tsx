@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { PLATFORM_NAMES } from '@/lib/constants';
 import { Bot, Search, Pause, Play, Trash2, CheckCircle, XCircle } from 'lucide-react';
 import { AlertMessage } from '@/components/ui/alert-message';
+import { BotStatus } from '@prisma/client';
 
 export const metadata: Metadata = { title: 'Admin - Bots', robots: { index: false } };
 
@@ -39,7 +40,7 @@ export default async function AdminBotsPage({
           { user: { email: { contains: search, mode: 'insensitive' as const } } },
         ],
       } : {}),
-      ...(statusFilter ? { status: statusFilter as any } : {}),
+      ...(statusFilter ? { status: statusFilter as BotStatus } : {}),
     },
     include: {
       user: { select: { id: true, email: true, name: true } },
@@ -57,7 +58,7 @@ export default async function AdminBotsPage({
     const bot = await db.bot.findUnique({ where: { id: botId } });
     if (!bot) redirect('/admin/bots?error=Bot not found');
     const newStatus = bot.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE';
-    await db.bot.update({ where: { id: botId }, data: { status: newStatus as any } });
+    await db.bot.update({ where: { id: botId }, data: { status: newStatus as BotStatus } });
     redirect('/admin/bots?success=' + bot.name + ' is now ' + newStatus);
   }
 

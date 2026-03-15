@@ -5,13 +5,14 @@ import { deductCredits } from '@/lib/credits';
 import { getModelById, getDefaultVideoModel, buildModelInput, VIDEO_MODELS } from '@/lib/ai-models';
 import { getProviderApiKey } from '@/lib/video-provider';
 import { BOT_STORAGE_LIMIT_BYTES, BOT_STORAGE_LIMIT_MB } from '@/lib/constants';
-import { aiGenerationLimiter } from '@/lib/rate-limit';
+import { aiGenerationLimiter, globalAILimiter } from '@/lib/rate-limit';
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, resolve } from 'path';
 import { randomUUID } from 'crypto';
 import { generateFilePath } from '@/lib/media-validation';
 import { getCachedStorageUsage, addToStorageCache } from '@/lib/storage-cache';
+import { PlatformType } from '@prisma/client';
 
 export const maxDuration = 300; // 5 minutes for video generation
 
@@ -24,11 +25,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Rate limit per user (60 AI requests/hour — prevents credit-draining abuse)
+  // Rate limit per user per endpoint
   const rateCheck = aiGenerationLimiter.check(`video:${user.id}`);
   if (!rateCheck.allowed) {
     return NextResponse.json(
       { error: `Too many AI requests. Try again in ${Math.ceil(rateCheck.retryAfterMs / 1000)} seconds.` },
+      { status: 429 }
+    );
+  }
+  // Global AI rate limit across ALL AI endpoints
+  const globalCheck = globalAILimiter.check(user.id);
+  if (!globalCheck.allowed) {
+    return NextResponse.json(
+      { error: `AI usage limit reached. Try again in ${Math.ceil(globalCheck.retryAfterMs / 1000)} seconds.` },
       { status: 429 }
     );
   }
@@ -83,7 +92,7 @@ export async function POST(request: NextRequest) {
     const apiKey = await getProviderApiKey('replicate');
     if (!apiKey) {
       return NextResponse.json({
-        error: 'Video generation not configured. REPLICATE_API_TOKEN is missing. Set it in Admin Settings or .env file. Get a token at https://replicate.com/account/api-tokens',
+        error: 'Video generation service is not available. Please contact support.',
       }, { status: 503 });
     }
 
@@ -507,7 +516,7 @@ async function finalizeVideo(
   await db.botActivity.create({
     data: {
       botId,
-      platform: activityPlatform as any,
+      platform: activityPlatform as PlatformType,
       action: 'GENERATE_VIDEO',
       content: `[${modelName}] ${fullPrompt.slice(0, 480)}`,
       success: true,

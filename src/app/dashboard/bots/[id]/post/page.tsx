@@ -6,6 +6,7 @@ import { db } from '@/lib/db';
 import { getActionCost, hasEnoughCredits } from '@/lib/credits';
 import { getContentRecommendation, fingerprintContent } from '@/lib/rl-engine';
 import { PLATFORM_NAMES, PLATFORM_REQUIREMENTS, POST_STATUS_COLORS } from '@/lib/constants';
+import { PlatformType } from '@prisma/client';
 import { PostFormClient } from '@/components/dashboard/post-form-client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,8 +15,6 @@ import {
   Calendar, Clock, Trash2, RefreshCw, Download,
   ChevronLeft, ChevronRight,
 } from 'lucide-react';
-import type { PlatformType } from '@prisma/client';
-
 // Per-platform publish result stored in publishResults JSON field
 type PlatformPublishResult = { success: boolean; externalId?: string; error?: string };
 type PublishResults = Record<string, PlatformPublishResult>;
@@ -154,7 +153,7 @@ export default async function ManualPostPage({
 
     // Validate platforms are actually connected
     const connectedSet = new Set(currentBot.platformConns.map(p => p.platform));
-    const invalidPlatforms = platformsRaw.filter(p => !connectedSet.has(p as any));
+    const invalidPlatforms = platformsRaw.filter(p => !connectedSet.has(p as PlatformType));
     if (invalidPlatforms.length > 0) {
       redirect(`/dashboard/bots/${id}/post?error=${encodeURIComponent(`Platform not connected: ${invalidPlatforms.map(p => PLATFORM_NAMES[p] || p).join(', ')}`)}`);
     }

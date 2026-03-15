@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { requireAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { Prisma } from '@prisma/client';
+import { Prisma, PlatformType } from '@prisma/client';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -210,8 +210,8 @@ export default async function ContentStrategyPage({
         };
 
         await db.platformContentPlan.upsert({
-          where: { botId_platform: { botId: id, platform: platform as any } },
-          create: { botId: id, platform: platform as any, ...upsertData },
+          where: { botId_platform: { botId: id, platform: platform as PlatformType } },
+          create: { botId: id, platform: platform as PlatformType, ...upsertData },
           update: upsertData,
         });
       }
@@ -246,10 +246,10 @@ export default async function ContentStrategyPage({
         if (!defaults) continue;
 
         await db.platformContentPlan.upsert({
-          where: { botId_platform: { botId: id, platform: platform as any } },
+          where: { botId_platform: { botId: id, platform: platform as PlatformType } },
           create: {
             botId: id,
-            platform: platform as any,
+            platform: platform as PlatformType,
             enabled: true,
             dailyTexts: defaults.dailyTexts,
             dailyImages: defaults.dailyImages,
@@ -286,7 +286,7 @@ export default async function ContentStrategyPage({
   // ── Render ────────────────────────────────────────────────────
 
   const disconnectedPlatforms = Object.keys(PLATFORM_DEFAULTS).filter(
-    p => !connectedPlatforms.includes(p as any)
+    p => !connectedPlatforms.includes(p as PlatformType)
   );
 
   return (

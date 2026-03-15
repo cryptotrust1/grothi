@@ -16,6 +16,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateCronSecret } from '@/lib/api-helpers';
 import { db } from '@/lib/db';
+
+// Allow up to 5 minutes for AI content generation (up to 5 posts × Claude API calls)
+export const maxDuration = 300;
 import { deductCredits, addCredits, getActionCost } from '@/lib/credits';
 import {
   getContentGenerationContext,
@@ -40,14 +43,16 @@ export async function POST(request: NextRequest) {
   const cronError = validateCronSecret(request.headers.get('authorization'));
   if (cronError) return cronError;
 
+  const startTime = Date.now();
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 500 });
+    console.error('[autonomous-content] ANTHROPIC_API_KEY not configured');
+    return NextResponse.json({ error: 'AI content generation service is not available.' }, { status: 503 });
   }
 
-  // Recovery: Reset stale [GENERATING] posts that have been stuck for >10 minutes
+  // Recovery: Reset stale [GENERATING] posts that have been stuck for >5 minutes
   // This handles crashes where the cron claimed posts but died before completing
-  const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+  const tenMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
   await db.scheduledPost.updateMany({
     where: {
       source: 'AUTOPILOT',

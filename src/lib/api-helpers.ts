@@ -56,7 +56,7 @@ export async function requireAuthAndBot(botId: string): Promise<
     return { response: apiError.notFound('Bot') };
   }
 
-  return { user, bot: bot as any };
+  return { user, bot: bot as { id: string; userId: string; [key: string]: unknown } };
 }
 
 // ============ CRON SECRET VALIDATION ============

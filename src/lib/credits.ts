@@ -108,6 +108,8 @@ export async function deductCredits(
   if (amount <= 0) return true;
 
   // Core transaction: deduct balance + log (uses existing tables)
+  // Uses Serializable isolation to guarantee no concurrent deductions
+  // can both succeed when balance is barely sufficient.
   const success = await db.$transaction(async (tx) => {
     // 1. Atomically check and deduct balance (prevents race conditions)
     const updated = await tx.creditBalance.updateMany({

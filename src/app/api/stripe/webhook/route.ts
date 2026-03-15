@@ -154,6 +154,13 @@ async function handleNewSubscription(
     return;
   }
 
+  // Verify user exists before creating subscription
+  const userExists = await db.user.findUnique({ where: { id: userId }, select: { id: true } });
+  if (!userExists) {
+    console.error(`[Stripe] User ${userId} not found for subscription`);
+    return;
+  }
+
   // Check if subscription already exists
   const existing = await db.subscription.findUnique({ where: { userId } });
   if (existing) {
