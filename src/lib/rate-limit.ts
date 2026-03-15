@@ -139,6 +139,16 @@ export const aiGenerationLimiter = createRateLimiter({
   windowMs: 60 * 60 * 1000, // 1 hour
 });
 
+/**
+ * Global AI rate limiter: max 120 requests/hour per user ACROSS ALL AI endpoints.
+ * Individual endpoint limiters (aiGenerationLimiter) use namespaced keys,
+ * so a user can hit 60/hr on each endpoint. This global limiter caps total AI usage.
+ */
+export const globalAILimiter = createRateLimiter({
+  maxRequests: 120,
+  windowMs: 60 * 60 * 1000, // 1 hour
+});
+
 /** Stripe checkout: max 10 sessions per hour per user ID. Prevents checkout session spam. */
 export const checkoutLimiter = createRateLimiter({
   maxRequests: 10,

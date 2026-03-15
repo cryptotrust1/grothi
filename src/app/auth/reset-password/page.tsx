@@ -60,16 +60,16 @@ export default async function ResetPasswordPage({
       redirect('/auth/forgot-password');
     }
 
-    if (!password || password.length < 8) {
-      redirect('/auth/reset-password?token=' + encodeURIComponent(token) + '&error=' + encodeURIComponent('Password must be at least 8 characters'));
-    }
-
     if (password !== confirmPassword) {
       redirect('/auth/reset-password?token=' + encodeURIComponent(token) + '&error=' + encodeURIComponent('Passwords do not match'));
     }
 
-    if (!/[A-Z]/.test(password) || !/\d/.test(password)) {
-      redirect('/auth/reset-password?token=' + encodeURIComponent(token) + '&error=' + encodeURIComponent('Password must contain at least 1 uppercase letter and 1 number'));
+    // Use the shared password schema for consistent validation
+    const { passwordSchema } = await import('@/lib/validations');
+    const validation = passwordSchema.safeParse(password);
+    if (!validation.success) {
+      const msg = validation.error.errors[0]?.message || 'Invalid password';
+      redirect('/auth/reset-password?token=' + encodeURIComponent(token) + '&error=' + encodeURIComponent(msg));
     }
 
     try {

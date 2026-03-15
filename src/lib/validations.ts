@@ -1,13 +1,32 @@
 import { z } from 'zod';
 
+/** Common weak passwords that pass basic regex checks but are easily guessed. */
+const COMMON_PASSWORDS = new Set([
+  'password1', 'password123', 'qwerty123', 'abc12345', 'letmein1',
+  'welcome1', 'monkey123', 'dragon123', 'master123', 'login123',
+  'princess1', 'football1', 'shadow123', 'sunshine1', 'trustno1',
+  'iloveyou1', 'batman123', 'access123', 'hello123', 'charlie1',
+  'donald123', 'admin123', 'passw0rd', 'p@ssword1', 'p@ssw0rd',
+  'qwerty1234', '12345678a', 'abcdefg1', 'changeme1', 'welcome123',
+  'test1234', 'guest1234', 'temp1234', 'default1',
+]);
+
+const passwordSchema = z
+  .string()
+  .min(8, 'Password must be at least 8 characters')
+  .max(128, 'Password must be at most 128 characters')
+  .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
+  .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
+  .regex(/[0-9]/, 'Password must contain at least one number')
+  .refine(
+    (pw) => !COMMON_PASSWORDS.has(pw.toLowerCase()),
+    'This password is too common. Please choose a stronger password.'
+  );
+
 export const signUpSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
   email: z.string().email('Invalid email address'),
-  password: z
-    .string()
-    .min(8, 'Password must be at least 8 characters')
-    .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
-    .regex(/[0-9]/, 'Password must contain at least one number'),
+  password: passwordSchema,
 });
 
 export const signInSchema = z.object({
@@ -102,6 +121,7 @@ export const emailAutomationStepSchema = z.object({
   delayHours: z.coerce.number().int().min(0).max(23).default(0),
 });
 
+export { passwordSchema };
 export type SignUpInput = z.infer<typeof signUpSchema>;
 export type SignInInput = z.infer<typeof signInSchema>;
 export type CreateBotInput = z.infer<typeof createBotSchema>;

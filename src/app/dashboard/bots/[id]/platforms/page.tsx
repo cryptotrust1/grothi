@@ -12,6 +12,7 @@ import { Globe, Info, ExternalLink } from 'lucide-react';
 import { HelpTip } from '@/components/ui/help-tip';
 import { AlertMessage } from '@/components/ui/alert-message';
 import { SubmitButton } from '@/components/dashboard/platform-form-client';
+import { PlatformType } from '@prisma/client';
 
 export const metadata: Metadata = { title: 'Bot Platforms', robots: { index: false } };
 
@@ -311,10 +312,10 @@ export default async function BotPlatformsPage({ params, searchParams }: {
 
     try {
       await db.platformConnection.upsert({
-        where: { botId_platform: { botId: id, platform: platform as any } },
+        where: { botId_platform: { botId: id, platform: platform as PlatformType } },
         create: {
           botId: id,
-          platform: platform as any,
+          platform: platform as PlatformType,
           encryptedCredentials: encrypted,
           status: 'CONNECTED',
         },
@@ -363,13 +364,13 @@ export default async function BotPlatformsPage({ params, searchParams }: {
     try {
       await db.$transaction([
         db.platformConnection.delete({
-          where: { botId_platform: { botId: id, platform: platform as any } },
+          where: { botId_platform: { botId: id, platform: platform as PlatformType } },
         }),
         db.rLConfig.deleteMany({
-          where: { botId: id, platform: platform as any },
+          where: { botId: id, platform: platform as PlatformType },
         }),
         db.rLArmState.deleteMany({
-          where: { botId: id, platform: platform as any },
+          where: { botId: id, platform: platform as PlatformType },
         }),
       ]);
     } catch (e) {
@@ -454,7 +455,7 @@ export default async function BotPlatformsPage({ params, searchParams }: {
             <h2 className="text-lg font-semibold mb-3">{categoryLabels[cat]}</h2>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {platforms.map(([key, config]) => {
-                const isConnected = connectedPlatforms.has(key as any);
+                const isConnected = connectedPlatforms.has(key as PlatformType);
                 const conn = bot.platformConns.find((p) => p.platform === key);
                 const connConfig = conn?.config && typeof conn.config === 'object' ? conn.config as Record<string, unknown> : null;
                 const connectedViaOAuth = connConfig?.connectedVia === 'oauth';

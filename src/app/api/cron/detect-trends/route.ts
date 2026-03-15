@@ -17,6 +17,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { validateCronSecret } from '@/lib/api-helpers';
+
+// Allow up to 5 minutes for trend detection (processes RSS feeds for up to 20 bots)
+export const maxDuration = 300;
 import { db } from '@/lib/db';
 import {
   parseRSSFeed,

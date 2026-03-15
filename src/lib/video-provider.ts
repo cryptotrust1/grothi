@@ -80,8 +80,8 @@ async function generateWithReplicate(prompt: string, apiKey: string): Promise<Vi
   if (typeof rawOutput === 'string') {
     videoUrl = rawOutput;
   } else if (rawOutput && typeof rawOutput === 'object') {
-    if (typeof (rawOutput as any).url === 'function') {
-      const urlResult = (rawOutput as any).url();
+    if (typeof (rawOutput as Record<string, unknown>).url === 'function') {
+      const urlResult = (rawOutput as { url: () => string | URL }).url();
       videoUrl = urlResult instanceof URL ? urlResult.toString() : String(urlResult);
     } else {
       videoUrl = String(rawOutput);

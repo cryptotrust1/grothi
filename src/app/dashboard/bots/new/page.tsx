@@ -12,6 +12,7 @@ import { HelpTip } from '@/components/ui/help-tip';
 import { AlertMessage } from '@/components/ui/alert-message';
 import { GOAL_OPTIONS, SAFETY_LEVEL_OPTIONS } from '@/lib/constants';
 import { parseKeywords } from '@/lib/utils';
+import { SafetyLevel, BotGoal } from '@prisma/client';
 
 export const metadata: Metadata = {
   title: 'Create Bot',
@@ -60,8 +61,8 @@ export default async function NewBotPage({
         description: result.data.description,
         instructions: result.data.instructions,
         brandKnowledge: result.data.brandKnowledge,
-        safetyLevel: result.data.safetyLevel as any,
-        goal: result.data.goal as any,
+        safetyLevel: result.data.safetyLevel as SafetyLevel,
+        goal: result.data.goal as BotGoal,
         targetUrl: result.data.targetUrl || null,
         keywords: keywordsArr.length > 0 ? keywordsArr : [],
         reactorState: {

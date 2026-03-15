@@ -13,6 +13,7 @@ import { Rss, Clock, Trash2, Target, Key, BarChart3, ArrowRight, Brain, Zap, Ale
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { HelpTip } from '@/components/ui/help-tip';
 import { AlertMessage } from '@/components/ui/alert-message';
+import { BotGoal } from '@prisma/client';
 import { SCHEDULE_PRESETS, TIMEZONES, GOAL_OPTIONS, SAFETY_LEVEL_OPTIONS, RSS_ADAPTATION_MODES, RSS_FRESHNESS_OPTIONS, POST_LANGUAGES } from '@/lib/constants';
 import { parseKeywords } from '@/lib/utils';
 import { DEFAULT_RSS_SETTINGS, type RssIntelligenceSettings } from '@/lib/rss-intelligence';
@@ -134,7 +135,7 @@ export default async function BotSettingsPage({
         instructions: (formData.get('instructions') as string) || currentBot.instructions,
         brandKnowledge: formData.get('brandKnowledge') as string,
         safetyLevel: safetyLevel as 'CONSERVATIVE' | 'MODERATE' | 'AGGRESSIVE',
-        goal: goal as any,
+        goal: goal as BotGoal,
         targetUrl: (formData.get('targetUrl') as string) || null,
         keywords: keywordsArr.length > 0 ? keywordsArr : [],
         utmSource: (formData.get('utmSource') as string) || 'grothi',

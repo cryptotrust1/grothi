@@ -38,11 +38,20 @@ export async function POST(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Rate limit per user (prevents credit-draining abuse)
+  // Rate limit per user per endpoint
   const rateCheck = aiGenerationLimiter.check(`caption:${user.id}`);
   if (!rateCheck.allowed) {
     return NextResponse.json(
       { error: `Too many AI requests. Try again in ${Math.ceil(rateCheck.retryAfterMs / 1000)} seconds.` },
+      { status: 429 }
+    );
+  }
+  // Global AI rate limit across ALL AI endpoints
+  const { globalAILimiter } = await import('@/lib/rate-limit');
+  const globalCheck = globalAILimiter.check(user.id);
+  if (!globalCheck.allowed) {
+    return NextResponse.json(
+      { error: `AI usage limit reached. Try again in ${Math.ceil(globalCheck.retryAfterMs / 1000)} seconds.` },
       { status: 429 }
     );
   }

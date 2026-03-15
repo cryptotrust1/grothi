@@ -59,8 +59,17 @@ export async function POST(request: NextRequest) {
       threadsResult = { total: 0, valid: 0, invalid: 1, refreshed: 0 };
     }
 
-    // Reset daily counters for all connections only after successful health checks
+    // Reset daily counters only for connections not actively posting.
+    // Connections with recent activity (last 30 min) are skipped to prevent
+    // losing counter data for posts currently being published by process-posts cron.
+    const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000);
     const resetResult = await db.platformConnection.updateMany({
+      where: {
+        OR: [
+          { updatedAt: { lt: thirtyMinAgo } },
+          { postsToday: 0, repliesToday: 0 }, // Already zero, safe to update
+        ],
+      },
       data: { postsToday: 0, repliesToday: 0 },
     });
     console.log(`[health-check] Reset daily counters for ${resetResult.count} connections`);
@@ -169,7 +178,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('[health-check] Unhandled error:', error instanceof Error ? error.message : error);
     return NextResponse.json(
-      { error: 'Health check failed', details: error instanceof Error ? error.message : 'Unknown error' },
+      { error: 'Health check failed' },
       { status: 500 }
     );
   }
