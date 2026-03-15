@@ -110,6 +110,24 @@ export async function POST(request: NextRequest) {
       }, { status: 404 });
     }
 
+    // Concurrency guard: prevent double-submission (min 60s between plan generations)
+    if (bot.lastPlanGeneratedAt) {
+      const secondsSinceLast = (Date.now() - new Date(bot.lastPlanGeneratedAt).getTime()) / 1000;
+      if (secondsSinceLast < 60) {
+        return NextResponse.json({
+          error: 'Please wait before generating another plan',
+          code: 'RATE_LIMITED',
+          detail: `A plan was generated ${Math.round(secondsSinceLast)} seconds ago. Please wait at least 60 seconds.`,
+        }, { status: 429 });
+      }
+    }
+
+    // Optimistic lock: set lastPlanGeneratedAt immediately to prevent concurrent requests
+    await db.bot.update({
+      where: { id: botId },
+      data: { lastPlanGeneratedAt: new Date() },
+    });
+
     // Determine duration and custom start date from either date range or duration param
     let duration: number;
     let customPlanStart: Date | null = null;

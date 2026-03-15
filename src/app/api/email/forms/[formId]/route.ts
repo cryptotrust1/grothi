@@ -1,5 +1,11 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
+import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
+
+const formSubmitLimiter = createRateLimiter({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  maxRequests: 10,           // 10 submissions per hour per IP
+});
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -51,8 +57,9 @@ export async function GET(
       { headers: CORS_HEADERS },
     );
   } catch (error) {
+    console.error('[Email Form]', error instanceof Error ? error.message : error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal error' },
+      { error: 'An error occurred. Please try again.' },
       { status: 500, headers: CORS_HEADERS },
     );
   }
@@ -68,6 +75,16 @@ export async function POST(
   { params }: { params: { formId: string } },
 ) {
   try {
+    // Rate limit: 10 submissions per hour per IP
+    const ip = getClientIp(request.headers);
+    const allowed = formSubmitLimiter.check(ip);
+    if (!allowed) {
+      return NextResponse.json(
+        { error: 'Too many submissions. Please try again later.' },
+        { status: 429, headers: CORS_HEADERS },
+      );
+    }
+
     const { formId } = params;
 
     let body: { email?: string; firstName?: string; lastName?: string };
@@ -211,8 +228,9 @@ export async function POST(
       { headers: CORS_HEADERS },
     );
   } catch (error) {
+    console.error('[Email Form]', error instanceof Error ? error.message : error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal error' },
+      { error: 'An error occurred. Please try again.' },
       { status: 500, headers: CORS_HEADERS },
     );
   }

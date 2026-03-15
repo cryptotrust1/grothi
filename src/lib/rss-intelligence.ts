@@ -127,17 +127,73 @@ export function parseRssFeed(xml: string, sourceUrl: string): RssArticle[] {
  * Fetch and parse a single RSS feed URL.
  * Returns empty array on failure (non-blocking).
  */
+/**
+ * Check if a hostname resolves to a private/internal IP address.
+ * Prevents SSRF attacks via user-controlled RSS feed URLs.
+ */
+function isPrivateUrl(urlStr: string): boolean {
+  try {
+    const parsed = new URL(urlStr);
+    const hostname = parsed.hostname;
+
+    // Block obvious private hostnames
+    if (
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '::1' ||
+      hostname === '0.0.0.0' ||
+      hostname.endsWith('.local') ||
+      hostname.endsWith('.internal')
+    ) {
+      return true;
+    }
+
+    // Block private IP ranges
+    const parts = hostname.split('.');
+    if (parts.length === 4 && parts.every(p => /^\d+$/.test(p))) {
+      const octets = parts.map(Number);
+      if (
+        octets[0] === 10 ||                                          // 10.0.0.0/8
+        (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) || // 172.16.0.0/12
+        (octets[0] === 192 && octets[1] === 168) ||                  // 192.168.0.0/16
+        (octets[0] === 169 && octets[1] === 254) ||                  // 169.254.0.0/16 (link-local / cloud metadata)
+        octets[0] === 127 ||                                          // 127.0.0.0/8
+        octets[0] === 0                                               // 0.0.0.0/8
+      ) {
+        return true;
+      }
+    }
+
+    // Block non-standard ports that might target internal services
+    const port = parsed.port ? parseInt(parsed.port, 10) : (parsed.protocol === 'https:' ? 443 : 80);
+    if (port !== 80 && port !== 443 && port !== 8080 && port !== 8443) {
+      return true;
+    }
+
+    return false;
+  } catch {
+    return true; // Block malformed URLs
+  }
+}
+
 export async function fetchRssFeed(
   feedUrl: string,
   maxArticles: number = 5,
   timeoutMs: number = 10_000,
 ): Promise<RssArticle[]> {
   try {
+    // SSRF protection: block requests to private/internal IPs
+    if (isPrivateUrl(feedUrl)) {
+      console.warn(`[RSS] Blocked private/internal URL: ${feedUrl}`);
+      return [];
+    }
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     const response = await fetch(feedUrl, {
       signal: controller.signal,
+      redirect: 'follow',
       headers: {
         'User-Agent': 'Grothi-Bot/1.0 (RSS Intelligence)',
         'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml',
