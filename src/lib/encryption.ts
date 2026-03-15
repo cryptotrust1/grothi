@@ -28,7 +28,11 @@ export function encrypt(plaintext: string): string {
 
 export function decrypt(encryptedData: string): string {
   const key = getEncryptionKey();
-  const [ivHex, authTagHex, encrypted] = encryptedData.split(':');
+  const parts = encryptedData.split(':');
+  if (parts.length !== 3) {
+    throw new Error('Invalid encrypted data format (expected iv:authTag:ciphertext)');
+  }
+  const [ivHex, authTagHex, encrypted] = parts;
 
   const iv = Buffer.from(ivHex, 'hex');
   const authTag = Buffer.from(authTagHex, 'hex');

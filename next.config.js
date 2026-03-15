@@ -5,6 +5,7 @@ const nextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
   experimental: {
+    instrumentationHook: true,
     serverActions: {
       bodySizeLimit: '55mb',
     },

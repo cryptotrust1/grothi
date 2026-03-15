@@ -7,9 +7,11 @@ import { verifyOAuthStateToken } from '@/lib/oauth-helpers';
 
 const FB_GRAPH_VERSION = 'v24.0';
 const GRAPH_BASE = `https://graph.facebook.com/${FB_GRAPH_VERSION}`;
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.NEXTAUTH_SECRET!
-);
+function getJwtSecret(): Uint8Array {
+  const secret = process.env.NEXTAUTH_SECRET;
+  if (!secret) throw new Error('NEXTAUTH_SECRET is required');
+  return new TextEncoder().encode(secret);
+}
 
 interface FBPage {
   id: string;
@@ -199,7 +201,7 @@ export async function GET(request: NextRequest) {
       .setProtectedHeader({ alg: 'HS256' })
       .setExpirationTime('10m')
       .setIssuedAt()
-      .sign(JWT_SECRET);
+      .sign(getJwtSecret());
 
     return NextResponse.redirect(
       new URL(

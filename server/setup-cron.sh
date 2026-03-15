@@ -58,12 +58,16 @@ CRON_MARKER="# GROTHI-CRON-JOBS"
 # 3. Detect trends (Hype Radar) - every 10 minutes
 # 4. Generate AI content for autopilot posts - every 5 minutes
 # 5. Daily health check (token refresh, counter reset) - 3 AM
+LOG_DIR="$GROTHI_DIR/logs"
+mkdir -p "$LOG_DIR"
+
 CRON_LINES="$CRON_MARKER
-* * * * * curl -sf -X POST ${BASE_URL}/api/cron/process-posts -H \"Authorization: Bearer ${CRON_SECRET}\" -o /dev/null 2>&1
-*/15 * * * * curl -sf -X POST ${BASE_URL}/api/cron/collect-engagement -H \"Authorization: Bearer ${CRON_SECRET}\" -o /dev/null 2>&1
-*/10 * * * * curl -sf -X POST ${BASE_URL}/api/cron/detect-trends -H \"Authorization: Bearer ${CRON_SECRET}\" -o /dev/null 2>&1
-*/5 * * * * curl -sf -X POST ${BASE_URL}/api/cron/autonomous-content -H \"Authorization: Bearer ${CRON_SECRET}\" -o /dev/null 2>&1
-0 3 * * * curl -sf -X POST ${BASE_URL}/api/cron/health-check -H \"Authorization: Bearer ${CRON_SECRET}\" -o /dev/null 2>&1
+* * * * * curl -sf --max-time 55 -X POST ${BASE_URL}/api/cron/process-posts -H \"Authorization: Bearer ${CRON_SECRET}\" >> ${LOG_DIR}/cron-process-posts.log 2>&1
+*/15 * * * * curl -sf --max-time 290 -X POST ${BASE_URL}/api/cron/collect-engagement -H \"Authorization: Bearer ${CRON_SECRET}\" >> ${LOG_DIR}/cron-collect-engagement.log 2>&1
+*/10 * * * * curl -sf --max-time 290 -X POST ${BASE_URL}/api/cron/detect-trends -H \"Authorization: Bearer ${CRON_SECRET}\" >> ${LOG_DIR}/cron-detect-trends.log 2>&1
+*/5 * * * * curl -sf --max-time 290 -X POST ${BASE_URL}/api/cron/autonomous-content -H \"Authorization: Bearer ${CRON_SECRET}\" >> ${LOG_DIR}/cron-autonomous-content.log 2>&1
+0 3 * * * curl -sf --max-time 120 -X POST ${BASE_URL}/api/cron/health-check -H \"Authorization: Bearer ${CRON_SECRET}\" >> ${LOG_DIR}/cron-health-check.log 2>&1
+0 2 * * * bash ${GROTHI_DIR}/server/rotate-logs.sh >> ${LOG_DIR}/cron-rotate.log 2>&1
 $CRON_MARKER-END"
 
 # ── Install cron jobs ────────────────────────────────────────
@@ -91,6 +95,7 @@ echo "  [every 15 min] POST /api/cron/collect-engagement   (fetch likes/comments
 echo "  [every 10 min] POST /api/cron/detect-trends       (hype/viral trend detection)"
 echo "  [every 5 min]  POST /api/cron/autonomous-content  (AI content for autopilot)"
 echo "  [daily 3 AM]   POST /api/cron/health-check         (token refresh, counter reset)"
+echo "  [daily 2 AM]   rotate-logs.sh                      (log rotation)"
 echo ""
 echo "Verify with: crontab -l"
 echo ""
