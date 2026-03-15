@@ -44,7 +44,8 @@ export async function POST(request: NextRequest) {
   const startTime = Date.now();
 
   try {
-    // Get active bots with RSS feeds configured
+    // Get active bots, ordered by least-recently-scanned first (round-robin).
+    // This ensures all bots get scanned even if there are more than BATCH_SIZE.
     const bots = await db.bot.findMany({
       where: {
         status: { in: ['ACTIVE', 'PAUSED'] },
@@ -58,7 +59,9 @@ export async function POST(request: NextRequest) {
         goal: true,
         algorithmConfig: true,
         userId: true,
+        updatedAt: true,
       },
+      orderBy: { updatedAt: 'asc' },
       take: BATCH_SIZE,
     });
 

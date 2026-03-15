@@ -15,6 +15,7 @@ import { validateCronSecret } from '@/lib/api-helpers';
 // Allow up to 5 minutes for engagement collection (up to 50 posts × multiple platforms)
 export const maxDuration = 300;
 import { db } from '@/lib/db';
+import { Prisma } from '@prisma/client';
 import {
   decryptFacebookCredentials,
   getPostEngagement,
@@ -55,7 +56,7 @@ export async function POST(request: NextRequest) {
     where: {
       status: 'PUBLISHED',
       publishedAt: { gte: cutoff },
-      publishResults: { not: undefined },
+      publishResults: { not: Prisma.DbNull },
     },
     orderBy: { publishedAt: 'desc' },
     take: BATCH_SIZE,

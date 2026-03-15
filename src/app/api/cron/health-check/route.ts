@@ -10,7 +10,12 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { validateCronSecret } from '@/lib/api-helpers';
+
+// Allow up to 5 minutes for health checks across all platform connections
+export const maxDuration = 300;
+
 import { db } from '@/lib/db';
+import { cleanupExpiredTokens } from '@/lib/auth';
 import { healthCheckAllConnections as fbHealthCheck } from '@/lib/facebook';
 import { healthCheckAllConnections as igHealthCheck } from '@/lib/instagram';
 import { healthCheckAllConnections as threadsHealthCheck } from '@/lib/threads';
@@ -73,6 +78,15 @@ export async function POST(request: NextRequest) {
       data: { postsToday: 0, repliesToday: 0 },
     });
     console.log(`[health-check] Reset daily counters for ${resetResult.count} connections`);
+
+    // ── Cleanup Expired Tokens/Sessions ──
+    let tokenCleanup = { sessions: 0, verificationTokens: 0, resetTokens: 0 };
+    try {
+      tokenCleanup = await cleanupExpiredTokens();
+      console.log(`[health-check] Token cleanup: ${tokenCleanup.sessions} sessions, ${tokenCleanup.verificationTokens} verification tokens, ${tokenCleanup.resetTokens} reset tokens`);
+    } catch (e) {
+      console.error('[health-check] Token cleanup failed:', e instanceof Error ? e.message : e);
+    }
 
     // ── Credit Monitoring ──
     // Check all users with active autopilot bots for low credit balances
@@ -166,6 +180,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       dailyCountersReset: true,
       connectionsReset: resetResult.count,
+      tokenCleanup,
       facebook: fbResult,
       instagram: igResult,
       threads: threadsResult,

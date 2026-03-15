@@ -6,7 +6,11 @@ import { SignJWT, jwtVerify } from 'jose';
  */
 
 function getJwtSecret(): Uint8Array {
-  return new TextEncoder().encode(process.env.NEXTAUTH_SECRET!);
+  const secret = process.env.NEXTAUTH_SECRET;
+  if (!secret) {
+    throw new Error('NEXTAUTH_SECRET environment variable is required for OAuth');
+  }
+  return new TextEncoder().encode(secret);
 }
 
 /**
