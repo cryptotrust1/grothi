@@ -54,6 +54,9 @@ import path from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import sharp from 'sharp';
 
+// Allow up to 5 minutes for processing a batch of posts (up to 10 posts × multiple platforms)
+export const maxDuration = 300;
+
 /** Base directory for uploaded media files. */
 const UPLOAD_DIR = path.join(process.cwd(), 'data', 'uploads');
 
