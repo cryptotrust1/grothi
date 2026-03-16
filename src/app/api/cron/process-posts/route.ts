@@ -359,7 +359,7 @@ async function processPostsBatch(): Promise<NextResponse> {
             platform: platform as PlatformType,
             action: 'POST',
             content: platformSpecificContent.slice(0, 500),
-            postId: result.externalId || null,
+            postId: ('externalId' in result ? result.externalId : null) || null,
             contentType: post.contentType || 'custom',
             success: result.success,
             error: result.error || null,

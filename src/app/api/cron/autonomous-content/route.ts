@@ -171,6 +171,8 @@ async function generateAutonomousContent(): Promise<NextResponse> {
   const rssContextCache = new Map<string, RssContext>();
 
   for (const post of pendingPosts) {
+    // Track whether credits were deducted so catch block can refund if needed
+    let creditsDeducted = false;
     try {
       // Fetch RSS context for this bot (cached per bot)
       let rssContext: RssContext | null = null;
@@ -200,8 +202,6 @@ async function generateAutonomousContent(): Promise<NextResponse> {
       const customToneStyle = (platformPlan?.customToneStyle as string) || null;
 
       // Deduct credits for content generation
-      // Track whether credits were deducted so outer catch only refunds if needed
-      let creditsDeducted = false;
       const cost = await getActionCost('GENERATE_CONTENT');
       const deducted = await deductCredits(
         post.bot.userId,
