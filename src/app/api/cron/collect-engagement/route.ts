@@ -76,6 +76,36 @@ async function collectEngagement(): Promise<NextResponse> {
 
   console.log(`[collect-engagement] Found ${publishedPosts.length} posts to check`);
 
+  // Pre-fetch all needed platform connections in one query to avoid N+1
+  const botIds = [...new Set(publishedPosts.map(p => p.botId))];
+  const allConns = await db.platformConnection.findMany({
+    where: {
+      botId: { in: botIds },
+      platform: { in: [...SUPPORTED_PLATFORMS] as PlatformType[] },
+      status: 'CONNECTED',
+    },
+  });
+  const connMap = new Map(allConns.map(c => [`${c.botId}:${c.platform}`, c]));
+
+  // Pre-fetch all existing engagement records to avoid N+1 lookups in the loop
+  const engagementKeys: Array<{ botId: string; platform: string; externalPostId: string }> = [];
+  for (const post of publishedPosts) {
+    const results = post.publishResults as Record<string, { success: boolean; externalId?: string }> | null;
+    if (!results) continue;
+    for (const [platform, result] of Object.entries(results)) {
+      if (result.success && result.externalId && SUPPORTED_PLATFORMS.has(platform)) {
+        engagementKeys.push({ botId: post.botId, platform, externalPostId: result.externalId });
+      }
+    }
+  }
+  const existingEngagements = engagementKeys.length > 0
+    ? await db.postEngagement.findMany({
+        where: { OR: engagementKeys.map(k => ({ botId: k.botId, platform: k.platform as PlatformType, externalPostId: k.externalPostId })) },
+        select: { botId: true, platform: true, externalPostId: true },
+      })
+    : [];
+  const engagementSet = new Set(existingEngagements.map(e => `${e.botId}:${e.platform}:${e.externalPostId}`));
+
   let collected = 0;
   let errors = 0;
 
@@ -90,13 +120,9 @@ async function collectEngagement(): Promise<NextResponse> {
       if (!result.success || !result.externalId) continue;
       if (!SUPPORTED_PLATFORMS.has(platform)) continue;
 
-      // Get platform connection
-      const conn = await db.platformConnection.findUnique({
-        where: {
-          botId_platform: { botId: post.botId, platform: platform as PlatformType },
-        },
-      });
-      if (!conn || conn.status !== 'CONNECTED') continue;
+      // Get platform connection from pre-fetched map
+      const conn = connMap.get(`${post.botId}:${platform}`);
+      if (!conn) continue;
 
       try {
         let engagement: { likes: number; comments: number; shares: number } | null = null;
@@ -147,14 +173,7 @@ async function collectEngagement(): Promise<NextResponse> {
         });
 
         // Check if this is new or existing engagement (for daily stats)
-        const existingEngagement = await db.postEngagement.findFirst({
-          where: {
-            botId: post.botId,
-            platform: platform as PlatformType,
-            externalPostId: result.externalId,
-          },
-        });
-        const isNewEngagement = !existingEngagement;
+        const isNewEngagement = !engagementSet.has(`${post.botId}:${platform}:${result.externalId}`);
 
         const engagementScore =
           engagement.likes * 1 +
@@ -253,8 +272,8 @@ async function collectEngagement(): Promise<NextResponse> {
         errors++;
       }
 
-      // Rate-limit friendly delay between API calls
-      await new Promise((r) => setTimeout(r, 1000));
+      // Rate-limit friendly delay between API calls (200ms sufficient for Meta API limits)
+      await new Promise((r) => setTimeout(r, 200));
     }
   }
 

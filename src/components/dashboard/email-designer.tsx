@@ -1,6 +1,28 @@
 'use client';
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+
+/**
+ * Sanitize HTML content to prevent XSS in email designer preview.
+ * Strips script tags, event handlers, and dangerous protocols.
+ */
+function sanitizeHtml(html: string): string {
+  return html
+    // Remove script tags and their content
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    // Remove on* event handlers
+    .replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    // Remove javascript: protocol
+    .replace(/href\s*=\s*["']?\s*javascript:/gi, 'href="')
+    // Remove data: URIs in src (potential XSS vector)
+    .replace(/src\s*=\s*["']?\s*data:text\/html/gi, 'src="')
+    // Remove iframe, object, embed tags
+    .replace(/<\s*\/?\s*(iframe|object|embed|form|input|textarea)\b[^>]*>/gi, '')
+    // Remove style expressions (IE-specific XSS)
+    .replace(/expression\s*\(/gi, 'blocked(')
+    // Remove -moz-binding
+    .replace(/-moz-binding\s*:/gi, 'blocked:');
+}
 import type {
   EmailDesign,
   EmailSection,
@@ -1646,7 +1668,7 @@ function BlockPreview({ block, globalStyles }: { block: EmailBlock; globalStyles
             color,
             fontFamily: globalStyles.fontFamily,
           }}
-          dangerouslySetInnerHTML={{ __html: block.content }}
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(block.content) }}
         />
       );
     }
@@ -1771,7 +1793,7 @@ function BlockPreview({ block, globalStyles }: { block: EmailBlock; globalStyles
       return (
         <div
           style={{ padding: `${block.paddingTop}px ${block.paddingRight}px ${block.paddingBottom}px ${block.paddingLeft}px` }}
-          dangerouslySetInnerHTML={{ __html: block.content }}
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(block.content) }}
         />
       );
   }

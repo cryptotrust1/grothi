@@ -134,10 +134,14 @@ async function detectTrends(): Promise<NextResponse> {
           }
         });
 
+        const MAX_RSS_ITEMS_PER_BOT = 1000;
         const results = await Promise.allSettled(feedPromises);
         for (const result of results) {
           if (result.status === 'fulfilled') {
-            allItems.push(...result.value);
+            // Limit items per bot to prevent unbounded memory growth
+            const remaining = MAX_RSS_ITEMS_PER_BOT - allItems.length;
+            if (remaining <= 0) break;
+            allItems.push(...result.value.slice(0, remaining));
           }
         }
 

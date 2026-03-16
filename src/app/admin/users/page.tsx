@@ -64,6 +64,10 @@ export default async function AdminUsersPage({
     if (credits > MAX_BONUS_CREDITS) {
       redirect(`/admin/users?error=Cannot add more than ${MAX_BONUS_CREDITS.toLocaleString()} credits at once`);
     }
+    const targetUser = await db.user.findUnique({ where: { id: userId }, select: { id: true } });
+    if (!targetUser) {
+      redirect('/admin/users?error=User not found');
+    }
     await addCredits(userId, credits, 'BONUS', `Admin bonus: ${credits} credits`);
     redirect('/admin/users?success=Added ' + credits + ' bonus credits');
   }

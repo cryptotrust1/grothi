@@ -25,6 +25,11 @@ export async function acquireCronLock(
   jobName: string,
   ttlMs: number = DEFAULT_LOCK_TTL_MS
 ): Promise<boolean> {
+  // Defense-in-depth: validate jobName even though callers use hardcoded strings
+  if (!/^[a-z][a-z0-9-]{0,49}$/.test(jobName)) {
+    throw new Error(`Invalid cron job name: ${jobName}`);
+  }
+
   const now = new Date();
   const expiresAt = new Date(now.getTime() + ttlMs);
 
@@ -62,6 +67,9 @@ export async function acquireCronLock(
  * Release a cron job lock.
  */
 export async function releaseCronLock(jobName: string): Promise<void> {
+  if (!/^[a-z][a-z0-9-]{0,49}$/.test(jobName)) {
+    throw new Error(`Invalid cron job name: ${jobName}`);
+  }
   try {
     await db.$executeRaw`
       DELETE FROM "CronLock" WHERE "jobName" = ${jobName}

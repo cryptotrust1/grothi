@@ -315,7 +315,7 @@ export async function POST(request: NextRequest) {
 
       try {
         // Create a normalized temp file for each timeline clip
-        for (let i = 0; i < timelineClips!.length; i++) {
+        for (let i = 0; i < (timelineClips?.length ?? 0); i++) {
           const clip = timelineClips![i];
           const clipMedia = mediaMap[clip.mediaId];
           if (!clipMedia) continue;
@@ -579,7 +579,7 @@ export async function POST(request: NextRequest) {
         width: null,
         height: null,
         altText: isTimelineMode
-          ? `Timeline edit: ${timelineClips!.length} clips`
+          ? `Timeline edit: ${timelineClips?.length ?? 0} clips`
           : `Edited from: ${media.filename}`,
       },
     });

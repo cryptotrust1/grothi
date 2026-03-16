@@ -292,6 +292,23 @@ async function generateAutonomousContent(): Promise<NextResponse> {
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       console.error(`[autonomous-content] Failed for post ${post.id}:`, msg);
+
+      // REFUND credits if they were deducted but generation failed
+      // (deductCredits sets `deducted = true` before the try block starts generating)
+      try {
+        const cost = await getActionCost('GENERATE_CONTENT');
+        await addCredits(
+          post.bot.userId,
+          cost,
+          'REFUND',
+          `Refund: content generation error for autopilot post`,
+        );
+        console.log(`[autonomous-content] Refunded ${cost} credits for failed post ${post.id}`);
+      } catch (refundErr) {
+        console.error(`[autonomous-content] Failed to refund credits for post ${post.id}:`,
+          refundErr instanceof Error ? refundErr.message : refundErr);
+      }
+
       // Restore placeholder so it can be retried
       try {
         await db.scheduledPost.update({
@@ -301,7 +318,10 @@ async function generateAutonomousContent(): Promise<NextResponse> {
             error: `Content generation error: ${msg.slice(0, 200)}`,
           },
         });
-      } catch { /* best effort */ }
+      } catch (updateErr) {
+        console.error(`[autonomous-content] Failed to update post ${post.id}:`,
+          updateErr instanceof Error ? updateErr.message : updateErr);
+      }
       results.push({ postId: post.id, success: false, error: msg });
     }
   }

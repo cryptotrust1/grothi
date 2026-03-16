@@ -148,10 +148,22 @@ async function handleNewSubscription(
   const planId = metadata.planId;
   const planSlug = metadata.planSlug;
   const stripeSubscriptionId = (session.subscription as string) || undefined;
+  const checkoutSessionId = (session.id as string) || undefined;
 
   if (!userId || !planId) {
     console.error(`[Stripe] Missing subscription metadata:`, metadata);
     return;
+  }
+
+  // Idempotency check: prevent duplicate processing of the same checkout session
+  if (checkoutSessionId) {
+    const existingTxn = await db.creditTransaction.findFirst({
+      where: { stripePaymentId: checkoutSessionId },
+    });
+    if (existingTxn) {
+      console.log(`[Stripe] Duplicate subscription webhook for session ${checkoutSessionId}, skipping`);
+      return;
+    }
   }
 
   // Verify user exists before creating subscription

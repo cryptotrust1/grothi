@@ -266,18 +266,31 @@ export default async function AutopilotPage({
 
       const nowDate = new Date();
       const fiveMinFromNow = new Date(nowDate.getTime() + 5 * 60 * 1000);
-      let approvedCount = 0;
 
-      for (const post of approvablePosts) {
-        const newScheduledAt = post.scheduledAt && post.scheduledAt > nowDate
-          ? post.scheduledAt
-          : fiveMinFromNow;
-        await db.scheduledPost.update({
-          where: { id: post.id },
-          data: { status: 'SCHEDULED', scheduledAt: newScheduledAt },
-        });
-        approvedCount++;
-      }
+      // Split posts: those with valid future scheduledAt vs those needing new time
+      const keepTimeIds = approvablePosts
+        .filter(p => p.scheduledAt && p.scheduledAt > nowDate)
+        .map(p => p.id);
+      const needTimeIds = approvablePosts
+        .filter(p => !p.scheduledAt || p.scheduledAt <= nowDate)
+        .map(p => p.id);
+
+      // Batch update instead of N individual updates
+      await Promise.all([
+        keepTimeIds.length > 0
+          ? db.scheduledPost.updateMany({
+              where: { id: { in: keepTimeIds } },
+              data: { status: 'SCHEDULED' },
+            })
+          : Promise.resolve(),
+        needTimeIds.length > 0
+          ? db.scheduledPost.updateMany({
+              where: { id: { in: needTimeIds } },
+              data: { status: 'SCHEDULED', scheduledAt: fiveMinFromNow },
+            })
+          : Promise.resolve(),
+      ]);
+      const approvedCount = approvablePosts.length;
 
       redirect(`/dashboard/bots/${id}/autopilot?success=${approvedCount} posts approved and scheduled`);
     } catch (error: unknown) {
@@ -308,23 +321,40 @@ export default async function AutopilotPage({
       }
 
       const retryAt = new Date(Date.now() + 5 * 60 * 1000);
-      let retriedCount = 0;
 
-      for (const post of failedPosts) {
-        const hasPlaceholder = post.content.startsWith('[AUTOPILOT]') || post.content.startsWith('[GENERATING]');
-        await db.scheduledPost.update({
-          where: { id: post.id },
-          data: {
-            // Posts with placeholder → DRAFT so autonomous-content generates content first
-            // Posts with real content → SCHEDULED for immediate publishing retry
-            status: hasPlaceholder ? 'DRAFT' : 'SCHEDULED',
-            content: hasPlaceholder ? `[AUTOPILOT] Retry pending — regenerating content` : undefined,
-            error: null,
-            scheduledAt: retryAt,
-          },
-        });
-        retriedCount++;
-      }
+      // Split into two batches: placeholder posts vs real content posts
+      const placeholderIds = failedPosts
+        .filter(p => p.content.startsWith('[AUTOPILOT]') || p.content.startsWith('[GENERATING]'))
+        .map(p => p.id);
+      const realContentIds = failedPosts
+        .filter(p => !p.content.startsWith('[AUTOPILOT]') && !p.content.startsWith('[GENERATING]'))
+        .map(p => p.id);
+
+      // Batch update instead of N individual updates
+      await Promise.all([
+        placeholderIds.length > 0
+          ? db.scheduledPost.updateMany({
+              where: { id: { in: placeholderIds } },
+              data: {
+                status: 'DRAFT',
+                content: '[AUTOPILOT] Retry pending — regenerating content',
+                error: null,
+                scheduledAt: retryAt,
+              },
+            })
+          : Promise.resolve(),
+        realContentIds.length > 0
+          ? db.scheduledPost.updateMany({
+              where: { id: { in: realContentIds } },
+              data: {
+                status: 'SCHEDULED',
+                error: null,
+                scheduledAt: retryAt,
+              },
+            })
+          : Promise.resolve(),
+      ]);
+      const retriedCount = failedPosts.length;
 
       redirect(`/dashboard/bots/${id}/autopilot?success=${retriedCount} failed posts queued for retry`);
     } catch (error: unknown) {

@@ -161,7 +161,9 @@ async function processPostsBatch(): Promise<NextResponse> {
   // Recovery: Find posts stuck in PUBLISHING state for more than 5 minutes.
   // This happens when the process crashes or times out during publishing.
   // Reset them to FAILED so they don't block the queue forever.
-  const stuckThreshold = new Date(now.getTime() - 5 * 60 * 1000);
+  // 3 minutes: longer than the 2-minute platform timeout but short enough
+  // to prevent double-posting if cron crashes mid-publish (runs every 1 min)
+  const stuckThreshold = new Date(now.getTime() - 3 * 60 * 1000);
   try {
     const stuckPosts = await db.scheduledPost.updateMany({
       where: {
@@ -318,17 +320,24 @@ async function processPostsBatch(): Promise<NextResponse> {
           }
         }
 
-        const result = await publishToPlatform(
-          platform as PlatformType,
-          post.botId,
-          platformSpecificContent,
-          effectiveMediaPath,
-          effectiveMediaType,
-          effectiveMediaMime,
-          effectiveMediaId,
-          (post.postType as 'feed' | 'reel' | 'story' | 'carousel' | null) || null,
-          (post.mediaIds as string[] | null) || null
-        );
+        // Platform API timeout: 2 minutes max per platform publish
+        const PLATFORM_TIMEOUT_MS = 120_000;
+        const result = await Promise.race([
+          publishToPlatform(
+            platform as PlatformType,
+            post.botId,
+            platformSpecificContent,
+            effectiveMediaPath,
+            effectiveMediaType,
+            effectiveMediaMime,
+            effectiveMediaId,
+            (post.postType as 'feed' | 'reel' | 'story' | 'carousel' | null) || null,
+            (post.mediaIds as string[] | null) || null
+          ),
+          new Promise<{ success: false; error: string }>((_, reject) =>
+            setTimeout(() => reject(new Error(`Platform API timeout after ${PLATFORM_TIMEOUT_MS / 1000}s`)), PLATFORM_TIMEOUT_MS)
+          ).catch(err => ({ success: false as const, error: err instanceof Error ? err.message : 'Timeout' })),
+        ]);
 
         platformResults[platform] = result;
 
@@ -422,6 +431,15 @@ async function processPostsBatch(): Promise<NextResponse> {
           error: `${platformName} publishing failed unexpectedly: ${msg.slice(0, 400)}. If this keeps happening, try reconnecting ${platformName} in Platforms settings.`,
         };
         allSucceeded = false;
+
+        // Refund credits — deduction happened before the error was thrown
+        try {
+          const cost = await getActionCost('POST');
+          await addCredits(post.bot.userId, cost, 'REFUND', `Refund for failed ${platformName} post (error)`);
+        } catch (refundErr) {
+          console.error(`[process-posts] Credit refund failed for ${platform}:`,
+            refundErr instanceof Error ? refundErr.message : refundErr);
+        }
       }
     }
 

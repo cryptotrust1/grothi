@@ -132,7 +132,7 @@ export default async function BotSettingsPage({
         name: (formData.get('name') as string) || currentBot.name,
         brandName: (formData.get('brandName') as string) || currentBot.brandName,
         description: formData.get('description') as string,
-        instructions: (formData.get('instructions') as string) || currentBot.instructions,
+        instructions: ((formData.get('instructions') as string) || currentBot.instructions).slice(0, 5000),
         brandKnowledge: formData.get('brandKnowledge') as string,
         safetyLevel: safetyLevel as 'CONSERVATIVE' | 'MODERATE' | 'AGGRESSIVE',
         goal: goal as BotGoal,

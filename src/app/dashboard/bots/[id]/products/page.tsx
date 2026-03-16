@@ -30,6 +30,7 @@ export default async function ProductsPage({
   const products = await db.product.findMany({
     where: { botId: bot.id },
     orderBy: [{ isActive: 'desc' }, { updatedAt: 'desc' }],
+    take: 200,  // Safety limit to prevent unbounded queries
     include: {
       productMedia: {
         where: { isPrimary: true },
