@@ -101,10 +101,11 @@ async function collectEngagement(): Promise<NextResponse> {
   const existingEngagements = engagementKeys.length > 0
     ? await db.postEngagement.findMany({
         where: { OR: engagementKeys.map(k => ({ botId: k.botId, platform: k.platform as PlatformType, externalPostId: k.externalPostId })) },
-        select: { botId: true, platform: true, externalPostId: true },
+        select: { id: true, botId: true, platform: true, externalPostId: true, timeSlot: true, dayOfWeek: true, toneStyle: true, hashtagPattern: true, contentType: true },
       })
     : [];
   const engagementSet = new Set(existingEngagements.map(e => `${e.botId}:${e.platform}:${e.externalPostId}`));
+  const engagementMap = new Map(existingEngagements.map(e => [`${e.botId}:${e.platform}:${e.externalPostId}`, e]));
 
   let collected = 0;
   let errors = 0;
@@ -186,6 +187,7 @@ async function collectEngagement(): Promise<NextResponse> {
         const dayOfWeek = postTime.getDay();
 
         let engagementId: string;
+        const existingEngagement = engagementMap.get(`${post.botId}:${platform}:${result.externalId}`);
 
         if (existingEngagement) {
           await db.postEngagement.update({
