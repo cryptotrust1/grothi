@@ -279,10 +279,10 @@ export async function POST(request: NextRequest) {
           dailyVideos = rec.dailyVideos;
           dailyStories = rec.dailyStories;
         } else {
-          dailyTexts = plan!.dailyTexts;
-          dailyImages = plan!.dailyImages;
-          dailyVideos = plan!.dailyVideos;
-          dailyStories = plan!.dailyStories;
+          dailyTexts = plan?.dailyTexts ?? 1;
+          dailyImages = plan?.dailyImages ?? 0;
+          dailyVideos = plan?.dailyVideos ?? 0;
+          dailyStories = plan?.dailyStories ?? 0;
         }
 
         // Apply intensity multiplier
@@ -375,8 +375,30 @@ export async function POST(request: NextRequest) {
             continue;  // Skip this slot — too close to previous post
           }
 
-          let scheduledAt = new Date(date);
-          scheduledAt.setHours(slot.hour, Math.floor(Math.random() * 60), 0, 0);
+          // Schedule in the bot's timezone by creating a date string with explicit offset
+          const botTimezone = bot.timezone || 'UTC';
+          const dateStr = date.toISOString().slice(0, 10); // YYYY-MM-DD
+          const minute = Math.floor(Math.random() * 60);
+          let scheduledAt: Date;
+          try {
+            // Use Intl to convert bot's local hour to UTC
+            const localDateStr = `${dateStr}T${String(slot.hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
+            const formatter = new Intl.DateTimeFormat('en-US', { timeZone: botTimezone, timeZoneName: 'longOffset' });
+            // Create date assuming UTC, then adjust
+            const tempDate = new Date(localDateStr + 'Z');
+            const parts = formatter.formatToParts(tempDate);
+            // Fallback: use the date as-is if timezone conversion fails
+            scheduledAt = tempDate;
+            // Simple offset-based approach: get the timezone offset
+            const tzDate = new Date(new Date().toLocaleString('en-US', { timeZone: botTimezone }));
+            const utcDate = new Date(new Date().toLocaleString('en-US', { timeZone: 'UTC' }));
+            const offsetMs = utcDate.getTime() - tzDate.getTime();
+            scheduledAt = new Date(new Date(`${localDateStr}Z`).getTime() + offsetMs);
+          } catch {
+            // Fallback to server-local time if timezone is invalid
+            scheduledAt = new Date(date);
+            scheduledAt.setHours(slot.hour, minute, 0, 0);
+          }
 
           // Conflict detection: check if a post already exists at this platform+hour
           const slotKey = `${platform}:${scheduledAt.toISOString().slice(0, 13)}`;
@@ -386,8 +408,19 @@ export async function POST(request: NextRequest) {
             for (let offset = 1; offset <= 3; offset++) {
               const altHour = slot.hour + offset;
               if (altHour > 23) break;
-              const altAt = new Date(date);
-              altAt.setHours(altHour, Math.floor(Math.random() * 60), 0, 0);
+              // Use same timezone-aware approach for alt slots
+              const altMinute = Math.floor(Math.random() * 60);
+              const altLocalStr = `${dateStr}T${String(altHour).padStart(2, '0')}:${String(altMinute).padStart(2, '0')}:00`;
+              let altAt: Date;
+              try {
+                const tzD = new Date(new Date().toLocaleString('en-US', { timeZone: botTimezone }));
+                const utcD = new Date(new Date().toLocaleString('en-US', { timeZone: 'UTC' }));
+                const offMs = utcD.getTime() - tzD.getTime();
+                altAt = new Date(new Date(`${altLocalStr}Z`).getTime() + offMs);
+              } catch {
+                altAt = new Date(date);
+                altAt.setHours(altHour, altMinute, 0, 0);
+              }
               const altKey = `${platform}:${altAt.toISOString().slice(0, 13)}`;
               if (!occupiedSlots.has(altKey)) {
                 scheduledAt = altAt;

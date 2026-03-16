@@ -76,6 +76,17 @@ async function collectEngagement(): Promise<NextResponse> {
 
   console.log(`[collect-engagement] Found ${publishedPosts.length} posts to check`);
 
+  // Pre-fetch all needed platform connections in one query to avoid N+1
+  const botIds = [...new Set(publishedPosts.map(p => p.botId))];
+  const allConns = await db.platformConnection.findMany({
+    where: {
+      botId: { in: botIds },
+      platform: { in: [...SUPPORTED_PLATFORMS] as PlatformType[] },
+      status: 'CONNECTED',
+    },
+  });
+  const connMap = new Map(allConns.map(c => [`${c.botId}:${c.platform}`, c]));
+
   let collected = 0;
   let errors = 0;
 
@@ -90,13 +101,9 @@ async function collectEngagement(): Promise<NextResponse> {
       if (!result.success || !result.externalId) continue;
       if (!SUPPORTED_PLATFORMS.has(platform)) continue;
 
-      // Get platform connection
-      const conn = await db.platformConnection.findUnique({
-        where: {
-          botId_platform: { botId: post.botId, platform: platform as PlatformType },
-        },
-      });
-      if (!conn || conn.status !== 'CONNECTED') continue;
+      // Get platform connection from pre-fetched map
+      const conn = connMap.get(`${post.botId}:${platform}`);
+      if (!conn) continue;
 
       try {
         let engagement: { likes: number; comments: number; shares: number } | null = null;
@@ -253,8 +260,8 @@ async function collectEngagement(): Promise<NextResponse> {
         errors++;
       }
 
-      // Rate-limit friendly delay between API calls
-      await new Promise((r) => setTimeout(r, 1000));
+      // Rate-limit friendly delay between API calls (200ms sufficient for Meta API limits)
+      await new Promise((r) => setTimeout(r, 200));
     }
   }
 

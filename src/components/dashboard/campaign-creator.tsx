@@ -3,6 +3,14 @@
 import { useState, useRef } from 'react';
 import EmailDesigner from './email-designer';
 import type { EmailDesign } from '@/lib/email-designer-types';
+
+/** Strip dangerous HTML from user content for safe preview rendering. */
+function sanitizePreview(html: string): string {
+  return html
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/href\s*=\s*["']?\s*javascript:/gi, 'href="');
+}
 import { EMAIL_STARTER_TEMPLATES, TEMPLATE_CATEGORIES } from '@/lib/email-designer-templates';
 import type { TemplateCategory } from '@/lib/email-designer-templates';
 
@@ -540,7 +548,7 @@ function TemplateMiniPreview({ design }: { design: EmailDesign }) {
               {column.blocks.map((block) => (
                 <div key={block.id} style={{ padding: '2px 0' }}>
                   {block.type === 'heading' && <div style={{ fontSize: 16, fontWeight: 700, color: block.color || design.globalStyles.headingColor, textAlign: block.align, padding: '4px 8px' }}>{block.content}</div>}
-                  {block.type === 'text' && <div style={{ fontSize: 10, color: design.globalStyles.textColor, padding: '2px 8px', lineHeight: 1.3 }} dangerouslySetInnerHTML={{ __html: block.content.substring(0, 100) }} />}
+                  {block.type === 'text' && <div style={{ fontSize: 10, color: design.globalStyles.textColor, padding: '2px 8px', lineHeight: 1.3 }} dangerouslySetInnerHTML={{ __html: sanitizePreview(block.content.substring(0, 100)) }} />}
                   {block.type === 'button' && <div style={{ textAlign: block.align, padding: '4px 8px' }}><span style={{ display: 'inline-block', backgroundColor: block.backgroundColor || design.globalStyles.buttonBackgroundColor, color: block.textColor || design.globalStyles.buttonTextColor, padding: '4px 12px', borderRadius: block.borderRadius, fontSize: 9, fontWeight: 600 }}>{block.text}</span></div>}
                   {block.type === 'divider' && <hr style={{ border: 'none', borderTop: `1px solid ${block.color}`, margin: '4px 8px' }} />}
                   {block.type === 'spacer' && <div style={{ height: Math.min(block.height / 3, 10) }} />}

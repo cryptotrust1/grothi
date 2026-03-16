@@ -22,7 +22,11 @@ export async function GET(request: NextRequest) {
   if (!bot) return apiError.notFound('Bot');
 
   const where: Record<string, unknown> = { botId };
+  const VALID_STATUSES = ['DRAFT', 'SCHEDULED', 'PUBLISHING', 'PUBLISHED', 'FAILED', 'CANCELLED'];
   if (status && status !== 'ALL') {
+    if (!VALID_STATUSES.includes(status)) {
+      return NextResponse.json({ error: `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}` }, { status: 400 });
+    }
     where.status = status;
   }
   if (from || to) {
@@ -198,10 +202,31 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Helper: Find next optimal posting time
+// Helper: Find next optimal posting time (timezone-aware)
 function getNextOptimalTime(platforms: string[], timezone: string): Date {
   const now = new Date();
-  const isWeekend = now.getDay() === 0 || now.getDay() === 6;
+
+  // Get current hour in the bot's timezone
+  let currentHourInTz: number;
+  let isWeekend: boolean;
+  try {
+    const tzNow = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
+    currentHourInTz = tzNow.getHours();
+    isWeekend = tzNow.getDay() === 0 || tzNow.getDay() === 6;
+  } catch {
+    currentHourInTz = now.getHours();
+    isWeekend = now.getDay() === 0 || now.getDay() === 6;
+  }
+
+  // Calculate timezone offset for converting local hours to UTC
+  let offsetMs = 0;
+  try {
+    const tzDate = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
+    const utcDate = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' }));
+    offsetMs = utcDate.getTime() - tzDate.getTime();
+  } catch {
+    // Invalid timezone — use server time
+  }
 
   // Collect all optimal hours from selected platforms
   const allHours: number[] = [];
@@ -214,7 +239,6 @@ function getNextOptimalTime(platforms: string[], timezone: string): Date {
   }
 
   if (allHours.length === 0) {
-    // Default: next hour
     const next = new Date(now);
     next.setHours(next.getHours() + 1, 0, 0, 0);
     return next;
@@ -230,20 +254,21 @@ function getNextOptimalTime(platforms: string[], timezone: string): Date {
     .sort((a, b) => b[1] - a[1])
     .map(([h]) => parseInt(h));
 
-  const currentHour = now.getHours();
+  // Convert optimal local hours to UTC dates
+  const todayStr = now.toISOString().slice(0, 10);
 
-  // Find the next available optimal hour
+  // Find the next available optimal hour (in bot's timezone)
   for (const hour of sortedHours) {
-    if (hour > currentHour) {
-      const next = new Date(now);
-      next.setHours(hour, 0, 0, 0);
-      return next;
+    if (hour > currentHourInTz) {
+      const localStr = `${todayStr}T${String(hour).padStart(2, '0')}:00:00Z`;
+      return new Date(new Date(localStr).getTime() + offsetMs);
     }
   }
 
   // All optimal hours for today have passed - schedule for tomorrow
   const tomorrow = new Date(now);
   tomorrow.setDate(tomorrow.getDate() + 1);
-  tomorrow.setHours(sortedHours[0], 0, 0, 0);
-  return tomorrow;
+  const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+  const localStr = `${tomorrowStr}T${String(sortedHours[0]).padStart(2, '0')}:00:00Z`;
+  return new Date(new Date(localStr).getTime() + offsetMs);
 }

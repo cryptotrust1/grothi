@@ -244,6 +244,7 @@ model BotActivity {
 
   @@index([botId, createdAt])
   @@index([platform])
+  @@index([action, createdAt])  // Health-check queries by action type
 }
 
 enum ActionType {
@@ -320,6 +321,7 @@ model CreditTransaction {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+  @@index([stripePaymentId])  // Idempotency lookups in Stripe webhook
 }
 
 enum TxnType {
@@ -772,6 +774,8 @@ model ScheduledPost {
   @@index([botId, scheduledAt])
   @@index([scheduledAt])
   @@index([status, scheduledAt])
+  @@index([botId, source, status])   // Autopilot queries filter by source+status
+  @@index([status, updatedAt])       // Stuck post detection in process-posts
 }
 
 enum PostStatus {

@@ -318,17 +318,24 @@ async function processPostsBatch(): Promise<NextResponse> {
           }
         }
 
-        const result = await publishToPlatform(
-          platform as PlatformType,
-          post.botId,
-          platformSpecificContent,
-          effectiveMediaPath,
-          effectiveMediaType,
-          effectiveMediaMime,
-          effectiveMediaId,
-          (post.postType as 'feed' | 'reel' | 'story' | 'carousel' | null) || null,
-          (post.mediaIds as string[] | null) || null
-        );
+        // Platform API timeout: 2 minutes max per platform publish
+        const PLATFORM_TIMEOUT_MS = 120_000;
+        const result = await Promise.race([
+          publishToPlatform(
+            platform as PlatformType,
+            post.botId,
+            platformSpecificContent,
+            effectiveMediaPath,
+            effectiveMediaType,
+            effectiveMediaMime,
+            effectiveMediaId,
+            (post.postType as 'feed' | 'reel' | 'story' | 'carousel' | null) || null,
+            (post.mediaIds as string[] | null) || null
+          ),
+          new Promise<{ success: false; error: string }>((_, reject) =>
+            setTimeout(() => reject(new Error(`Platform API timeout after ${PLATFORM_TIMEOUT_MS / 1000}s`)), PLATFORM_TIMEOUT_MS)
+          ).catch(err => ({ success: false as const, error: err instanceof Error ? err.message : 'Timeout' })),
+        ]);
 
         platformResults[platform] = result;
 

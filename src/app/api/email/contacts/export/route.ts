@@ -28,9 +28,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'List not found' }, { status: 404 });
     }
 
+    const MAX_EXPORT = 50000;
     const contacts = await db.emailContact.findMany({
       where: { listId },
       orderBy: { createdAt: 'asc' },
+      take: MAX_EXPORT,
     });
 
     // Build CSV

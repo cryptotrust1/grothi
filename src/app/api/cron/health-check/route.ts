@@ -105,24 +105,30 @@ export async function POST(request: NextRequest) {
         distinct: ['userId'],
       });
 
+      // Batch-fetch all credit balances to avoid N+1 queries
+      const userIds = usersWithAutopilot.map(b => b.userId);
+      const allBalances = await db.creditBalance.findMany({
+        where: { userId: { in: userIds } },
+      });
+      const balanceMap = new Map(allBalances.map(b => [b.userId, b.balance]));
+
       for (const botData of usersWithAutopilot) {
-        const balance = await db.creditBalance.findUnique({
-          where: { userId: botData.userId },
-        });
-        const currentBalance = balance?.balance ?? 0;
+        const currentBalance = balanceMap.get(botData.userId) ?? 0;
 
         if (currentBalance < LOW_CREDIT_THRESHOLD) {
           // Count active bots and pending posts for context
-          const activeBots = await db.bot.count({
-            where: { userId: botData.userId, autonomousEnabled: true },
-          });
-          const pendingPosts = await db.scheduledPost.count({
-            where: {
-              bot: { userId: botData.userId },
-              source: 'AUTOPILOT',
-              status: { in: ['DRAFT', 'SCHEDULED'] },
-            },
-          });
+          const [activeBots, pendingPosts] = await Promise.all([
+            db.bot.count({
+              where: { userId: botData.userId, autonomousEnabled: true },
+            }),
+            db.scheduledPost.count({
+              where: {
+                bot: { userId: botData.userId },
+                source: 'AUTOPILOT',
+                status: { in: ['DRAFT', 'SCHEDULED'] },
+              },
+            }),
+          ]);
 
           await sendLowCreditWarningEmail(adminEmail, {
             userId: botData.userId,

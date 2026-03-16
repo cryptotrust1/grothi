@@ -2,6 +2,12 @@ import { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { requireAuth, hashPassword, verifyPassword, signOut } from '@/lib/auth';
 import { passwordSchema } from '@/lib/validations';
+import { createRateLimiter } from '@/lib/rate-limit';
+
+const passwordChangeLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  maxRequests: 5,            // 5 attempts per 15 min
+});
 import { db } from '@/lib/db';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -25,7 +31,8 @@ export default async function SettingsPage({
     'use server';
 
     const currentUser = await requireAuth();
-    const name = formData.get('name') as string;
+    const rawName = ((formData.get('name') as string) || '').trim();
+    const name = rawName.slice(0, 100); // Enforce max length server-side
 
     await db.user.update({
       where: { id: currentUser.id },
@@ -39,6 +46,12 @@ export default async function SettingsPage({
     'use server';
 
     const currentUser = await requireAuth();
+
+    // Rate limit password change attempts per user
+    if (!passwordChangeLimiter.check(`pwd:${currentUser.id}`)) {
+      redirect('/dashboard/settings?error=' + encodeURIComponent('Too many password change attempts. Please wait 15 minutes.'));
+    }
+
     const currentPassword = formData.get('currentPassword') as string;
     const newPassword = formData.get('newPassword') as string;
 
