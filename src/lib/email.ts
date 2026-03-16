@@ -212,7 +212,8 @@ export function prepareCampaignHtml(options: {
  * Input: `${sendId}:${url}` ties signature to both the send and the destination.
  */
 export function generateClickSignature(sendId: string, url: string): string {
-  const secret = process.env.NEXTAUTH_SECRET ?? '';
+  const secret = process.env.NEXTAUTH_SECRET || process.env.ENCRYPTION_KEY;
+  if (!secret) throw new Error('NEXTAUTH_SECRET or ENCRYPTION_KEY must be set for email signatures');
   return crypto
     .createHmac('sha256', secret)
     .update(`${sendId}:${url}`)
@@ -226,12 +227,13 @@ export function generateClickSignature(sendId: string, url: string): string {
  */
 export function verifyClickSignature(sendId: string, url: string, sig: string): boolean {
   if (!sig || sig.length !== 16) return false;
-  const expected = generateClickSignature(sendId, url);
   try {
-    return crypto.timingSafeEqual(
-      Buffer.from(sig.padEnd(16, '0'), 'hex'),
-      Buffer.from(expected, 'hex'),
-    );
+    const expected = generateClickSignature(sendId, url);
+    // Compare as fixed-length strings (both 16 hex chars) to guarantee equal buffer lengths
+    const sigBuf = Buffer.from(expected); // 16 bytes (UTF-8 of 16 hex chars)
+    const inputBuf = Buffer.from(sig);
+    if (sigBuf.length !== inputBuf.length) return false;
+    return crypto.timingSafeEqual(sigBuf, inputBuf);
   } catch {
     return false;
   }
@@ -290,7 +292,9 @@ export function checkDailyLimit(
 // ============ HMAC-SIGNED UNSUBSCRIBE URLs ============
 
 function getHmacSecret(): string {
-  return process.env.NEXTAUTH_SECRET || process.env.ENCRYPTION_KEY || '';
+  const secret = process.env.NEXTAUTH_SECRET || process.env.ENCRYPTION_KEY;
+  if (!secret) throw new Error('NEXTAUTH_SECRET or ENCRYPTION_KEY must be set for email signatures');
+  return secret;
 }
 
 /**
@@ -312,15 +316,20 @@ export function getSignedUnsubscribeUrl(contactId: string, listId: string, baseU
  * Verify an HMAC signature on an unsubscribe URL.
  */
 export function verifyUnsubscribeSignature(contactId: string, listId: string, signature: string): boolean {
-  const data = `${contactId}:${listId}`;
-  const expected = crypto
-    .createHmac('sha256', getHmacSecret())
-    .update(data)
-    .digest('hex')
-    .slice(0, 16);
-
+  if (!signature || signature.length !== 16) return false;
   try {
-    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+    const data = `${contactId}:${listId}`;
+    const expected = crypto
+      .createHmac('sha256', getHmacSecret())
+      .update(data)
+      .digest('hex')
+      .slice(0, 16);
+
+    // Compare as fixed-length strings (both 16 hex chars) to guarantee equal buffer lengths
+    const expectedBuf = Buffer.from(expected);
+    const signatureBuf = Buffer.from(signature);
+    if (expectedBuf.length !== signatureBuf.length) return false;
+    return crypto.timingSafeEqual(expectedBuf, signatureBuf);
   } catch {
     return false;
   }

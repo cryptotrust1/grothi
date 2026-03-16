@@ -281,12 +281,13 @@ async function processPostsBatch(): Promise<NextResponse> {
       : false;
 
     for (const platform of platforms) {
+      let platformCreditsDeducted = false;
       try {
         // Deduct credits BEFORE posting to prevent race conditions
         // If posting fails, we'll refund the credits
         const cost = await getActionCost('POST');
         const deducted = await deductCredits(post.bot.userId, cost, `Post to ${platform}`, post.botId);
-        
+
         if (!deducted) {
           const platformName = PLATFORM_NAMES[platform] || platform;
           platformResults[platform] = {
@@ -296,6 +297,7 @@ async function processPostsBatch(): Promise<NextResponse> {
           allSucceeded = false;
           continue;
         }
+        platformCreditsDeducted = true;
 
         // Resolve per-platform content/media overrides
         const overrides = (post.platformContent as Record<string, { content?: string; mediaId?: string }> | null)?.[platform];
@@ -432,8 +434,8 @@ async function processPostsBatch(): Promise<NextResponse> {
         };
         allSucceeded = false;
 
-        // Refund credits — deduction happened before the error was thrown
-        try {
+        // Refund credits only if they were actually deducted before the error
+        if (platformCreditsDeducted) try {
           const cost = await getActionCost('POST');
           await addCredits(post.bot.userId, cost, 'REFUND', `Refund for failed ${platformName} post (error)`);
         } catch (refundErr) {
