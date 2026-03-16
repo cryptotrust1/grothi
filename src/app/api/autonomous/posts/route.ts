@@ -63,7 +63,7 @@ export async function PATCH(request: NextRequest) {
       if (!content || typeof content !== 'string') {
         return NextResponse.json({ error: 'Missing content for edit' }, { status: 400 });
       }
-      if (content.length > 100000) {
+      if (content.length > 10000) {
         return NextResponse.json({ error: 'Content too long' }, { status: 400 });
       }
       // Allow editing DRAFT, SCHEDULED, and FAILED posts

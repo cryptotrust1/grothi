@@ -105,9 +105,10 @@ export default async function SettingsPage({
       // Best effort cleanup
     }
 
-    // Sign out (clear cookie) before deleting user
-    await signOut();
+    // Delete user first, then sign out (clear cookie)
+    // If signOut runs first, session is gone and delete may fail
     await db.user.delete({ where: { id: currentUser.id } });
+    await signOut();
     redirect('/');
   }
 

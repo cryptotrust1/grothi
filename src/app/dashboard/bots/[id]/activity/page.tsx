@@ -31,7 +31,8 @@ export default async function BotActivityPage({
   const bot = await db.bot.findFirst({ where: { id, userId: user.id } });
   if (!bot) notFound();
 
-  const page = Math.max(1, parseInt(sp.page || '1'));
+  const parsedPage = parseInt(sp.page || '1');
+  const page = Math.max(1, isNaN(parsedPage) ? 1 : parsedPage);
   const platformFilter = sp.platform && sp.platform !== 'ALL' ? sp.platform : undefined;
   const actionFilter = sp.action && sp.action !== 'ALL' ? sp.action : undefined;
   const statusFilter = sp.status && sp.status !== 'ALL' ? sp.status : undefined;
