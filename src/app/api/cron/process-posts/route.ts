@@ -161,7 +161,9 @@ async function processPostsBatch(): Promise<NextResponse> {
   // Recovery: Find posts stuck in PUBLISHING state for more than 5 minutes.
   // This happens when the process crashes or times out during publishing.
   // Reset them to FAILED so they don't block the queue forever.
-  const stuckThreshold = new Date(now.getTime() - 5 * 60 * 1000);
+  // 3 minutes: longer than the 2-minute platform timeout but short enough
+  // to prevent double-posting if cron crashes mid-publish (runs every 1 min)
+  const stuckThreshold = new Date(now.getTime() - 3 * 60 * 1000);
   try {
     const stuckPosts = await db.scheduledPost.updateMany({
       where: {
@@ -429,6 +431,15 @@ async function processPostsBatch(): Promise<NextResponse> {
           error: `${platformName} publishing failed unexpectedly: ${msg.slice(0, 400)}. If this keeps happening, try reconnecting ${platformName} in Platforms settings.`,
         };
         allSucceeded = false;
+
+        // Refund credits — deduction happened before the error was thrown
+        try {
+          const cost = await getActionCost('POST');
+          await addCredits(post.bot.userId, cost, 'REFUND', `Refund for failed ${platformName} post (error)`);
+        } catch (refundErr) {
+          console.error(`[process-posts] Credit refund failed for ${platform}:`,
+            refundErr instanceof Error ? refundErr.message : refundErr);
+        }
       }
     }
 
