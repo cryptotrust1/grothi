@@ -23,12 +23,22 @@ export async function GET(request: NextRequest) {
 
   // Verify signed state token (CSRF protection)
   let botId: string;
+  let stateUserId: string;
   try {
     const statePayload = await verifyOAuthState(state);
     botId = statePayload.botId;
+    stateUserId = statePayload.userId;
   } catch {
     return NextResponse.redirect(
       `${baseUrl}/dashboard?error=${encodeURIComponent('Invalid or expired OAuth state. Please try again.')}`
+    );
+  }
+
+  // Verify bot ownership — ensure the bot belongs to the user who initiated the flow
+  const bot = await db.bot.findFirst({ where: { id: botId, userId: stateUserId } });
+  if (!bot) {
+    return NextResponse.redirect(
+      `${baseUrl}/dashboard?error=${encodeURIComponent('Bot not found or access denied.')}`
     );
   }
 

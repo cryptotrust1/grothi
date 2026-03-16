@@ -713,7 +713,7 @@ async function publishToInstagram(
         error: tokenInfo.error,
       });
 
-      if (tokenInfo.isValid === false && !tokenInfo.error) {
+      if (tokenInfo.isValid === false && tokenInfo.error) {
         // Definitive answer: /me returned an API error with a specific error code.
         // This means the token is expired, revoked, or account is restricted.
         await markConnectionError(conn.id, `Token invalid: ${tokenInfo.error || 'unknown reason'}. Please reconnect Instagram.`);
