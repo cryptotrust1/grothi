@@ -62,13 +62,13 @@ async function generateAutonomousContent(): Promise<NextResponse> {
 
   // Recovery: Reset stale [GENERATING] posts that have been stuck for >5 minutes
   // This handles crashes where the cron claimed posts but died before completing
-  const tenMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
   await db.scheduledPost.updateMany({
     where: {
       source: 'AUTOPILOT',
       content: { startsWith: '[GENERATING]' },
       status: { in: ['DRAFT', 'SCHEDULED'] },
-      updatedAt: { lt: tenMinutesAgo },
+      updatedAt: { lt: fiveMinutesAgo },
     },
     data: { content: '[AUTOPILOT] Retry pending — recovered from stale generation lock' },
   });
@@ -196,6 +196,8 @@ async function generateAutonomousContent(): Promise<NextResponse> {
       const customHashtags = (platformPlan?.customHashtags as string) || null;
 
       // Deduct credits for content generation
+      // Track whether credits were deducted so outer catch only refunds if needed
+      let creditsDeducted = false;
       const cost = await getActionCost('GENERATE_CONTENT');
       const deducted = await deductCredits(
         post.bot.userId,
@@ -217,6 +219,7 @@ async function generateAutonomousContent(): Promise<NextResponse> {
         results.push({ postId: post.id, success: false, error: 'Insufficient credits' });
         continue;
       }
+      creditsDeducted = true;
 
       // Extract language and audience profile from reactor state
       const botReactor = (post.bot.reactorState as Record<string, unknown>) || {};
@@ -287,9 +290,8 @@ async function generateAutonomousContent(): Promise<NextResponse> {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       console.error(`[autonomous-content] Failed for post ${post.id}:`, msg);
 
-      // REFUND credits if they were deducted but generation failed
-      // (deductCredits sets `deducted = true` before the try block starts generating)
-      try {
+      // REFUND credits only if they were actually deducted before the error
+      if (creditsDeducted) try {
         const cost = await getActionCost('GENERATE_CONTENT');
         await addCredits(
           post.bot.userId,

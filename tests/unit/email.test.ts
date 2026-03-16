@@ -1,5 +1,12 @@
 import { checkDailyLimit, wrapLinksForTracking, getTrackingPixelUrl } from '@/lib/email';
 
+// Ensure HMAC secret is available for signature-dependent tests
+beforeAll(() => {
+  if (!process.env.NEXTAUTH_SECRET) {
+    process.env.NEXTAUTH_SECRET = 'test-secret-for-email-unit-tests';
+  }
+});
+
 describe('Email utilities', () => {
   describe('checkDailyLimit', () => {
     it('allows sending when under limit', () => {
