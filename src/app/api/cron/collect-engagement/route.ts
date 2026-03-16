@@ -77,11 +77,11 @@ async function collectEngagement(): Promise<NextResponse> {
   console.log(`[collect-engagement] Found ${publishedPosts.length} posts to check`);
 
   // Pre-fetch all needed platform connections in one query to avoid N+1
-  const botIds = [...new Set(publishedPosts.map(p => p.botId))];
+  const botIds = Array.from(new Set(publishedPosts.map(p => p.botId)));
   const allConns = await db.platformConnection.findMany({
     where: {
       botId: { in: botIds },
-      platform: { in: [...SUPPORTED_PLATFORMS] as PlatformType[] },
+      platform: { in: Array.from(SUPPORTED_PLATFORMS) as PlatformType[] },
       status: 'CONNECTED',
     },
   });
