@@ -103,6 +103,7 @@ export async function POST(request: NextRequest) {
           user: { select: { id: true, email: true, name: true } },
         },
         distinct: ['userId'],
+        take: 500,  // Safety limit to prevent unbounded query
       });
 
       // Batch-fetch all credit balances to avoid N+1 queries
@@ -112,23 +113,49 @@ export async function POST(request: NextRequest) {
       });
       const balanceMap = new Map(allBalances.map(b => [b.userId, b.balance]));
 
-      for (const botData of usersWithAutopilot) {
-        const currentBalance = balanceMap.get(botData.userId) ?? 0;
+      // Filter to only low-credit users before doing count queries
+      const lowCreditUsers = usersWithAutopilot.filter(
+        b => (balanceMap.get(b.userId) ?? 0) < LOW_CREDIT_THRESHOLD
+      );
 
-        if (currentBalance < LOW_CREDIT_THRESHOLD) {
-          // Count active bots and pending posts for context
-          const [activeBots, pendingPosts] = await Promise.all([
-            db.bot.count({
-              where: { userId: botData.userId, autonomousEnabled: true },
-            }),
-            db.scheduledPost.count({
+      // Batch-fetch bot counts and pending post counts for all low-credit users
+      const [botCounts, postCounts] = await Promise.all([
+        lowCreditUsers.length > 0
+          ? db.bot.groupBy({
+              by: ['userId'],
+              where: { userId: { in: lowCreditUsers.map(u => u.userId) }, autonomousEnabled: true },
+              _count: true,
+            })
+          : Promise.resolve([]),
+        lowCreditUsers.length > 0
+          ? db.scheduledPost.groupBy({
+              by: ['botId'],
               where: {
-                bot: { userId: botData.userId },
+                bot: { userId: { in: lowCreditUsers.map(u => u.userId) } },
                 source: 'AUTOPILOT',
                 status: { in: ['DRAFT', 'SCHEDULED'] },
               },
-            }),
-          ]);
+              _count: true,
+            })
+          : Promise.resolve([]),
+      ]);
+
+      const botCountMap = new Map(botCounts.map((g: { userId: string; _count: number }) => [g.userId, g._count]));
+      // Sum post counts per userId (posts are grouped by botId, need to aggregate to userId)
+      const postCountByUser = new Map<string, number>();
+      for (const u of lowCreditUsers) {
+        // Find bots belonging to this user
+        const userBotIds = usersWithAutopilot.filter(b => b.userId === u.userId).map(b => b.id);
+        const total = postCounts
+          .filter((g: { botId: string; _count: number }) => userBotIds.includes(g.botId))
+          .reduce((sum: number, g: { _count: number }) => sum + g._count, 0);
+        postCountByUser.set(u.userId, total);
+      }
+
+      for (const botData of lowCreditUsers) {
+        const currentBalance = balanceMap.get(botData.userId) ?? 0;
+        const activeBots = botCountMap.get(botData.userId) ?? 0;
+        const pendingPosts = postCountByUser.get(botData.userId) ?? 0;
 
           await sendLowCreditWarningEmail(adminEmail, {
             userId: botData.userId,

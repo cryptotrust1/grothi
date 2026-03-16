@@ -51,7 +51,12 @@ export async function POST(request: NextRequest) {
   if (!user) return apiError.unauthorized();
 
   try {
-    const body = await request.json();
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
     const { botId, content, contentType, mediaId, platforms, platformContent, scheduledAt, autoSchedule, postType, mediaIds, fbPostType, threadsPostType } = body;
 
     if (!botId || !content) return apiError.badRequest('botId and content are required');
