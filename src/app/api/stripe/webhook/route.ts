@@ -112,13 +112,20 @@ async function handleTopupPurchase(
   }
 
   const pack = await db.topupPack.findUnique({ where: { id: packId } });
+
+  // Use pack's official credit amount instead of metadata to prevent tampering
+  const verifiedCredits = pack ? pack.credits : credits;
+  if (pack && verifiedCredits !== credits) {
+    console.warn(`[Stripe] Credit mismatch: metadata=${credits}, pack=${pack.credits}. Using pack value.`);
+  }
+
   const amountPaid = (session.amount_total as number) || pack?.priceUsd || 0;
 
   const purchase = await db.topupPurchase.create({
     data: {
       userId,
       packId,
-      credits,
+      credits: verifiedCredits,
       amountPaid,
       stripePaymentId: paymentIntentId,
     },
@@ -127,14 +134,14 @@ async function handleTopupPurchase(
   // Top-up credits never expire
   await addCredits(
     userId,
-    credits,
+    verifiedCredits,
     'TOPUP',
-    `Top-up: +${credits} credits (${pack?.name || 'Pack'})`,
+    `Top-up: +${verifiedCredits} credits (${pack?.name || 'Pack'})`,
     paymentIntentId,
     { source: 'TOPUP', topupPurchaseId: purchase.id },
   );
 
-  console.log(`[Stripe] Top-up: added ${credits} credits to user ${userId}`);
+  console.log(`[Stripe] Top-up: added ${verifiedCredits} credits to user ${userId}`);
 
   // Affiliate commission
   await processAffiliateCommission(userId, amountPaid, 'TOPUP', paymentIntentId);
@@ -152,6 +159,13 @@ async function handleNewSubscription(
 
   if (!userId || !planId) {
     console.error(`[Stripe] Missing subscription metadata:`, metadata);
+    return;
+  }
+
+  // Validate planId exists in database
+  const plan = await db.subscriptionPlan.findUnique({ where: { id: planId } });
+  if (!plan || !plan.isActive) {
+    console.error(`[Stripe] Invalid or inactive plan ${planId} for user ${userId}`);
     return;
   }
 
@@ -427,28 +441,34 @@ async function handleRefund(charge: Record<string, unknown>) {
   }
 
   const refundAmount = originalTxn.amount;
-  const balance = await db.creditBalance.findUnique({ where: { userId: originalTxn.userId } });
-  const currentBalance = balance?.balance ?? 0;
-  const deductAmount = Math.min(refundAmount, currentBalance);
 
-  if (deductAmount > 0) {
-    await db.$transaction(async (tx) => {
-      const updated = await tx.creditBalance.update({
-        where: { userId: originalTxn.userId },
-        data: { balance: { decrement: deductAmount } },
-      });
-      await tx.creditTransaction.create({
-        data: {
-          userId: originalTxn.userId,
-          type: 'REFUND',
-          amount: -deductAmount,
-          balance: updated.balance,
-          description: `Refund: ${deductAmount} credits revoked (payment ${paymentIntentId})`,
-          stripePaymentId: `refund_${paymentIntentId}`,
-        },
-      });
+  // Atomic: read balance + clamp + deduct inside single transaction to prevent race condition
+  const deducted = await db.$transaction(async (tx) => {
+    const balance = await tx.creditBalance.findUnique({ where: { userId: originalTxn.userId } });
+    const currentBalance = balance?.balance ?? 0;
+    const deductAmount = Math.min(refundAmount, currentBalance);
+
+    if (deductAmount <= 0) return 0;
+
+    const updated = await tx.creditBalance.update({
+      where: { userId: originalTxn.userId },
+      data: { balance: { decrement: deductAmount } },
     });
-    console.log(`[Stripe] Refund: removed ${deductAmount} credits from user ${originalTxn.userId}`);
+    await tx.creditTransaction.create({
+      data: {
+        userId: originalTxn.userId,
+        type: 'REFUND',
+        amount: -deductAmount,
+        balance: updated.balance,
+        description: `Refund: ${deductAmount} credits revoked (payment ${paymentIntentId})`,
+        stripePaymentId: `refund_${paymentIntentId}`,
+      },
+    });
+    return deductAmount;
+  });
+
+  if (deducted > 0) {
+    console.log(`[Stripe] Refund: removed ${deducted} credits from user ${originalTxn.userId}`);
   }
 
   // Revoke pending affiliate commissions

@@ -69,7 +69,7 @@ export function validateCronSecret(authHeader: string | null): NextResponse | nu
   const cronSecret = process.env.CRON_SECRET;
   const token = authHeader?.replace('Bearer ', '');
 
-  if (!cronSecret || !token) {
+  if (!cronSecret || cronSecret.length < 16 || !token) {
     return apiError.unauthorized();
   }
 

@@ -60,6 +60,9 @@ export async function POST(request: NextRequest) {
     const { botId, content, contentType, mediaId, platforms, platformContent, scheduledAt, autoSchedule, postType, mediaIds, fbPostType, threadsPostType } = body;
 
     if (!botId || !content) return apiError.badRequest('botId and content are required');
+    if (typeof content !== 'string' || content.length > 10000) {
+      return NextResponse.json({ error: 'Content must be a string under 10,000 characters' }, { status: 400 });
+    }
 
     const bot = await db.bot.findFirst({ where: { id: botId, userId: user.id } });
     if (!bot) return apiError.notFound('Bot');
@@ -68,6 +71,9 @@ export async function POST(request: NextRequest) {
     const selectedPlatforms = Array.isArray(platforms) ? platforms : ['MASTODON'];
     if (selectedPlatforms.length === 0) {
       return NextResponse.json({ error: 'At least one platform required' }, { status: 400 });
+    }
+    if (selectedPlatforms.length > 17) {
+      return NextResponse.json({ error: 'Maximum 17 platforms allowed per post' }, { status: 400 });
     }
     const validPlatforms = new Set(ALL_PLATFORMS as readonly string[]);
     const invalidPlatforms = selectedPlatforms.filter((p: string) => !validPlatforms.has(p));
