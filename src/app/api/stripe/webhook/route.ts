@@ -441,28 +441,34 @@ async function handleRefund(charge: Record<string, unknown>) {
   }
 
   const refundAmount = originalTxn.amount;
-  const balance = await db.creditBalance.findUnique({ where: { userId: originalTxn.userId } });
-  const currentBalance = balance?.balance ?? 0;
-  const deductAmount = Math.min(refundAmount, currentBalance);
 
-  if (deductAmount > 0) {
-    await db.$transaction(async (tx) => {
-      const updated = await tx.creditBalance.update({
-        where: { userId: originalTxn.userId },
-        data: { balance: { decrement: deductAmount } },
-      });
-      await tx.creditTransaction.create({
-        data: {
-          userId: originalTxn.userId,
-          type: 'REFUND',
-          amount: -deductAmount,
-          balance: updated.balance,
-          description: `Refund: ${deductAmount} credits revoked (payment ${paymentIntentId})`,
-          stripePaymentId: `refund_${paymentIntentId}`,
-        },
-      });
+  // Atomic: read balance + clamp + deduct inside single transaction to prevent race condition
+  const deducted = await db.$transaction(async (tx) => {
+    const balance = await tx.creditBalance.findUnique({ where: { userId: originalTxn.userId } });
+    const currentBalance = balance?.balance ?? 0;
+    const deductAmount = Math.min(refundAmount, currentBalance);
+
+    if (deductAmount <= 0) return 0;
+
+    const updated = await tx.creditBalance.update({
+      where: { userId: originalTxn.userId },
+      data: { balance: { decrement: deductAmount } },
     });
-    console.log(`[Stripe] Refund: removed ${deductAmount} credits from user ${originalTxn.userId}`);
+    await tx.creditTransaction.create({
+      data: {
+        userId: originalTxn.userId,
+        type: 'REFUND',
+        amount: -deductAmount,
+        balance: updated.balance,
+        description: `Refund: ${deductAmount} credits revoked (payment ${paymentIntentId})`,
+        stripePaymentId: `refund_${paymentIntentId}`,
+      },
+    });
+    return deductAmount;
+  });
+
+  if (deducted > 0) {
+    console.log(`[Stripe] Refund: removed ${deducted} credits from user ${originalTxn.userId}`);
   }
 
   // Revoke pending affiliate commissions

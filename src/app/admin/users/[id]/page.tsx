@@ -84,6 +84,7 @@ export default async function AdminUserDetailPage({
     await requireAdmin();
     const credits = parseInt(formData.get('deductCredits') as string, 10);
     if (isNaN(credits) || credits <= 0) redirect(`/admin/users/${id}?error=Invalid amount`);
+    if (credits > 100000) redirect(`/admin/users/${id}?error=Cannot deduct more than 100,000 credits at once`);
 
     // Atomic deduction using transaction to prevent race conditions
     try {
