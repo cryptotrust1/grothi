@@ -157,18 +157,17 @@ export async function POST(request: NextRequest) {
         const activeBots = botCountMap.get(botData.userId) ?? 0;
         const pendingPosts = postCountByUser.get(botData.userId) ?? 0;
 
-          await sendLowCreditWarningEmail(adminEmail, {
-            userId: botData.userId,
-            userEmail: botData.user.email,
-            userName: botData.user.name || botData.user.email,
-            currentBalance,
-            threshold: LOW_CREDIT_THRESHOLD,
-            activeBots,
-            pendingPosts,
-          });
-          creditWarningsSent++;
-          console.log(`[health-check] Low credit warning sent for ${botData.user.email} (${currentBalance} credits)`);
-        }
+        await sendLowCreditWarningEmail(adminEmail, {
+          userId: botData.userId,
+          userEmail: botData.user.email,
+          userName: botData.user.name || botData.user.email,
+          currentBalance,
+          threshold: LOW_CREDIT_THRESHOLD,
+          activeBots,
+          pendingPosts,
+        });
+        creditWarningsSent++;
+        console.log(`[health-check] Low credit warning sent for ${botData.user.email} (${currentBalance} credits)`);
       }
     } catch (e) {
       console.error('[health-check] Credit monitoring failed:', e instanceof Error ? e.message : e);
