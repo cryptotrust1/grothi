@@ -112,13 +112,20 @@ async function handleTopupPurchase(
   }
 
   const pack = await db.topupPack.findUnique({ where: { id: packId } });
+
+  // Use pack's official credit amount instead of metadata to prevent tampering
+  const verifiedCredits = pack ? pack.credits : credits;
+  if (pack && verifiedCredits !== credits) {
+    console.warn(`[Stripe] Credit mismatch: metadata=${credits}, pack=${pack.credits}. Using pack value.`);
+  }
+
   const amountPaid = (session.amount_total as number) || pack?.priceUsd || 0;
 
   const purchase = await db.topupPurchase.create({
     data: {
       userId,
       packId,
-      credits,
+      credits: verifiedCredits,
       amountPaid,
       stripePaymentId: paymentIntentId,
     },
@@ -127,14 +134,14 @@ async function handleTopupPurchase(
   // Top-up credits never expire
   await addCredits(
     userId,
-    credits,
+    verifiedCredits,
     'TOPUP',
-    `Top-up: +${credits} credits (${pack?.name || 'Pack'})`,
+    `Top-up: +${verifiedCredits} credits (${pack?.name || 'Pack'})`,
     paymentIntentId,
     { source: 'TOPUP', topupPurchaseId: purchase.id },
   );
 
-  console.log(`[Stripe] Top-up: added ${credits} credits to user ${userId}`);
+  console.log(`[Stripe] Top-up: added ${verifiedCredits} credits to user ${userId}`);
 
   // Affiliate commission
   await processAffiliateCommission(userId, amountPaid, 'TOPUP', paymentIntentId);
@@ -152,6 +159,13 @@ async function handleNewSubscription(
 
   if (!userId || !planId) {
     console.error(`[Stripe] Missing subscription metadata:`, metadata);
+    return;
+  }
+
+  // Validate planId exists in database
+  const plan = await db.subscriptionPlan.findUnique({ where: { id: planId } });
+  if (!plan || !plan.isActive) {
+    console.error(`[Stripe] Invalid or inactive plan ${planId} for user ${userId}`);
     return;
   }
 

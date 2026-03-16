@@ -210,7 +210,6 @@ export const BOT_NAV_TABS = [
   { key: 'platforms', label: 'Platforms', path: '/platforms', icon: 'Globe', group: 'channels' },
   { key: 'email', label: 'Email Marketing', path: '/email', icon: 'Mail', group: 'channels' },
   { key: 'media', label: 'Media', path: '/media', icon: 'ImageIcon', group: 'create' },
-  { key: 'studio', label: 'Studio', path: '/studio', icon: 'Film', group: 'create' },
   { key: 'products', label: 'Products', path: '/products', icon: 'ShoppingBag', group: 'create' },
   { key: 'creative-style', label: 'Creative Style', path: '/creative-style', icon: 'Palette', group: 'create' },
   { key: 'activity', label: 'Activity', path: '/activity', icon: 'Activity', group: 'insights' },
