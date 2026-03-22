@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { deductCredits } from '@/lib/credits';
+import { deductCredits, addCredits } from '@/lib/credits';
 import { getModelById, getDefaultImageModel, buildModelInput, IMAGE_MODELS } from '@/lib/ai-models';
 import { PLATFORM_IMAGE_DIMENSIONS } from '@/lib/replicate';
 import { BOT_STORAGE_LIMIT_BYTES, BOT_STORAGE_LIMIT_MB } from '@/lib/constants';
@@ -153,19 +153,24 @@ export async function POST(request: NextRequest) {
       const apiMsg = apiError instanceof Error ? apiError.message : String(apiError);
       console.error(`Replicate API error (${model.name}):`, apiMsg);
 
+      // Refund credits since generation failed
+      await addCredits(user.id, creditCost, 'REFUND', `Refund: image generation failed (${model.name})`).catch(
+        (e: unknown) => console.error('Credit refund failed:', e instanceof Error ? e.message : e)
+      );
+
       if (apiMsg.includes('Invalid token') || apiMsg.includes('Unauthenticated') || apiMsg.includes('401')) {
         return NextResponse.json({
-          error: `Replicate API authentication failed. Your REPLICATE_API_TOKEN may be invalid or expired. Check your token at https://replicate.com/account/api-tokens. Error: ${apiMsg}`,
+          error: 'Image generation service authentication failed. Please contact support.',
         }, { status: 502 });
       }
       if (apiMsg.includes('rate limit') || apiMsg.includes('429')) {
         return NextResponse.json({
-          error: `Replicate rate limit reached. Wait a moment and try again. Error: ${apiMsg}`,
+          error: 'Image generation rate limit reached. Wait a moment and try again.',
         }, { status: 429 });
       }
       if (apiMsg.includes('billing') || apiMsg.includes('payment')) {
         return NextResponse.json({
-          error: `Replicate billing issue. Check your Replicate account billing at https://replicate.com/account/billing. Error: ${apiMsg}`,
+          error: 'Image generation service billing issue. Please contact support.',
         }, { status: 402 });
       }
 
@@ -188,13 +193,19 @@ export async function POST(request: NextRequest) {
       }
     } else {
       console.error('Replicate returned unexpected output:', JSON.stringify(output).slice(0, 500));
+      await addCredits(user.id, creditCost, 'REFUND', `Refund: image generation no output (${model.name})`).catch(
+        (e: unknown) => console.error('Credit refund failed:', e instanceof Error ? e.message : e)
+      );
       return NextResponse.json({
-        error: `Image generation returned no output. Replicate response type: ${typeof output}. This may be a temporary issue — try again.`,
+        error: 'Image generation returned no output. This may be a temporary issue — try again.',
       }, { status: 500 });
     }
 
     if (!imageUrl || !imageUrl.startsWith('http')) {
       console.error('Replicate returned invalid URL:', imageUrl);
+      await addCredits(user.id, creditCost, 'REFUND', `Refund: image generation invalid URL (${model.name})`).catch(
+        (e: unknown) => console.error('Credit refund failed:', e instanceof Error ? e.message : e)
+      );
       return NextResponse.json({
         error: 'Image generation returned invalid URL. This may be a temporary issue — try again.',
       }, { status: 500 });
@@ -208,6 +219,10 @@ export async function POST(request: NextRequest) {
       imageResponse = await fetch(imageUrl, { signal: dlController.signal });
     } catch (dlErr) {
       clearTimeout(dlTimeout);
+      // Refund credits since download failed
+      await addCredits(user.id, creditCost, 'REFUND', `Refund: image download failed (${model.name})`).catch(
+        (e: unknown) => console.error('Credit refund failed:', e instanceof Error ? e.message : e)
+      );
       if (dlErr instanceof DOMException && dlErr.name === 'AbortError') {
         return NextResponse.json({ error: 'Image download timed out. Try generating again.' }, { status: 504 });
       }
@@ -215,8 +230,12 @@ export async function POST(request: NextRequest) {
     }
     clearTimeout(dlTimeout);
     if (!imageResponse.ok) {
+      // Refund credits since download returned an error
+      await addCredits(user.id, creditCost, 'REFUND', `Refund: image download HTTP ${imageResponse.status} (${model.name})`).catch(
+        (e: unknown) => console.error('Credit refund failed:', e instanceof Error ? e.message : e)
+      );
       return NextResponse.json({
-        error: `Failed to download generated image from Replicate (HTTP ${imageResponse.status}). The image URL may have expired. Try generating again.`,
+        error: `Failed to download generated image (HTTP ${imageResponse.status}). Try generating again.`,
       }, { status: 500 });
     }
     const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
@@ -287,6 +306,19 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Image generation error:', message);
+
+    // Refund credits if they were deducted but generation failed
+    try {
+      const body = await request.clone().json().catch(() => ({}));
+      const bId = body.botId as string | undefined;
+      const modelId = body.modelId as string | undefined;
+      const m = modelId ? getModelById(modelId) : getDefaultImageModel();
+      if (m) {
+        await addCredits(user.id, m.creditCost, 'REFUND', `Refund for failed image generation (${m.name})`, undefined, { source: 'BONUS' });
+      }
+    } catch (refundErr) {
+      console.error('Image generation credit refund failed:', refundErr instanceof Error ? refundErr.message : refundErr);
+    }
 
     return NextResponse.json({
       error: `Image generation failed: ${message}`,

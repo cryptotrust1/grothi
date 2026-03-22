@@ -293,6 +293,8 @@ export async function allocateSubscriptionCredits(
   stripeInvoiceId?: string,
 ): Promise<void> {
   await db.$transaction(async (tx) => {
+    const now = new Date();
+
     // 1. Handle rollover from previous period
     if (allowRollover && maxRolloverCredits > 0) {
       // Sum up remaining SUBSCRIPTION credits from previous period
@@ -403,7 +405,6 @@ export async function allocateSubscriptionCredits(
     }
 
     // 3. Recalculate total balance from all ledger entries
-    const now = new Date();
     const allEntries = await tx.creditLedger.findMany({
       where: {
         userId,
