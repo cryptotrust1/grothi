@@ -596,7 +596,7 @@ async function generateContent(
   }
 
   if (params.bot.targetUrl) {
-    const campaign = params.bot.brandName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const campaign = (params.bot.brandName || params.bot.name || 'brand').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'brand';
     let utm = `?utm_source=${encodeURIComponent(params.bot.utmSource || 'grothi')}&utm_medium=${encodeURIComponent(params.bot.utmMedium || 'social')}&utm_campaign=${encodeURIComponent(campaign)}`;
     if (params.bot.gaPropertyId) {
       utm += `&utm_content=${encodeURIComponent(platformName.toLowerCase())}`;
@@ -633,7 +633,7 @@ async function generateContent(
       userPrompt += `\nSpecial instructions: ${params.product.aiInstructions}`;
     }
     if (params.product.url) {
-      const prodCampaign = params.bot.brandName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      const prodCampaign = (params.bot.brandName || params.bot.name || 'brand').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'brand';
       let prodUtm = `?utm_source=${encodeURIComponent(params.bot.utmSource || 'grothi')}&utm_medium=${encodeURIComponent(params.bot.utmMedium || 'social')}&utm_campaign=${encodeURIComponent(prodCampaign)}`;
       if (params.bot.gaPropertyId) {
         prodUtm += `&utm_content=${encodeURIComponent(platformName.toLowerCase())}`;
