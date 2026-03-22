@@ -722,10 +722,10 @@ async function generateContent(
   }
 
   // ── SEO keyword density (search-driven platforms) ──
-  const keywords = Array.isArray(params.bot.keywords) ? (params.bot.keywords as string[]).slice(0, 5) : [];
+  const seoKeywords = Array.isArray(params.bot.keywords) ? (params.bot.keywords as string[]).slice(0, 5) : [];
   const seoPlatforms = ['LINKEDIN', 'YOUTUBE', 'PINTEREST', 'MEDIUM', 'DEVTO', 'REDDIT'];
-  if (keywords.length > 0 && seoPlatforms.includes(params.platform)) {
-    userPrompt += `\n- SEO: Naturally include the primary keyword "${keywords[0]}" 2-3 times in the text`;
+  if (seoKeywords.length > 0 && seoPlatforms.includes(params.platform)) {
+    userPrompt += `\n- SEO: Naturally include the primary keyword "${seoKeywords[0]}" 2-3 times in the text`;
     userPrompt += `\n- Place the most important keyword within the first 50 characters for search ranking`;
   }
 

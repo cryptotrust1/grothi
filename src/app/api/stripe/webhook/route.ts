@@ -428,6 +428,15 @@ async function handleRefund(charge: Record<string, unknown>) {
   const paymentIntentId = charge.payment_intent as string;
   if (!paymentIntentId) return;
 
+  // Idempotency: check if this refund was already processed
+  const existingRefund = await db.creditTransaction.findFirst({
+    where: { stripePaymentId: `refund_${paymentIntentId}` },
+  });
+  if (existingRefund) {
+    console.log(`[Stripe] Duplicate refund webhook for payment ${paymentIntentId}, skipping`);
+    return;
+  }
+
   const originalTxn = await db.creditTransaction.findFirst({
     where: {
       stripePaymentId: paymentIntentId,

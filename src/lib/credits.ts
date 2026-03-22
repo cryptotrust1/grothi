@@ -315,12 +315,16 @@ export async function allocateSubscriptionCredits(
         });
       }
 
-      // Also zero out old ROLLOVER entries
+      // Also zero out old ROLLOVER entries (only non-expired ones count)
       const prevRollovers = await tx.creditLedger.findMany({
         where: {
           userId,
           source: 'ROLLOVER',
           remaining: { gt: 0 },
+          OR: [
+            { expiresAt: null },
+            { expiresAt: { gt: now } },
+          ],
         },
       });
 
