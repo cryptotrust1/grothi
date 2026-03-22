@@ -117,9 +117,9 @@ describe('RL Engine', () => {
         { likes: 10, comments: 5, shares: 2, saves: 3 },
         'FACEBOOK'
       );
-      // 10*1 + 5*3 + 2*5 + 3*2 = 10 + 15 + 10 + 6 = 41
+      // Facebook platform weights: L*1 + C*3 + S*6 + saves*2 = 10+15+12+6 = 43
       // Facebook bonus: shares * 2 = 2*2 = 4
-      expect(score).toBe(45);
+      expect(score).toBe(47);
     });
 
     it('handles zero metrics', () => {
@@ -130,13 +130,13 @@ describe('RL Engine', () => {
       expect(score).toBe(0);
     });
 
-    it('applies platform-specific bonus for Instagram saves', () => {
+    it('applies platform-specific weights for Instagram saves', () => {
       const score = computeEngagementScore(
         { likes: 0, comments: 0, shares: 0, saves: 10 },
         'INSTAGRAM'
       );
-      // Base: 10 * 2 = 20, bonus: 10 * 1 = 10
-      expect(score).toBe(30);
+      // Instagram platform weights: saves*6 = 60, bonus: saves*1 = 10
+      expect(score).toBe(70);
     });
 
     it('applies watch time bonus for TikTok', () => {
