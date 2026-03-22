@@ -35,11 +35,9 @@ import type { PlatformType, PostSource } from '@prisma/client';
 /** Maximum posts to generate in a single plan */
 const MAX_PLAN_POSTS = 300;
 
-/**
- * Parse a cron hour field (e.g. "9,13,18" or "*/3") into an array of hours (0-23).
- * Used to convert bot.postingSchedule into posting hours for plan generation.
- * Returns null if the cron expression is empty/invalid.
- */
+// Parse a cron hour field (e.g. "9,13,18" or "* /3") into an array of hours (0-23).
+// Used to convert bot.postingSchedule into posting hours for plan generation.
+// Returns null if the cron expression is empty/invalid.
 function parseCronToHours(cronExpression: string | null): number[] | null {
   if (!cronExpression || cronExpression.trim() === '') return null;
   const parts = cronExpression.trim().split(/\s+/);
