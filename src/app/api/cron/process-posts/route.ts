@@ -48,7 +48,7 @@ import {
   isTokenNearExpiry,
   type ThreadsPostResult,
 } from '@/lib/threads';
-import { processEngagementFeedback } from '@/lib/rl-engine';
+import { processEngagementFeedback, checkSpamLimits } from '@/lib/rl-engine';
 import { PLATFORM_NAMES } from '@/lib/constants';
 import type { PlatformType, PlatformConnection } from '@prisma/client';
 import path from 'path';
@@ -225,7 +225,7 @@ async function processPostsBatch(): Promise<NextResponse> {
   const duePosts = await db.scheduledPost.findMany({
     where: { id: { in: claimResult } },
     include: {
-      bot: { select: { id: true, userId: true, name: true, status: true } },
+      bot: { select: { id: true, userId: true, name: true, status: true, safetyLevel: true, reactorState: true, gaPropertyId: true, utmSource: true, utmMedium: true } },
       media: { select: { id: true, filePath: true, type: true, mimeType: true } },
     },
   });
@@ -283,6 +283,26 @@ async function processPostsBatch(): Promise<NextResponse> {
     for (const platform of platforms) {
       let platformCreditsDeducted = false;
       try {
+        // Check spam/rate limits before publishing — prevents over-posting
+        const botReactor = (post.bot.reactorState as Record<string, unknown>) || {};
+        const userMaxPosts = typeof botReactor.maxPostsPerDay === 'number' ? botReactor.maxPostsPerDay : undefined;
+        const spamCheck = await checkSpamLimits(
+          post.botId,
+          platform as PlatformType,
+          post.bot.safetyLevel,
+          userMaxPosts
+        );
+        if (!spamCheck.allowed) {
+          const platformName = PLATFORM_NAMES[platform] || platform;
+          platformResults[platform] = {
+            success: false,
+            error: `${platformName}: ${spamCheck.reason}. The post will be retried later.`,
+          };
+          allSucceeded = false;
+          // Requeue — push scheduledAt forward so it's picked up on next cycle
+          continue;
+        }
+
         // Deduct credits BEFORE posting to prevent race conditions
         // If posting fails, we'll refund the credits
         const cost = await getActionCost('POST');

@@ -16,6 +16,9 @@ import { PlatformType } from '@prisma/client';
 
 export const metadata: Metadata = { title: 'Bot Platforms', robots: { index: false } };
 
+/** Platforms with active auto-publishing support in process-posts cron */
+const PUBLISHING_SUPPORTED: Set<string> = new Set(['FACEBOOK', 'INSTAGRAM', 'THREADS']);
+
 const platformConfigs: Record<string, {
   name: string;
   category: 'social' | 'blog' | 'messaging' | 'decentralized';
@@ -476,11 +479,18 @@ export default async function BotPlatformsPage({ params, searchParams }: {
                     <CardHeader className="pb-2">
                       <div className="flex items-center justify-between">
                         <CardTitle className="text-base">{config.name}</CardTitle>
-                        {isConnected && (
-                          <Badge variant={conn?.status === 'ERROR' ? 'destructive' : 'success'} className="text-xs">
-                            {conn?.status === 'ERROR' ? 'Error' : 'Connected'}
-                          </Badge>
-                        )}
+                        <div className="flex items-center gap-1.5">
+                          {isConnected && (
+                            <Badge variant={conn?.status === 'ERROR' ? 'destructive' : 'success'} className="text-xs">
+                              {conn?.status === 'ERROR' ? 'Error' : 'Connected'}
+                            </Badge>
+                          )}
+                          {isConnected && !PUBLISHING_SUPPORTED.has(key) && (
+                            <Badge variant="warning" className="text-xs">
+                              Publishing soon
+                            </Badge>
+                          )}
+                        </div>
                       </div>
                       <p className="text-xs text-blue-600 dark:text-blue-400">{config.algTip}</p>
                       {isConnected && oauthLabel && (
@@ -501,6 +511,11 @@ export default async function BotPlatformsPage({ params, searchParams }: {
                             <p className="line-clamp-2 italic">{connConfig.igBio}</p>
                           )}
                         </div>
+                      )}
+                      {isConnected && !PUBLISHING_SUPPORTED.has(key) && (
+                        <p className="text-xs text-amber-700 mt-1">
+                          Auto-publishing for {config.name} is coming soon. You can save credentials now — they will be used once publishing is enabled.
+                        </p>
                       )}
                       {conn?.lastError && (
                         <p className="text-xs text-red-600 mt-1">Last error: {conn.lastError}</p>

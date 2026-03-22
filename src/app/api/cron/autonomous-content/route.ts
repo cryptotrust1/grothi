@@ -122,6 +122,7 @@ async function generateAutonomousContent(): Promise<NextResponse> {
           targetUrl: true,
           utmSource: true,
           utmMedium: true,
+          gaPropertyId: true,
           creativePreferences: true,
           rssFeeds: true,
           reactorState: true,
@@ -370,6 +371,7 @@ async function generateContent(
       targetUrl: string | null;
       utmSource: string | null;
       utmMedium: string | null;
+      gaPropertyId: string | null;
     };
     product: {
       name: string;
@@ -594,7 +596,11 @@ async function generateContent(
   }
 
   if (params.bot.targetUrl) {
-    const utm = `?utm_source=${params.bot.utmSource || 'grothi'}&utm_medium=${params.bot.utmMedium || 'social'}`;
+    const campaign = params.bot.brandName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    let utm = `?utm_source=${encodeURIComponent(params.bot.utmSource || 'grothi')}&utm_medium=${encodeURIComponent(params.bot.utmMedium || 'social')}&utm_campaign=${encodeURIComponent(campaign)}`;
+    if (params.bot.gaPropertyId) {
+      utm += `&utm_content=${encodeURIComponent(platformName.toLowerCase())}`;
+    }
     systemParts.push(`- Target URL: ${params.bot.targetUrl}${utm}`);
     systemParts.push(`- Include the URL naturally when appropriate (not forced)`);
   }
@@ -627,8 +633,12 @@ async function generateContent(
       userPrompt += `\nSpecial instructions: ${params.product.aiInstructions}`;
     }
     if (params.product.url) {
-      const utm = `?utm_source=${params.bot.utmSource || 'grothi'}&utm_medium=${params.bot.utmMedium || 'social'}`;
-      userPrompt += `\nProduct URL: ${params.product.url}${utm}`;
+      const prodCampaign = params.bot.brandName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      let prodUtm = `?utm_source=${encodeURIComponent(params.bot.utmSource || 'grothi')}&utm_medium=${encodeURIComponent(params.bot.utmMedium || 'social')}&utm_campaign=${encodeURIComponent(prodCampaign)}`;
+      if (params.bot.gaPropertyId) {
+        prodUtm += `&utm_content=${encodeURIComponent(platformName.toLowerCase())}`;
+      }
+      userPrompt += `\nProduct URL: ${params.product.url}${prodUtm}`;
     }
   }
 
