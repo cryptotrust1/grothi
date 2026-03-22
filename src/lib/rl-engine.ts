@@ -727,6 +727,40 @@ export async function checkSpamLimits(
   return { allowed: true };
 }
 
+/**
+ * Check if the bot has reached its daily reply limit.
+ * Uses the user-configured maxRepliesPerDay from reactorState.
+ * Returns { allowed: false } if the limit is reached.
+ */
+export async function checkReplyLimits(
+  botId: string,
+  platform: PlatformType,
+  userMaxRepliesPerDay: number = 20
+): Promise<{ allowed: boolean; reason?: string }> {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const repliesToday = await db.botActivity.count({
+    where: {
+      botId,
+      platform,
+      action: 'REPLY',
+      createdAt: { gte: today },
+      success: true,
+    },
+  });
+
+  const effectiveLimit = Math.max(0, Math.min(100, userMaxRepliesPerDay));
+  if (effectiveLimit === 0) {
+    return { allowed: false, reason: 'Automated replies are disabled (maxRepliesPerDay = 0)' };
+  }
+  if (repliesToday >= effectiveLimit) {
+    return { allowed: false, reason: `Daily reply limit reached (${effectiveLimit}/day)` };
+  }
+
+  return { allowed: true };
+}
+
 // ============ CONTENT FINGERPRINTING ============
 //
 // Deterministic heuristic analysis of post content to automatically detect:

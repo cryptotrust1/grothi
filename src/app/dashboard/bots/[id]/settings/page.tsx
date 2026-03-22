@@ -9,12 +9,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Rss, Clock, Trash2, Target, Key, ArrowRight, Brain, Zap, AlertTriangle } from 'lucide-react';
+import { Rss, Clock, Trash2, Target, Key, BarChart3, ArrowRight, Brain, Zap, AlertTriangle } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { HelpTip } from '@/components/ui/help-tip';
 import { AlertMessage } from '@/components/ui/alert-message';
 import { BotGoal } from '@prisma/client';
-import { TIMEZONES, GOAL_OPTIONS, SAFETY_LEVEL_OPTIONS, RSS_ADAPTATION_MODES, RSS_FRESHNESS_OPTIONS, POST_LANGUAGES } from '@/lib/constants';
+import { SCHEDULE_PRESETS, TIMEZONES, GOAL_OPTIONS, SAFETY_LEVEL_OPTIONS, RSS_ADAPTATION_MODES, RSS_FRESHNESS_OPTIONS, POST_LANGUAGES } from '@/lib/constants';
 import { parseKeywords } from '@/lib/utils';
 import { DEFAULT_RSS_SETTINGS, type RssIntelligenceSettings } from '@/lib/rss-intelligence';
 
@@ -37,6 +37,7 @@ export default async function BotSettingsPage({
   const rssFeeds = Array.isArray(bot.rssFeeds) ? (bot.rssFeeds as string[]) : [];
   const reactorState = (bot.reactorState as Record<string, unknown>) || {};
   const maxPostsPerDay = (reactorState.maxPostsPerDay as number) || 10;
+  const maxRepliesPerDay = (reactorState.maxRepliesPerDay as number) || 20;
   const keywords = Array.isArray(bot.keywords) ? (bot.keywords as string[]) : [];
 
   // Global post language
@@ -122,6 +123,9 @@ export default async function BotSettingsPage({
     const rawMaxPosts = parseInt(formData.get('maxPostsPerDay') as string, 10);
     const maxPostsPerDay = isNaN(rawMaxPosts) ? 10 : Math.max(1, Math.min(50, rawMaxPosts));
 
+    const rawMaxReplies = parseInt(formData.get('maxRepliesPerDay') as string, 10);
+    const maxRepliesPerDay = isNaN(rawMaxReplies) ? 20 : Math.max(0, Math.min(100, rawMaxReplies));
+
     await db.bot.update({
       where: { id },
       data: {
@@ -136,11 +140,14 @@ export default async function BotSettingsPage({
         keywords: keywordsArr.length > 0 ? keywordsArr : [],
         utmSource: (formData.get('utmSource') as string) || 'grothi',
         utmMedium: (formData.get('utmMedium') as string) || 'social',
+        gaPropertyId: (formData.get('gaPropertyId') as string) || null,
+        postingSchedule: formData.get('postingSchedule') as string,
         timezone,
         rssFeeds: feeds,
         reactorState: {
           ...currentReactor,
           maxPostsPerDay,
+          maxRepliesPerDay,
           postLanguage: postLang,
           rssIntelligence: rssIntelligenceData,
         },
@@ -314,6 +321,34 @@ export default async function BotSettingsPage({
           </CardContent>
         </Card>
 
+        {/* Google Analytics Tracking */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><BarChart3 className="h-5 w-5" /> Google Analytics Tracking</CardTitle>
+            <CardDescription>Track bot-driven traffic with UTM parameters and GA4</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5">
+                <Label>GA4 Measurement ID</Label>
+                <HelpTip text="Your Google Analytics 4 Measurement ID (starts with G-). Used to generate utm_campaign parameters for all links and to provide a direct link to your GA4 dashboard." />
+              </div>
+              <Input name="gaPropertyId" defaultValue={bot.gaPropertyId || ''} placeholder="G-XXXXXXXXXX" />
+              <p className="text-xs text-muted-foreground">
+                Every link the bot shares includes UTM tracking parameters. Enter your GA4 ID to automatically generate utm_campaign tags for all posts.
+              </p>
+            </div>
+            {bot.gaPropertyId && (
+              <div className="rounded-lg bg-green-50/50 border border-green-200 p-3 text-sm">
+                <p className="font-medium text-green-900">Tracking active</p>
+                <p className="text-xs text-green-700 mt-1">
+                  UTM parameters: <code className="bg-background px-1 rounded">utm_source={bot.utmSource || 'grothi'}&amp;utm_medium={bot.utmMedium || 'social'}&amp;utm_campaign={bot.name.toLowerCase().replace(/\s+/g, '-')}</code>
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         {/* Scheduling & Limits */}
         <Card className="mt-6">
           <CardHeader>
@@ -321,7 +356,16 @@ export default async function BotSettingsPage({
             <CardDescription>Control posting frequency and safety</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <Label>Posting Schedule</Label>
+                  <HelpTip text="Global posting schedule used as fallback when Autopilot generates plans. If set, these hours override the platform algorithm defaults for post timing. Per-platform posting hours (in Content Strategy) take priority over this." />
+                </div>
+                <select name="postingSchedule" defaultValue={bot.postingSchedule || ''} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                  {SCHEDULE_PRESETS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+                </select>
+              </div>
               <div className="space-y-2">
                 <Label>Timezone</Label>
                 <select name="timezone" defaultValue={bot.timezone} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
@@ -337,12 +381,22 @@ export default async function BotSettingsPage({
                   {SAFETY_LEVEL_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
                 </select>
               </div>
+            </div>
+            <Separator />
+            <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <div className="flex items-center gap-1.5">
                   <Label>Max Posts / Day</Label>
-                  <HelpTip text="The maximum number of new posts the bot can create per day across all connected platforms. Higher values consume more credits. Recommended: 5-15 for most use cases." />
+                  <HelpTip text="Maximum new posts per day across all platforms. The bot will stop posting once this limit is reached. Works together with Safety Level limits — the stricter value applies." />
                 </div>
                 <Input name="maxPostsPerDay" type="number" min={1} max={50} defaultValue={maxPostsPerDay} />
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <Label>Max Replies / Day</Label>
+                  <HelpTip text="Maximum automated replies per day across all platforms. Controls how many engagement replies the bot can send. Set to 0 to disable automated replies." />
+                </div>
+                <Input name="maxRepliesPerDay" type="number" min={0} max={100} defaultValue={maxRepliesPerDay} />
               </div>
             </div>
           </CardContent>

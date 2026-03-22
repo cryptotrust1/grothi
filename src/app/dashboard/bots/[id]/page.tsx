@@ -274,6 +274,12 @@ export default async function BotDetailPage({
                 <span className="text-sm font-medium">{rssFeeds.length} sources</span>
               </div>
               <div className="flex items-center justify-between">
+                <span className="text-sm">GA4 Tracking</span>
+                <Badge variant={bot.gaPropertyId ? 'success' : 'secondary'}>
+                  {bot.gaPropertyId ? 'Active' : 'Not set'}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between">
                 <span className="text-sm flex items-center gap-1">Safety Level <HelpTip text="Conservative: max 5 posts/day, safest. Moderate: 10 posts/day, balanced. Aggressive: 20 posts/day, higher engagement but more visibility." /></span>
                 <Badge variant={bot.safetyLevel === 'AGGRESSIVE' ? 'warning' : bot.safetyLevel === 'CONSERVATIVE' ? 'success' : 'secondary'}>
                   {bot.safetyLevel}

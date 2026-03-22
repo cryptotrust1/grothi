@@ -35,6 +35,53 @@ import type { PlatformType, PostSource } from '@prisma/client';
 /** Maximum posts to generate in a single plan */
 const MAX_PLAN_POSTS = 300;
 
+/**
+ * Parse a cron hour field (e.g. "9,13,18" or "*/3") into an array of hours (0-23).
+ * Used to convert bot.postingSchedule into posting hours for plan generation.
+ * Returns null if the cron expression is empty/invalid.
+ */
+function parseCronToHours(cronExpression: string | null): number[] | null {
+  if (!cronExpression || cronExpression.trim() === '') return null;
+  const parts = cronExpression.trim().split(/\s+/);
+  // Standard cron: minute hour day month weekday
+  if (parts.length < 2) return null;
+  const hourField = parts[1];
+
+  const hours: number[] = [];
+  // Handle each comma-separated segment
+  for (const segment of hourField.split(',')) {
+    const trimmed = segment.trim();
+    // */N pattern (every N hours)
+    const stepMatch = trimmed.match(/^\*\/(\d+)$/);
+    if (stepMatch) {
+      const step = parseInt(stepMatch[1], 10);
+      if (step >= 1 && step <= 24) {
+        for (let h = 0; h < 24; h += step) hours.push(h);
+      }
+      continue;
+    }
+    // Single number
+    const num = parseInt(trimmed, 10);
+    if (!isNaN(num) && num >= 0 && num <= 23) {
+      hours.push(num);
+      continue;
+    }
+    // Range: start-end
+    const rangeMatch = trimmed.match(/^(\d+)-(\d+)$/);
+    if (rangeMatch) {
+      const start = parseInt(rangeMatch[1], 10);
+      const end = parseInt(rangeMatch[2], 10);
+      if (start >= 0 && end <= 23 && start <= end) {
+        for (let h = start; h <= end; h++) hours.push(h);
+      }
+      continue;
+    }
+    // Wildcard *
+    if (trimmed === '*') return null; // * means every hour — not useful as override
+  }
+  return hours.length > 0 ? [...new Set(hours)].sort((a, b) => a - b) : null;
+}
+
 interface GeneratePlanRequest {
   botId: string;
   duration?: number;  // 3, 5, 7, 14, 30, or 60 days
@@ -304,11 +351,15 @@ export async function POST(request: NextRequest) {
           dailyVideos = Math.max(0, Math.ceil(dailyVideos * 0.7));
         }
 
-        // Get posting hours — priority: user plan > RL best time slot > algorithm optimal hours
+        // Get posting hours — priority: user plan > bot postingSchedule > RL best time slot > algorithm optimal hours
         let postingHours: number[];
+        const botScheduleHours = parseCronToHours(bot.postingSchedule);
         if (plan?.postingHours) {
-          // User-configured posting hours take highest priority
+          // User-configured per-platform posting hours take highest priority
           postingHours = plan.postingHours as number[];
+        } else if (botScheduleHours) {
+          // Bot-level posting schedule (cron expression from settings) as fallback
+          postingHours = botScheduleHours;
         } else {
           // Use the algorithm's optimal hours helper (sorted by engagement data)
           postingHours = getOptimalHoursForPlatform(platform);
