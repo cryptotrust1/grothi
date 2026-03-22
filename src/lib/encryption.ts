@@ -34,6 +34,17 @@ export function decrypt(encryptedData: string): string {
   }
   const [ivHex, authTagHex, encrypted] = parts;
 
+  // Validate IV and authTag are valid hex of correct length
+  if (!/^[0-9a-fA-F]{32}$/.test(ivHex)) {
+    throw new Error('Invalid encrypted data: IV must be 32 hex characters (16 bytes)');
+  }
+  if (!/^[0-9a-fA-F]{32}$/.test(authTagHex)) {
+    throw new Error('Invalid encrypted data: auth tag must be 32 hex characters (16 bytes)');
+  }
+  if (encrypted.length > 0 && !/^[0-9a-fA-F]+$/.test(encrypted)) {
+    throw new Error('Invalid encrypted data: ciphertext must be hex-encoded');
+  }
+
   const iv = Buffer.from(ivHex, 'hex');
   const authTag = Buffer.from(authTagHex, 'hex');
 

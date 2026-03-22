@@ -58,7 +58,12 @@ export const platformConnectionSchema = z.object({
     'LINKEDIN', 'INSTAGRAM', 'TIKTOK', 'PINTEREST',
     'THREADS', 'MEDIUM', 'YOUTUBE', 'NOSTR',
   ]),
-  credentials: z.record(z.string()),
+  credentials: z.record(
+    z.string().max(4000, 'Credential value too long'),
+  ).refine(
+    (obj) => Object.keys(obj).length <= 20,
+    'Too many credential fields (max 20)',
+  ),
   config: z.record(z.any()).optional(),
 });
 
@@ -101,8 +106,8 @@ export const emailCampaignSchema = z.object({
   preheader: z.string().max(200).optional(),
   fromName: z.string().max(100).optional(),
   listId: z.string().min(1, 'Select a contact list'),
-  htmlContent: z.string().min(1, 'Email content is required'),
-  textContent: z.string().optional(),
+  htmlContent: z.string().min(1, 'Email content is required').max(1_000_000, 'Email content too large (max 1MB)'),
+  textContent: z.string().max(500_000, 'Text content too large').optional(),
   scheduledAt: z.string().datetime().optional(),
 });
 
@@ -115,8 +120,8 @@ export const emailAutomationSchema = z.object({
 
 export const emailAutomationStepSchema = z.object({
   subject: z.string().min(1, 'Subject line is required').max(200),
-  htmlContent: z.string().min(1, 'Email content is required'),
-  textContent: z.string().optional(),
+  htmlContent: z.string().min(1, 'Email content is required').max(1_000_000, 'Email content too large (max 1MB)'),
+  textContent: z.string().max(500_000, 'Text content too large').optional(),
   delayDays: z.coerce.number().int().min(0).max(365).default(0),
   delayHours: z.coerce.number().int().min(0).max(23).default(0),
 });
