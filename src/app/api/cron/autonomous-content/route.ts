@@ -785,7 +785,7 @@ async function generateContent(
 
     // 1. Emoji enforcement: remove emojis if platform forbids them
     if (algo?.caption.emojiUsage === 'none') {
-      text = text.replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F000}-\u{1FFFF}]/gu, '').replace(/\s{2,}/g, ' ');
+      text = text.replace(/[\uD83C-\uDBFF][\uDC00-\uDFFF]|[\u2600-\u27BF]|[\uFE00-\uFE0F]/g, '').replace(/\s{2,}/g, ' ');
     }
 
     // 2. Hashtag overflow prevention: trim AI hashtags if exceeding platform max
