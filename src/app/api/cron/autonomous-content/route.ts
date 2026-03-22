@@ -655,34 +655,90 @@ async function generateContent(
   if (params.customContentType) {
     userPrompt += `\n- CONTENT STYLE: Create this SPECIFIC type of content: "${params.customContentType}". This overrides standard content type categories.`;
   }
-  userPrompt += `\n- Include exactly ${algo?.hashtags.recommended || 3} relevant hashtags (${params.hashtagPattern} style)`;
+  // ── Hashtag strategy enforcement ──
+  const hashtagMax = algo?.hashtags.max ?? 10;
+  const hashtagRec = algo?.hashtags.recommended ?? 3;
+  const customHashtagCount = params.customHashtags
+    ? (params.customHashtags.match(/#\w+/g) || params.customHashtags.split(/[,\s]+/).filter(Boolean)).length
+    : 0;
+  // AI-generated hashtag budget = platform max minus reserved custom hashtags
+  const aiHashtagBudget = Math.max(0, hashtagMax - customHashtagCount);
+
   if (algo?.hashtags.strategy === 'none') {
     userPrompt += `\n- DO NOT include any hashtags (${platformName} does not use them)`;
+  } else {
+    // Strategy-specific directions
+    const strategyDirections: Record<string, string> = {
+      minimal: `Include ${Math.min(aiHashtagBudget, 2)} highly relevant hashtags only`,
+      moderate: `Include ${Math.min(aiHashtagBudget, hashtagRec)} hashtags mixing broad reach and niche specificity`,
+      niche: `Include ${Math.min(aiHashtagBudget, hashtagRec)} hyper-specific niche hashtags (avoid generic trending tags)`,
+      trending: `Include ${Math.min(aiHashtagBudget, hashtagRec)} hashtags: ${Math.ceil(hashtagRec / 2)} currently trending + ${Math.floor(hashtagRec / 2)} niche`,
+      heavy: `Include ${Math.min(aiHashtagBudget, hashtagRec)} hashtags for maximum discoverability`,
+      branded: `Include ${Math.min(aiHashtagBudget, hashtagRec)} branded hashtags specific to the brand`,
+    };
+    const hashtagDir = strategyDirections[params.hashtagPattern] || strategyDirections.moderate;
+    userPrompt += `\n- ${hashtagDir}`;
+    if (aiHashtagBudget < hashtagRec) {
+      userPrompt += ` (max ${aiHashtagBudget} AI-generated — custom hashtags take remaining ${customHashtagCount} slots)`;
+    }
   }
-  // Add custom hashtags if configured for this platform
+
   if (params.customHashtags) {
     userPrompt += `\n- MUST include these custom hashtags: ${params.customHashtags}`;
   }
+
+  // ── Hook + first-line optimization ──
   if (algo?.caption.hookImportant) {
-    userPrompt += `\n- CRITICAL: Start with a strong hook in the very first line that stops the scroll`;
+    userPrompt += `\n- CRITICAL: The first 125 characters determine whether users stop scrolling. Lead with a bold claim, surprising stat, or provocative question.`;
   }
   if (algo?.caption.ctaRecommended && params.bot.goal !== 'COMMUNITY') {
-    userPrompt += `\n- Include a natural call-to-action`;
+    userPrompt += `\n- Include a natural call-to-action (save this, share with someone who needs this, link in bio, etc.)`;
   }
+
+  // ── Emoji control ──
   if (algo?.caption.emojiUsage === 'none') {
-    userPrompt += `\n- Do NOT use emojis`;
+    userPrompt += `\n- Do NOT use any emojis`;
   } else if (algo?.caption.emojiUsage === 'heavy') {
-    userPrompt += `\n- Use emojis liberally throughout`;
+    userPrompt += `\n- Use emojis liberally as visual breaks and emphasis`;
+  } else if (algo?.caption.emojiUsage === 'minimal') {
+    userPrompt += `\n- Use 1-2 emojis maximum, only where they add genuine value`;
   }
-  // Algorithm-specific directives
+
+  // ── Algorithm-specific engagement directives ──
   if (algo?.primaryMetric === 'dwell_time') {
-    userPrompt += `\n- Format with short paragraphs and line breaks to maximize reading time`;
+    userPrompt += `\n- Format with short paragraphs (2-3 sentences max) and line breaks to maximize reading time`;
+    userPrompt += `\n- Use a "micro-storytelling" structure: hook → tension → insight → takeaway`;
   }
   if (algo?.primaryMetric === 'replies_and_engagement') {
-    userPrompt += `\n- End with a question or controversial opinion to drive replies`;
+    userPrompt += `\n- End with a question or controversial take to drive replies`;
+    userPrompt += `\n- Ask for specific opinions ("What's your take?" is weak — "Do you agree that X is better than Y?" is strong)`;
   }
   if (algo?.primaryMetric === 'saves_and_clicks') {
-    userPrompt += `\n- Include actionable tips that people will want to save for later`;
+    userPrompt += `\n- Structure as actionable tips/framework people will SAVE for reference later`;
+    userPrompt += `\n- Use numbered lists or bullet-point format for scannability`;
+  }
+  if (algo?.primaryMetric === 'watch_time' || algo?.primaryMetric === 'watch_completion') {
+    userPrompt += `\n- Create curiosity in the opening that makes people stay to the end`;
+  }
+
+  // ── SEO keyword density (search-driven platforms) ──
+  const keywords = Array.isArray(params.bot.keywords) ? (params.bot.keywords as string[]).slice(0, 5) : [];
+  const seoPlatforms = ['LINKEDIN', 'YOUTUBE', 'PINTEREST', 'MEDIUM', 'DEVTO', 'REDDIT'];
+  if (keywords.length > 0 && seoPlatforms.includes(params.platform)) {
+    userPrompt += `\n- SEO: Naturally include the primary keyword "${keywords[0]}" 2-3 times in the text`;
+    userPrompt += `\n- Place the most important keyword within the first 50 characters for search ranking`;
+  }
+
+  // ── Thread/carousel format optimization ──
+  if (params.contentFormat) {
+    const format = params.contentFormat.toLowerCase();
+    if (format.includes('thread') || format.includes('carousel') || format.includes('document')) {
+      userPrompt += `\n- MULTI-PART FORMAT: Structure as a thread/carousel:`;
+      userPrompt += `\n  Slide 1: Bold hook + promise ("Here's why X matters")`;
+      userPrompt += `\n  Slides 2-N: One key point per slide with supporting detail`;
+      userPrompt += `\n  Last slide: Summary + clear CTA`;
+      userPrompt += `\n  Separate each slide with "---" on its own line`;
+    }
   }
 
   try {
@@ -725,9 +781,46 @@ async function generateContent(
       text = text.slice(1, -1);
     }
 
-    // Validate length
+    // ── Post-generation content validation ──
+
+    // 1. Emoji enforcement: remove emojis if platform forbids them
+    if (algo?.caption.emojiUsage === 'none') {
+      text = text.replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F000}-\u{1FFFF}]/gu, '').replace(/\s{2,}/g, ' ');
+    }
+
+    // 2. Hashtag overflow prevention: trim AI hashtags if exceeding platform max
+    if (algo?.hashtags) {
+      const allHashtags = text.match(/#[\w\u00C0-\u024F]+/g) || [];
+      const maxAllowed = algo.hashtags.max ?? 30;
+      if (allHashtags.length > maxAllowed) {
+        // Keep custom hashtags (user-specified) and trim excess AI-generated ones from the end
+        const customTags = params.customHashtags
+          ? (params.customHashtags.match(/#[\w\u00C0-\u024F]+/g) || []).map(t => t.toLowerCase())
+          : [];
+        let kept = 0;
+        text = text.replace(/#[\w\u00C0-\u024F]+/g, (match) => {
+          if (customTags.includes(match.toLowerCase())) return match; // Always keep custom
+          kept++;
+          return kept <= maxAllowed - customTags.length ? match : '';
+        });
+        text = text.replace(/\s{2,}/g, ' ').trim();
+      }
+    }
+
+    // 3. Smart length truncation: cut at word/sentence boundary, not mid-word/emoji
     if (algo && text.length > algo.caption.maxLength) {
-      text = text.slice(0, algo.caption.maxLength);
+      const max = algo.caption.maxLength;
+      // Try to cut at last sentence boundary before limit
+      const sentenceEnd = text.lastIndexOf('. ', max);
+      const lineEnd = text.lastIndexOf('\n', max);
+      const cutPoint = Math.max(sentenceEnd + 1, lineEnd);
+      if (cutPoint > max * 0.7) {
+        text = text.slice(0, cutPoint).trim();
+      } else {
+        // Fall back to last word boundary
+        const wordEnd = text.lastIndexOf(' ', max);
+        text = wordEnd > max * 0.7 ? text.slice(0, wordEnd).trim() : text.slice(0, max).trim();
+      }
     }
 
     return { text };
