@@ -141,7 +141,7 @@ export default async function BotSettingsPage({
         utmSource: (formData.get('utmSource') as string) || 'grothi',
         utmMedium: (formData.get('utmMedium') as string) || 'social',
         gaPropertyId: (formData.get('gaPropertyId') as string) || null,
-        postingSchedule: formData.get('postingSchedule') as string,
+        postingSchedule: (formData.get('postingSchedule') as string) || null,
         timezone,
         rssFeeds: feeds,
         reactorState: {

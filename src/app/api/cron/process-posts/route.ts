@@ -225,7 +225,7 @@ async function processPostsBatch(): Promise<NextResponse> {
   const duePosts = await db.scheduledPost.findMany({
     where: { id: { in: claimResult } },
     include: {
-      bot: { select: { id: true, userId: true, name: true, status: true, safetyLevel: true, reactorState: true, gaPropertyId: true, utmSource: true, utmMedium: true } },
+      bot: { select: { id: true, userId: true, name: true, status: true, safetyLevel: true, reactorState: true } },
       media: { select: { id: true, filePath: true, type: true, mimeType: true } },
     },
   });
@@ -286,20 +286,27 @@ async function processPostsBatch(): Promise<NextResponse> {
         // Check spam/rate limits before publishing — prevents over-posting
         const botReactor = (post.bot.reactorState as Record<string, unknown>) || {};
         const userMaxPosts = typeof botReactor.maxPostsPerDay === 'number' ? botReactor.maxPostsPerDay : undefined;
-        const spamCheck = await checkSpamLimits(
-          post.botId,
-          platform as PlatformType,
-          post.bot.safetyLevel,
-          userMaxPosts
-        );
+        let spamCheck: { allowed: boolean; reason?: string; waitMinutes?: number };
+        try {
+          spamCheck = await checkSpamLimits(
+            post.botId,
+            platform as PlatformType,
+            post.bot.safetyLevel,
+            userMaxPosts
+          );
+        } catch (spamErr) {
+          // If spam check itself fails, allow posting (fail-open) but log
+          const spamMsg = spamErr instanceof Error ? spamErr.message : 'Unknown error';
+          console.error(`[process-posts] Spam check failed for ${platform}, allowing post: ${spamMsg}`);
+          spamCheck = { allowed: true };
+        }
         if (!spamCheck.allowed) {
           const platformName = PLATFORM_NAMES[platform] || platform;
           platformResults[platform] = {
             success: false,
-            error: `${platformName}: ${spamCheck.reason}. The post will be retried later.`,
+            error: `${platformName}: ${spamCheck.reason || 'Rate limit reached'}.`,
           };
           allSucceeded = false;
-          // Requeue — push scheduledAt forward so it's picked up on next cycle
           continue;
         }
 
@@ -465,26 +472,45 @@ async function processPostsBatch(): Promise<NextResponse> {
       }
     }
 
-    // Update scheduled post status
-    const finalStatus = allSucceeded
-      ? 'PUBLISHED'
-      : anySucceeded
-        ? 'PUBLISHED' // Partial success still counts as published
-        : 'FAILED';
-
     // Merge new results with existing results (preserves prior successes on retry)
     const mergedResults = existingResults
       ? { ...existingResults, ...platformResults }
       : platformResults;
+
+    // Determine if all failures are spam/rate-limit related (requeue-able)
+    const failedPlatforms = Object.entries(platformResults).filter(([, r]) => !r.success);
+    const allFailuresAreRateLimited = !anySucceeded && failedPlatforms.length > 0 &&
+      failedPlatforms.every(([, r]) => r.error?.includes('limit reached') || r.error?.includes('interval not met'));
+
+    // If ALL platforms hit rate limits (none succeeded, none had real errors),
+    // requeue the post for retry instead of marking FAILED
+    let finalStatus: string;
+    let requeued = false;
+    if (allFailuresAreRateLimited) {
+      finalStatus = 'SCHEDULED';
+      requeued = true;
+    } else if (allSucceeded) {
+      finalStatus = 'PUBLISHED';
+    } else if (anySucceeded) {
+      finalStatus = 'PUBLISHED'; // Partial success still counts as published
+    } else {
+      finalStatus = 'FAILED';
+    }
 
     await db.scheduledPost.update({
       where: { id: post.id },
       data: {
         status: finalStatus,
         publishedAt: anySucceeded ? now : null,
+        // If requeued, push scheduledAt forward by waitMinutes (or 30 min default)
+        ...(requeued ? {
+          scheduledAt: new Date(now.getTime() + (failedPlatforms[0]?.[1]?.error?.match(/\d+/)
+            ? Math.max(10, parseInt(failedPlatforms[0][1].error.match(/\d+/)?.[0] || '30', 10)) * 60 * 1000
+            : 30 * 60 * 1000)),
+        } : {}),
         publishResults: mergedResults,
-        error: allSucceeded
-          ? null
+        error: allSucceeded || requeued
+          ? (requeued ? 'Rate limited — automatically requeued for retry' : null)
           : Object.entries(mergedResults)
               .filter(([, r]) => !r.success)
               .map(([p, r]) => `${p}: ${r.error}`)

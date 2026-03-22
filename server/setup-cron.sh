@@ -61,12 +61,19 @@ CRON_MARKER="# GROTHI-CRON-JOBS"
 LOG_DIR="$GROTHI_DIR/logs"
 mkdir -p "$LOG_DIR"
 
+# Timeout values aligned to route maxDuration (with 10s buffer for network):
+#   process-posts:       maxDuration=300s → timeout=290s (runs every 1 min, cron-lock prevents overlap)
+#   collect-engagement:  maxDuration=300s → timeout=290s
+#   detect-trends:       maxDuration=300s → timeout=290s
+#   autonomous-content:  maxDuration=300s → timeout=290s
+#   health-check:        maxDuration=300s → timeout=290s
+# Retry: --retry 2 --retry-delay 5 for transient network failures (DNS, TCP reset)
 CRON_LINES="$CRON_MARKER
-* * * * * curl -sf --max-time 55 -X POST ${BASE_URL}/api/cron/process-posts -H \"Authorization: Bearer ${CRON_SECRET}\" >> ${LOG_DIR}/cron-process-posts.log 2>&1
-*/15 * * * * curl -sf --max-time 290 -X POST ${BASE_URL}/api/cron/collect-engagement -H \"Authorization: Bearer ${CRON_SECRET}\" >> ${LOG_DIR}/cron-collect-engagement.log 2>&1
-*/10 * * * * curl -sf --max-time 290 -X POST ${BASE_URL}/api/cron/detect-trends -H \"Authorization: Bearer ${CRON_SECRET}\" >> ${LOG_DIR}/cron-detect-trends.log 2>&1
-*/5 * * * * curl -sf --max-time 290 -X POST ${BASE_URL}/api/cron/autonomous-content -H \"Authorization: Bearer ${CRON_SECRET}\" >> ${LOG_DIR}/cron-autonomous-content.log 2>&1
-0 3 * * * curl -sf --max-time 120 -X POST ${BASE_URL}/api/cron/health-check -H \"Authorization: Bearer ${CRON_SECRET}\" >> ${LOG_DIR}/cron-health-check.log 2>&1
+* * * * * curl -sf --max-time 290 --retry 2 --retry-delay 5 -X POST ${BASE_URL}/api/cron/process-posts -H \"Authorization: Bearer ${CRON_SECRET}\" >> ${LOG_DIR}/cron-process-posts.log 2>&1
+*/15 * * * * curl -sf --max-time 290 --retry 2 --retry-delay 5 -X POST ${BASE_URL}/api/cron/collect-engagement -H \"Authorization: Bearer ${CRON_SECRET}\" >> ${LOG_DIR}/cron-collect-engagement.log 2>&1
+*/10 * * * * curl -sf --max-time 290 --retry 2 --retry-delay 5 -X POST ${BASE_URL}/api/cron/detect-trends -H \"Authorization: Bearer ${CRON_SECRET}\" >> ${LOG_DIR}/cron-detect-trends.log 2>&1
+*/5 * * * * curl -sf --max-time 290 --retry 2 --retry-delay 5 -X POST ${BASE_URL}/api/cron/autonomous-content -H \"Authorization: Bearer ${CRON_SECRET}\" >> ${LOG_DIR}/cron-autonomous-content.log 2>&1
+0 3 * * * curl -sf --max-time 290 --retry 2 --retry-delay 5 -X POST ${BASE_URL}/api/cron/health-check -H \"Authorization: Bearer ${CRON_SECRET}\" >> ${LOG_DIR}/cron-health-check.log 2>&1
 0 2 * * * bash ${GROTHI_DIR}/server/rotate-logs.sh >> ${LOG_DIR}/cron-rotate.log 2>&1
 $CRON_MARKER-END"
 

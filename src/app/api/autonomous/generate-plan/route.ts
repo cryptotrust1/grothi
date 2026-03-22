@@ -60,13 +60,7 @@ function parseCronToHours(cronExpression: string | null): number[] | null {
       }
       continue;
     }
-    // Single number
-    const num = parseInt(trimmed, 10);
-    if (!isNaN(num) && num >= 0 && num <= 23) {
-      hours.push(num);
-      continue;
-    }
-    // Range: start-end
+    // Range: start-end (must check BEFORE single number — parseInt("9-17") returns 9)
     const rangeMatch = trimmed.match(/^(\d+)-(\d+)$/);
     if (rangeMatch) {
       const start = parseInt(rangeMatch[1], 10);
@@ -74,6 +68,12 @@ function parseCronToHours(cronExpression: string | null): number[] | null {
       if (start >= 0 && end <= 23 && start <= end) {
         for (let h = start; h <= end; h++) hours.push(h);
       }
+      continue;
+    }
+    // Single number (only after range check to avoid partial parsing)
+    const num = parseInt(trimmed, 10);
+    if (!isNaN(num) && num >= 0 && num <= 23 && String(num) === trimmed) {
+      hours.push(num);
       continue;
     }
     // Wildcard *
