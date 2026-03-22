@@ -10,6 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { validateCronSecret } from '@/lib/api-helpers';
+import { withCronLock } from '@/lib/cron-lock';
 
 // Allow up to 5 minutes for health checks across all platform connections
 export const maxDuration = 300;
@@ -31,6 +32,15 @@ export async function POST(request: NextRequest) {
   const cronError = validateCronSecret(request.headers.get('authorization'));
   if (cronError) return cronError;
 
+  // Prevent overlapping execution — health check can take several minutes
+  const result = await withCronLock('health-check', () => runHealthCheck(), 5 * 60 * 1000);
+  if (result === null) {
+    return NextResponse.json({ skipped: true, message: 'Previous health-check still running' });
+  }
+  return result;
+}
+
+async function runHealthCheck(): Promise<NextResponse> {
   try {
     console.log('[health-check] Starting daily health check...');
 

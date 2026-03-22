@@ -67,30 +67,41 @@ git clean -fd src/ 2>/dev/null
 rm -rf .next/types 2>/dev/null
 echo "  Git: $(git log --oneline -1)"
 
-# ── Step 3/11: Install dependencies ───────────────────────────
+# ── Step 3/12: Check disk space ─────────────────────────────────
 
 echo ""
-echo "[3/11] Installing dependencies..."
+echo "[3/12] Checking disk space..."
+FREE_KB=$(df "$GROTHI_DIR" 2>/dev/null | tail -1 | awk '{print $4}')
+FREE_MB=$((FREE_KB / 1024))
+echo "  Available: ${FREE_MB} MB"
+if [ "$FREE_KB" -lt 2000000 ] 2>/dev/null; then
+  fail "Insufficient disk space (${FREE_MB}MB free, need 2GB+). Free space with: docker system prune, npm cache clean, rm -rf .next-old"
+fi
+
+# ── Step 4/12: Install dependencies ───────────────────────────
+
+echo ""
+echo "[4/12] Installing dependencies..."
 npm install --production=false 2>&1 | tail -5
 if [ ${PIPESTATUS[0]} -ne 0 ]; then
   fail "npm install failed. Check disk space and network."
 fi
 
-# ── Step 4/11: Fix PostgreSQL permissions ─────────────────────
+# ── Step 5/12: Fix PostgreSQL permissions ─────────────────────
 
 echo ""
-echo "[4/11] Fixing PostgreSQL permissions..."
+echo "[5/12] Fixing PostgreSQL permissions..."
 sudo -u postgres psql -c "ALTER USER grothi CREATEDB;" 2>/dev/null \
   || warn "Could not alter postgres user (may already have permission)"
 
-# ── Step 5/11: Prisma generate + migrate ──────────────────────
+# ── Step 6/12: Prisma generate + migrate ──────────────────────
 
 echo ""
-echo "[5/11] Running Prisma generate..."
+echo "[6/12] Running Prisma generate..."
 ./node_modules/.bin/prisma generate || fail "Prisma generate failed. Check schema.prisma for errors."
 
 echo ""
-echo "[6/11] Running Prisma migrations..."
+echo "[7/12] Running Prisma migrations..."
 MIGRATE_OUTPUT=$(./node_modules/.bin/prisma migrate deploy 2>&1)
 MIGRATE_EXIT=$?
 echo "$MIGRATE_OUTPUT"
@@ -112,16 +123,16 @@ if [ $MIGRATE_EXIT -ne 0 ]; then
   fi
 fi
 
-# ── Step 7/11: Seed database ──────────────────────────────────
+# ── Step 8/12: Seed database ──────────────────────────────────
 
 echo ""
-echo "[7/11] Seeding database..."
+echo "[8/12] Seeding database..."
 ./node_modules/.bin/tsx prisma/seed.ts 2>&1 || warn "Seed failed (may already be seeded)"
 
-# ── Step 8/11: Build Next.js ──────────────────────────────────
+# ── Step 9/12: Build Next.js ──────────────────────────────────
 
 echo ""
-echo "[8/11] Building Next.js..."
+echo "[9/12] Building Next.js..."
 
 # Clean stale build artifacts
 rm -rf .next-build
@@ -141,17 +152,21 @@ fi
 
 echo "  Build successful."
 
-# ── Step 9/11: Swap build + restart PM2 ───────────────────────
+# ── Step 10/12: Swap build + restart PM2 ──────────────────────
 
 echo ""
-echo "[9/11] Swapping build directories and restarting PM2..."
+echo "[10/12] Swapping build directories and restarting PM2..."
 
-# Atomic swap: old → backup, new → active
+# Atomic swap: keep .next-old as rollback until health check passes
 rm -rf .next-old
 if [ -d .next ]; then
-  mv .next .next-old
+  mv .next .next-old || fail "Failed to backup current .next directory"
 fi
-mv .next-build .next
+mv .next-build .next || {
+  # Rollback: restore old build if swap fails
+  [ -d .next-old ] && mv .next-old .next
+  fail "Build swap failed — rolled back to previous version"
+}
 
 # Restart PM2
 if pm2 describe grothi > /dev/null 2>&1; then
@@ -159,17 +174,44 @@ if pm2 describe grothi > /dev/null 2>&1; then
 else
   pm2 start npm --name grothi -- start || fail "PM2 start failed."
 fi
+
+# Wait for app to be ready before proceeding (max 30s)
+echo "  Waiting for app startup..."
+APP_READY=false
+for i in $(seq 1 15); do
+  if curl -sf -o /dev/null --max-time 3 http://localhost:3000/ 2>/dev/null; then
+    APP_READY=true
+    echo "  App ready after ${i}s"
+    break
+  fi
+  sleep 2
+done
+
+if [ "$APP_READY" = false ]; then
+  # Rollback: restore old build
+  if [ -d .next-old ]; then
+    echo "  App failed to start — rolling back to previous build..."
+    rm -rf .next
+    mv .next-old .next
+    pm2 restart grothi --update-env 2>/dev/null
+    fail "App failed to start within 30s. Rolled back to previous version. Check: pm2 logs grothi"
+  else
+    warn "App not responding after 30s (no rollback available). Check: pm2 logs grothi"
+  fi
+fi
+
+# Save PM2 state only AFTER successful startup
 pm2 save 2>/dev/null
 
-# Cleanup old build
+# Cleanup old build only after confirmed healthy
 rm -rf .next-old
 
-echo "  PM2 restarted."
+echo "  PM2 restarted and verified."
 
-# ── Step 10/11: Update Nginx config ───────────────────────────
+# ── Step 11/12: Update Nginx config ──────────────────────────
 
 echo ""
-echo "[10/11] Updating Nginx media config..."
+echo "[11/12] Updating Nginx media config..."
 if [ -f server/nginx-media-direct.conf ]; then
   if sudo cp server/nginx-media-direct.conf /etc/nginx/sites-available/grothi-media-direct 2>/dev/null \
     && sudo ln -sf /etc/nginx/sites-available/grothi-media-direct /etc/nginx/sites-enabled/ 2>/dev/null \
@@ -183,10 +225,10 @@ else
   echo "  server/nginx-media-direct.conf not found, skipping."
 fi
 
-# ── Step 11/11: Setup cron jobs ───────────────────────────────
+# ── Step 12/12: Setup cron jobs ───────────────────────────────
 
 echo ""
-echo "[11/11] Setting up cron jobs..."
+echo "[12/12] Setting up cron jobs..."
 bash server/setup-cron.sh 2>&1 || warn "Cron setup failed. Run manually: bash server/setup-cron.sh"
 
 # ── Health check ──────────────────────────────────────────────
