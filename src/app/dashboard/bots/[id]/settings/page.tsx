@@ -9,12 +9,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Rss, Clock, Trash2, Target, Key, BarChart3, ArrowRight, Brain, Zap, AlertTriangle } from 'lucide-react';
+import { Rss, Clock, Trash2, Target, Key, ArrowRight, Brain, Zap, AlertTriangle } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { HelpTip } from '@/components/ui/help-tip';
 import { AlertMessage } from '@/components/ui/alert-message';
 import { BotGoal } from '@prisma/client';
-import { SCHEDULE_PRESETS, TIMEZONES, GOAL_OPTIONS, SAFETY_LEVEL_OPTIONS, RSS_ADAPTATION_MODES, RSS_FRESHNESS_OPTIONS, POST_LANGUAGES } from '@/lib/constants';
+import { TIMEZONES, GOAL_OPTIONS, SAFETY_LEVEL_OPTIONS, RSS_ADAPTATION_MODES, RSS_FRESHNESS_OPTIONS, POST_LANGUAGES } from '@/lib/constants';
 import { parseKeywords } from '@/lib/utils';
 import { DEFAULT_RSS_SETTINGS, type RssIntelligenceSettings } from '@/lib/rss-intelligence';
 
@@ -37,7 +37,6 @@ export default async function BotSettingsPage({
   const rssFeeds = Array.isArray(bot.rssFeeds) ? (bot.rssFeeds as string[]) : [];
   const reactorState = (bot.reactorState as Record<string, unknown>) || {};
   const maxPostsPerDay = (reactorState.maxPostsPerDay as number) || 10;
-  const maxRepliesPerDay = (reactorState.maxRepliesPerDay as number) || 20;
   const keywords = Array.isArray(bot.keywords) ? (bot.keywords as string[]) : [];
 
   // Global post language
@@ -123,9 +122,6 @@ export default async function BotSettingsPage({
     const rawMaxPosts = parseInt(formData.get('maxPostsPerDay') as string, 10);
     const maxPostsPerDay = isNaN(rawMaxPosts) ? 10 : Math.max(1, Math.min(50, rawMaxPosts));
 
-    const rawMaxReplies = parseInt(formData.get('maxRepliesPerDay') as string, 10);
-    const maxRepliesPerDay = isNaN(rawMaxReplies) ? 20 : Math.max(0, Math.min(100, rawMaxReplies));
-
     await db.bot.update({
       where: { id },
       data: {
@@ -140,14 +136,11 @@ export default async function BotSettingsPage({
         keywords: keywordsArr.length > 0 ? keywordsArr : [],
         utmSource: (formData.get('utmSource') as string) || 'grothi',
         utmMedium: (formData.get('utmMedium') as string) || 'social',
-        gaPropertyId: (formData.get('gaPropertyId') as string) || null,
-        postingSchedule: formData.get('postingSchedule') as string,
         timezone,
         rssFeeds: feeds,
         reactorState: {
           ...currentReactor,
           maxPostsPerDay,
-          maxRepliesPerDay,
           postLanguage: postLang,
           rssIntelligence: rssIntelligenceData,
         },
@@ -321,35 +314,6 @@ export default async function BotSettingsPage({
           </CardContent>
         </Card>
 
-        {/* Google Analytics */}
-        <Card className="mt-6">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><BarChart3 className="h-5 w-5" /> Google Analytics Integration</CardTitle>
-            <CardDescription>Connect your GA4 property to track bot-driven traffic and optimize strategy</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <div className="flex items-center gap-1.5">
-                <Label>GA4 Measurement ID</Label>
-                <HelpTip text="Found in Google Analytics under Admin > Data Streams. Starts with 'G-' followed by alphanumeric characters. Enables the bot to learn which content drives the most conversions." />
-              </div>
-              <Input name="gaPropertyId" defaultValue={bot.gaPropertyId || ''} placeholder="G-XXXXXXXXXX" />
-              <p className="text-xs text-muted-foreground">
-                Your Google Analytics 4 Measurement ID. The bot uses this data to learn which content drives the most traffic and conversions to your site.
-              </p>
-            </div>
-            <div className="rounded-lg bg-muted/50 p-4 text-sm space-y-2">
-              <p className="font-medium">How it works:</p>
-              <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
-                <li>Every link the bot shares includes UTM parameters for tracking</li>
-                <li>Example: <code className="bg-background px-1 rounded">?utm_source={bot.utmSource || 'grothi'}&utm_medium=social&utm_campaign={bot.name.toLowerCase().replace(/\s+/g, '-')}</code></li>
-                <li>The Content Reactor uses analytics data to optimize content strategy</li>
-                <li>Track which posts drive the most traffic, conversions, and revenue</li>
-              </ul>
-            </div>
-          </CardContent>
-        </Card>
-
         {/* Scheduling & Limits */}
         <Card className="mt-6">
           <CardHeader>
@@ -358,12 +322,6 @@ export default async function BotSettingsPage({
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-3">
-              <div className="space-y-2">
-                <Label>Posting Schedule</Label>
-                <select name="postingSchedule" defaultValue={bot.postingSchedule || ''} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                  {SCHEDULE_PRESETS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-                </select>
-              </div>
               <div className="space-y-2">
                 <Label>Timezone</Label>
                 <select name="timezone" defaultValue={bot.timezone} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
@@ -379,19 +337,12 @@ export default async function BotSettingsPage({
                   {SAFETY_LEVEL_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
                 </select>
               </div>
-            </div>
-            <Separator />
-            <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <div className="flex items-center gap-1.5">
                   <Label>Max Posts / Day</Label>
                   <HelpTip text="The maximum number of new posts the bot can create per day across all connected platforms. Higher values consume more credits. Recommended: 5-15 for most use cases." />
                 </div>
                 <Input name="maxPostsPerDay" type="number" min={1} max={50} defaultValue={maxPostsPerDay} />
-              </div>
-              <div className="space-y-2">
-                <Label>Max Replies / Day</Label>
-                <Input name="maxRepliesPerDay" type="number" min={0} max={100} defaultValue={maxRepliesPerDay} />
               </div>
             </div>
           </CardContent>
