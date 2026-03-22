@@ -37,7 +37,11 @@ export async function GET(request: NextRequest) {
           return NextResponse.json({ error: 'platform required for recommendation' }, { status: 400 });
         }
 
-        const spamCheck = await checkSpamLimits(botId, platform, bot.safetyLevel);
+        const reactorStateForLimits = (bot.reactorState as Record<string, unknown>) || {};
+        const userMaxPostsPerDay = typeof reactorStateForLimits.maxPostsPerDay === 'number'
+          ? reactorStateForLimits.maxPostsPerDay as number
+          : undefined;
+        const spamCheck = await checkSpamLimits(botId, platform, bot.safetyLevel, userMaxPostsPerDay);
         if (!spamCheck.allowed) {
           return NextResponse.json({
             recommendation: null,

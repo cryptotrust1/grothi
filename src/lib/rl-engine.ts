@@ -684,10 +684,17 @@ export async function processEngagementFeedback(
 export async function checkSpamLimits(
   botId: string,
   platform: PlatformType,
-  safetyLevel: string = 'MODERATE'
+  safetyLevel: string = 'MODERATE',
+  userMaxPostsPerDay?: number
 ): Promise<{ allowed: boolean; reason?: string; waitMinutes?: number }> {
   const config = await getOrCreateRLConfig(botId, platform);
   const limits = SPAM_LIMITS[safetyLevel] ?? SPAM_LIMITS.MODERATE;
+
+  // Use the user-configured maxPostsPerDay if set and within safety bounds,
+  // otherwise fall back to the safety level default
+  const effectiveMaxPostsPerDay = userMaxPostsPerDay != null && userMaxPostsPerDay >= 1
+    ? Math.min(userMaxPostsPerDay, limits.maxPostsPerDay)
+    : limits.maxPostsPerDay;
 
   if (config.lastPostAt) {
     const minutesSince = (Date.now() - config.lastPostAt.getTime()) / (1000 * 60);
@@ -713,8 +720,8 @@ export async function checkSpamLimits(
   const postsToday = await db.postEngagement.count({
     where: { botId, platform, postedAt: { gte: today } },
   });
-  if (postsToday >= limits.maxPostsPerDay) {
-    return { allowed: false, reason: `Daily limit reached (${limits.maxPostsPerDay}/day)` };
+  if (postsToday >= effectiveMaxPostsPerDay) {
+    return { allowed: false, reason: `Daily limit reached (${effectiveMaxPostsPerDay}/day)` };
   }
 
   return { allowed: true };

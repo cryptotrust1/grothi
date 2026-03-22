@@ -134,6 +134,9 @@ async function generateAutonomousContent(): Promise<NextResponse> {
               customHashtags: true,
               customContentType: true,
               customToneStyle: true,
+              videoStyleOverride: true,
+              videoLength: true,
+              videoFormat: true,
             },
           },
         },
@@ -200,6 +203,9 @@ async function generateAutonomousContent(): Promise<NextResponse> {
       const customHashtags = (platformPlan?.customHashtags as string) || null;
       const customContentType = (platformPlan?.customContentType as string) || null;
       const customToneStyle = (platformPlan?.customToneStyle as string) || null;
+      const videoStyleOverride = (platformPlan?.videoStyleOverride as string) || null;
+      const videoLength = (platformPlan?.videoLength as string) || null;
+      const videoFormat = (platformPlan?.videoFormat as string) || null;
 
       // Deduct credits for content generation
       const cost = await getActionCost('GENERATE_CONTENT');
@@ -244,6 +250,9 @@ async function generateAutonomousContent(): Promise<NextResponse> {
         customHashtags: customHashtags || undefined,
         customContentType: customContentType || undefined,
         customToneStyle: customToneStyle || undefined,
+        videoStyleOverride: videoStyleOverride || undefined,
+        videoLength: videoLength || undefined,
+        videoFormat: videoFormat || undefined,
         postLanguage,
         audienceProfile,
       });
@@ -383,6 +392,9 @@ async function generateContent(
     customHashtags?: string;
     customContentType?: string;
     customToneStyle?: string;
+    videoStyleOverride?: string;
+    videoLength?: string;
+    videoFormat?: string;
     postLanguage?: string;
     audienceProfile?: Record<string, unknown>;
   }
@@ -550,6 +562,16 @@ async function generateContent(
     }
     formatParts.push(`Optimize the content structure specifically for this format.`, '');
     systemParts.push(...formatParts);
+  }
+
+  // Add video preferences if set for this platform
+  if (params.videoStyleOverride || params.videoLength || params.videoFormat) {
+    const videoParts: string[] = ['=== VIDEO PREFERENCES ==='];
+    if (params.videoStyleOverride) videoParts.push(`- Video style: ${params.videoStyleOverride}`);
+    if (params.videoLength) videoParts.push(`- Video length: ${params.videoLength}`);
+    if (params.videoFormat) videoParts.push(`- Video format: ${params.videoFormat}`);
+    videoParts.push('Optimize the content for this video format when creating video-oriented posts.', '');
+    systemParts.push(...videoParts);
   }
 
   systemParts.push(
