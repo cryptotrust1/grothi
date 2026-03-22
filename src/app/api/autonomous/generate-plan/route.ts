@@ -77,7 +77,7 @@ function parseCronToHours(cronExpression: string | null): number[] | null {
     // Wildcard *
     if (trimmed === '*') return null; // * means every hour — not useful as override
   }
-  return hours.length > 0 ? [...new Set(hours)].sort((a, b) => a - b) : null;
+  return hours.length > 0 ? Array.from(new Set(hours)).sort((a, b) => a - b) : null;
 }
 
 interface GeneratePlanRequest {
