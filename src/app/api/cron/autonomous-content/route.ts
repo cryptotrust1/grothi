@@ -798,7 +798,7 @@ async function generateContent(
           ? (params.customHashtags.match(/#[\w\u00C0-\u024F]+/g) || []).map(t => t.toLowerCase())
           : [];
         let kept = 0;
-        text = text.replace(/#[\w\u00C0-\u024F]+/g, (match) => {
+        text = text.replace(/#[\w\u00C0-\u024F]+/g, (match: string) => {
           if (customTags.includes(match.toLowerCase())) return match; // Always keep custom
           kept++;
           return kept <= maxAllowed - customTags.length ? match : '';
