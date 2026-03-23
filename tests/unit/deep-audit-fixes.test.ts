@@ -28,7 +28,7 @@ describe('Bot delete ownership check', () => {
     const deleteBody = deleteMatch![0];
 
     // Must check ownership (findFirst with userId)
-    expect(deleteBody).toMatch(/findFirst.*userId.*currentUser\.id/s);
+    expect(deleteBody).toMatch(/findFirst[\s\S]*userId[\s\S]*currentUser\.id/);
 
     // Ownership check must come before delete
     const findFirstIdx = deleteBody.indexOf('findFirst');

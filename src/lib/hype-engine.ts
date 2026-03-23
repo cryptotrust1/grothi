@@ -751,7 +751,7 @@ function decodeHtmlEntities(text: string): string {
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/&apos;/g, "'")
-    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code)));
+    .replace(/&#(\d+);/g, (_: string, code: string) => String.fromCharCode(parseInt(code)));
 }
 
 // ============ CONTENT ANGLE SUGGESTION ============

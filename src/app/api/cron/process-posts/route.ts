@@ -484,7 +484,7 @@ async function processPostsBatch(): Promise<NextResponse> {
 
     // If ALL platforms hit rate limits (none succeeded, none had real errors),
     // requeue the post for retry instead of marking FAILED
-    let finalStatus: string;
+    let finalStatus: 'SCHEDULED' | 'PUBLISHED' | 'FAILED';
     let requeued = false;
     if (allFailuresAreRateLimited) {
       finalStatus = 'SCHEDULED';
